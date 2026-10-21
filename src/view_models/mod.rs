@@ -73,6 +73,7 @@ pub(crate) mod download_progress;
 pub mod entity_detail;
 pub mod feed;
 pub mod format;
+pub(crate) mod index_feed_singles;
 pub(crate) mod index_name_list;
 pub mod library;
 pub mod library_removal;

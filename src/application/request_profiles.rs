@@ -35,6 +35,10 @@ pub(crate) enum RequestPathShape {
     /// `/v1/search` (Stophammer ADR 0076 section 3, ADR 0084 packet 029):
     /// one page of search results.
     Search,
+    /// `/v1/feeds/recent` with `named_feed_guid` (Stophammer ADR 0076
+    /// section 2, ADR 0084 packet 026): one page of the releases that name
+    /// one feed, newest first.
+    RecentFeedList,
 }
 
 /// One named MusicIndex request profile.
@@ -159,6 +163,14 @@ pub(crate) const INDEX_RELEASE_NAME_LIST: RequestProfile =
 pub(crate) const INDEX_PUBLISHER_SEARCH: RequestProfile =
     RequestProfile::new(RequestPathShape::Search, Some("link_facts"));
 
+/// MusicIndex releases that name one feed. Each request of the singles of
+/// one artist feed in the Releases scope "Everything" (ADR 0084 packet
+/// 026). The include gives the named feeds of each row, so that the app
+/// finds the artist feed of a row with no second request. Owner:
+/// `name_lists::fetch_feed_singles`.
+pub(crate) const INDEX_FEED_SINGLES: RequestProfile =
+    RequestProfile::new(RequestPathShape::RecentFeedList, Some("named_feeds"));
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,8 +182,9 @@ mod tests {
     /// list: their only caller was the parked Discover inspector, which
     /// ADR 0060 removed. ADR 0084 packet 016 adds the artist name list
     /// profile and the release name list profile. ADR 0084 packet 029 adds
-    /// the feed search profile.
-    const ALL: [RequestProfile; 11] = [
+    /// the feed search profile. ADR 0084 packet 026 adds the feed singles
+    /// profile.
+    const ALL: [RequestProfile; 12] = [
         LIBRARY_TRACK_DETAIL_SCOPED_TRACK,
         LIBRARY_TRACK_DETAIL_UNSCOPED_TRACK,
         LIBRARY_TRACK_DETAIL_FEED,
@@ -183,6 +196,7 @@ mod tests {
         INDEX_ARTIST_NAME_LIST,
         INDEX_RELEASE_NAME_LIST,
         INDEX_PUBLISHER_SEARCH,
+        INDEX_FEED_SINGLES,
     ];
 
     /// R17-01: the registry exposes one named profile for each table row,
@@ -190,10 +204,10 @@ mod tests {
     /// each owning call site (R17-04, R17-05, R17-06, R17-07), where the
     /// actual request order and fallback are the mechanical fact.
     #[test]
-    fn adr_0075_request_profile_registry_names_eleven_profiles() {
+    fn adr_0075_request_profile_registry_names_twelve_profiles() {
         assert_eq!(
             ALL.len(),
-            11,
+            12,
             "one named profile for each surviving table row"
         );
         assert_eq!(
@@ -324,5 +338,16 @@ mod tests {
             RequestPathShape::Search
         );
         assert_eq!(INDEX_PUBLISHER_SEARCH.include(), Some("link_facts"));
+    }
+
+    /// R26-06 (ADR 0084 packet 026): the feed singles profile names the
+    /// recent feed list path shape and the include `named_feeds`.
+    #[test]
+    fn adr_0084_index_singles_r26_06_feed_singles_profile() {
+        assert_eq!(
+            INDEX_FEED_SINGLES.path_shape(),
+            RequestPathShape::RecentFeedList
+        );
+        assert_eq!(INDEX_FEED_SINGLES.include(), Some("named_feeds"));
     }
 }

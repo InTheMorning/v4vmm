@@ -12,6 +12,7 @@
 use std::collections::BTreeSet;
 
 use crate::api::Feed;
+use crate::view_models::index_feed_singles::IndexFeedSingles;
 use crate::view_models::index_name_list::{
     name_sort_key, watermark_shows, IndexNameListPage, MusicListScope,
 };
@@ -57,11 +58,20 @@ impl ReleaseOrderKey {
         }
     }
 
-    /// The position of a singles group row with the label `label`.
+    /// The position of a singles group row with the label `label`, in the
+    /// scope "Library".
     #[must_use]
     pub(crate) fn group(label: &str, key: SinglesGroupKey) -> Self {
+        Self::group_at(name_sort_key(label), key)
+    }
+
+    /// The position of a singles group row at the sort key `sort_key`. In
+    /// the scope "Everything", this is the sort key of the first single of
+    /// the group in title order (packet 026 decision D5).
+    #[must_use]
+    pub(crate) fn group_at(sort_key: String, key: SinglesGroupKey) -> Self {
         Self {
-            sort_key: name_sort_key(label),
+            sort_key,
             tie: ReleaseOrderTie::Group(key),
         }
     }
@@ -202,15 +212,18 @@ fn index_release_title(feed: &Feed) -> String {
 }
 
 /// The title of the loaded `MusicIndex` release `feed_guid`, for the
-/// download queue label. `None` when no loaded page holds it.
+/// download queue label: from a loaded page, else from the loaded singles
+/// of a feed (packet 026). `None` when neither holds it.
 #[must_use]
 pub(crate) fn loaded_index_release_title(
     page: &IndexNameListPage<Feed>,
+    fills: &IndexFeedSingles,
     feed_guid: &str,
 ) -> Option<String> {
     page.rows()
         .iter()
         .find(|feed| feed.feed_guid.as_deref() == Some(feed_guid))
+        .or_else(|| fills.find_release(feed_guid))
         .map(index_release_title)
 }
 
@@ -225,16 +238,17 @@ pub(crate) fn library_entries(mut library: Vec<LibraryReleaseEntry>) -> Vec<Rele
 /// D4, D5, D7 and D8):
 ///
 /// - While page 1 loads, the list shows no item row.
-/// - A `MusicIndex` row whose feed GUID is in `library_keys` gives no row.
-///   `library_keys` holds each Library release, also each single of a
-///   singles group, so the Library row or the group wins.
+/// - A `MusicIndex` row whose feed GUID is in `hidden_keys` gives no row.
+///   `hidden_keys` holds each Library release, also each single of a
+///   singles group, so the Library row or the group wins. It also holds
+///   each `MusicIndex` single of a group (packet 026).
 /// - The entries come in the order of [`ReleaseOrderKey`].
 /// - While `MusicIndex` has more pages, an entry shows only at or before
 ///   the last loaded `MusicIndex` row.
 #[must_use]
 pub(crate) fn everything_entries(
     library: Vec<LibraryReleaseEntry>,
-    library_keys: &BTreeSet<ReleaseKey>,
+    hidden_keys: &BTreeSet<ReleaseKey>,
     page: &IndexNameListPage<Feed>,
 ) -> Vec<ReleasesListEntryVm> {
     if page.first_page_in_flight() {
@@ -250,7 +264,7 @@ pub(crate) fn everything_entries(
             let DestinationListRowTarget::Release(key) = &row.open else {
                 return None;
             };
-            if library_keys.contains(key) || !seen.insert(key.clone()) {
+            if hidden_keys.contains(key) || !seen.insert(key.clone()) {
                 return None;
             }
             Some(LibraryReleaseEntry {
@@ -518,9 +532,13 @@ pub(crate) mod tests {
     fn adr_0084_scopes_loaded_index_release_title() {
         let page = loaded_page(recorded_rows(), false);
         assert_eq!(
-            loaded_index_release_title(&page, "motive-album").as_deref(),
+            loaded_index_release_title(&page, &IndexFeedSingles::default(), "motive-album")
+                .as_deref(),
             Some("Motive to Kill")
         );
-        assert_eq!(loaded_index_release_title(&page, "absent"), None);
+        assert_eq!(
+            loaded_index_release_title(&page, &IndexFeedSingles::default(), "absent"),
+            None
+        );
     }
 }

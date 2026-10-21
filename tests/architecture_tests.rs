@@ -3000,6 +3000,26 @@ fn adr_0084_search_open_defects_r28_03_focus_move_scrolls_to_the_focused_row() {
     );
 }
 
+/// ADR 0084 packet 026 review: each Releases page command reads the Library
+/// artist feeds with singles, not only page 1. Else a Library single whose
+/// feed the app did not read on page 1 shows as a row, and a later page
+/// moves it into a group (packet 026 decision D10).
+#[test]
+fn adr_0084_index_singles_each_page_reads_the_library_feeds() {
+    let scopes = compact_source(&read_source(&manifest_path("src/library/music_scopes.rs")));
+    let send = source_between(
+        &scopes,
+        "fnsend_release_page_command(",
+        "letcommand=command.with_feeds(",
+    );
+    assert!(
+        send.contains("letlibrary_feeds=self.vm.library_single_artist_feeds();"),
+        "ADR 0084 packet 026 review: `send_release_page_command` must read \
+         `library_single_artist_feeds()` for each page. The command already skips each loaded \
+         feed, so each feed is read one time."
+    );
+}
+
 /// ADR 0084 Decision 8 (operator decision of 2026-10-16): the Music
 /// content-list tri-state filter control is deleted. This replaces
 /// `adr_0047_task_010a_content_list_page_vm_owns_filter_projection` and

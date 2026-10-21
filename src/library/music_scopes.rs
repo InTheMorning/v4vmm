@@ -5,6 +5,9 @@
 //! scope "Everything" loads the `MusicIndex` release name pages or artist
 //! name pages through `present_command` on the ADR 0040 command runner. A
 //! result of an older request generation changes nothing (decision D10).
+//! Each release page load also reads the `MusicIndex` singles of each new
+//! artist feed of its singles, in the same command (packet 026 decision
+//! D4).
 
 #![warn(clippy::pedantic)]
 
@@ -16,6 +19,7 @@ use crate::application::command_bus::ApplicationCommand;
 use crate::application::queries::name_lists::{FetchArtistNamePage, FetchReleaseNamePage};
 use crate::application::CommandContext;
 use crate::presentation::present_command;
+use crate::view_models::index_feed_singles::finish_release_page;
 use crate::view_models::index_name_list::{
     IndexListStatusRowVm, IndexNameListBatch, IndexNameListLoadIntent, IndexNameListPage,
     MusicListScope, MusicScopeControlDisplay,
@@ -45,6 +49,7 @@ impl LibraryApp {
         self.vm.releases_list(
             self.releases_scope,
             &self.release_name_page,
+            &self.index_feed_singles,
             &self.expanded_singles_groups,
         )
     }
@@ -109,8 +114,16 @@ impl LibraryApp {
     }
 
     /// "Try again" on the error row of the Releases list (packet 016
-    /// decision D8).
+    /// decision D8). When the rows of the page wait for a failed feed
+    /// request, the command sends only the failed requests (packet 026
+    /// decision D10).
     pub(crate) fn retry_release_names(&mut self, cx: &mut Context<Self>) {
+        if let Some((pending, generation)) = self.release_name_page.begin_pending_retry() {
+            let command =
+                FetchReleaseNamePage::retry_pending(self.musicindex_endpoint.clone(), pending);
+            self.send_release_page_command(command, generation, cx);
+            return;
+        }
         let intent = self.release_name_page.begin_retry();
         self.send_release_name_request(intent, cx);
     }
@@ -120,12 +133,53 @@ impl LibraryApp {
         intent: Option<IndexNameListLoadIntent>,
         cx: &mut Context<Self>,
     ) {
-        let endpoint = self.musicindex_endpoint.clone();
-        self.send_name_request(
-            intent,
-            |cursor| FetchReleaseNamePage::new(endpoint, cursor),
-            |this| &mut this.release_name_page,
+        let Some(IndexNameListLoadIntent { cursor, generation }) = intent else {
+            return;
+        };
+        let command = FetchReleaseNamePage::new(self.musicindex_endpoint.clone(), cursor);
+        self.send_release_page_command(command, generation, cx);
+    }
+
+    /// Sends the release page `command` of the page `generation`. Each page
+    /// also reads each Library artist feed with one or more Library singles
+    /// (packet 026). The command sends no request for a feed with a loaded
+    /// result, so a feed is read one time. A feed that a Library change
+    /// adds after page 1 is thus read with the next page (packet 026
+    /// review).
+    fn send_release_page_command(
+        &mut self,
+        command: FetchReleaseNamePage,
+        generation: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let library_feeds = self.vm.library_single_artist_feeds();
+        let command = command.with_feeds(library_feeds, self.index_feed_singles.loaded_feeds());
+        let singles_generation = self.index_feed_singles.begin_request();
+        cx.notify();
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
             cx,
+            move |this, load, cx| {
+                if finish_release_page(
+                    &mut this.release_name_page,
+                    &mut this.index_feed_singles,
+                    load,
+                    generation,
+                    singles_generation,
+                ) {
+                    cx.notify();
+                }
+            },
+            move |this, error, cx| {
+                if this
+                    .release_name_page
+                    .fail_load(command_error_detail(error), generation)
+                {
+                    cx.notify();
+                }
+            },
         );
     }
 

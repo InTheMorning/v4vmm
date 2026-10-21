@@ -10,6 +10,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::api::NamedFeedEntry;
 use crate::view_models::role_words::role_contains_artist;
 
 /// The `role_agreement` value that tells that both sides agree on the role
@@ -54,6 +55,39 @@ pub(crate) fn sort_named_feeds(feeds: &mut [NamedFeed]) {
             .cmp(&(b.position.is_none(), b.position))
             .then_with(|| a.feed_guid.cmp(&b.feed_guid))
     });
+}
+
+/// The named feeds of a `MusicIndex` release row, from its `named_feeds`
+/// entries (ADR 0084 packet 026). Each entry gives one [`NamedFeed`]:
+///
+/// - The rank `album_names_rank` is the position.
+/// - `confirmed` is `two_way_validated == Some(true)`, the same read as a
+///   Library link (ADR 0085 Decision 2, packet 026 decision D3).
+/// - The entry gives no `rel` and no image, so these are `None`.
+///
+/// The result has the sequence of [`sort_named_feeds`], so that the Library
+/// and `MusicIndex` use one artist feed rule.
+#[must_use]
+pub(crate) fn index_named_feeds(entries: &[NamedFeedEntry]) -> Vec<NamedFeed> {
+    let mut feeds: Vec<NamedFeed> = entries
+        .iter()
+        .map(|entry| NamedFeed {
+            feed_guid: entry.publisher_feed_guid.clone(),
+            title: entry.remote_feed_title.clone(),
+            position: entry.album_names_rank,
+            role: entry.role.clone(),
+            role_agreement: entry
+                .role_agreement
+                .as_ref()
+                .map(|agreement| agreement.as_str().to_owned()),
+            feed_rel: None,
+            album_rel: None,
+            confirmed: entry.two_way_validated == Some(true),
+            image_url: None,
+        })
+        .collect();
+    sort_named_feeds(&mut feeds);
+    feeds
 }
 
 /// The artist feed of `feeds`, already in the sequence of
@@ -241,5 +275,48 @@ mod tests {
     #[test]
     fn adr_0085_named_feeds_select_artist_feed_gives_none_for_an_empty_list() {
         assert_eq!(select_artist_feed(&[]), ArtistFeed::None);
+    }
+
+    /// R26-03 (ADR 0084 packet 026): `index_named_feeds` gives the rank as
+    /// the position, the role, the agreement and `confirmed` from
+    /// `two_way_validated`, in the RSS sequence. The entries follow the
+    /// recorded Sir Libre Records rows of 2026-10-21.
+    #[test]
+    fn adr_0084_index_singles_r26_03_index_named_feeds() {
+        let entries: Vec<NamedFeedEntry> = serde_json::from_value(serde_json::json!([
+            {"publisher_feed_guid": "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+             "remote_feed_title": "Sir Libre Records", "album_names_rank": 2,
+             "role": "label", "role_agreement": "both", "two_way_validated": true},
+            {"publisher_feed_guid": "artist-guid", "remote_feed_title": "An artist",
+             "album_names_rank": 1, "role": null, "role_agreement": null,
+             "two_way_validated": false},
+            {"publisher_feed_guid": "older-guid", "album_names_rank": null}
+        ]))
+        .expect("the recorded entries decode");
+
+        let feeds = index_named_feeds(&entries);
+        let guids: Vec<&str> = feeds.iter().map(|feed| feed.feed_guid.as_str()).collect();
+        assert_eq!(
+            guids,
+            [
+                "artist-guid",
+                "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+                "older-guid"
+            ],
+            "the rank gives the sequence, and a null rank comes last"
+        );
+        assert_eq!(feeds[0].position, Some(1));
+        assert_eq!(feeds[0].title.as_deref(), Some("An artist"));
+        assert!(!feeds[0].confirmed);
+        assert_eq!(feeds[1].position, Some(2));
+        assert_eq!(feeds[1].role.as_deref(), Some("label"));
+        assert_eq!(feeds[1].role_agreement.as_deref(), Some("both"));
+        assert!(feeds[1].confirmed);
+        assert!(!feeds[2].confirmed, "no two_way_validated is not confirmed");
+        for feed in &feeds {
+            assert_eq!(feed.feed_rel, None);
+            assert_eq!(feed.album_rel, None);
+            assert_eq!(feed.image_url, None);
+        }
     }
 }

@@ -46,6 +46,7 @@ use crate::view_models::entity_detail::{
     TrackMembershipState,
 };
 use crate::view_models::format::{fmt_date, fmt_total_runtime_clock, plural};
+use crate::view_models::index_feed_singles::IndexFeedSingles;
 use crate::view_models::index_name_list::{
     name_sort_key, IndexListStatusRowVm, IndexNameList, IndexNameListPage, MusicListScope,
 };
@@ -82,7 +83,9 @@ use crate::view_models::selection_action_bar::{
     SelectionActionBarInput, SelectionActionBarVm, SelectionActionCounts,
 };
 use crate::view_models::singles_group::{
-    release_page_name_links, singles_groups, SinglesGroupKey, SinglesGroupPageVm, SinglesGroupRowVm,
+    library_single_artist_feeds, release_page_name_links, singles_groups,
+    singles_groups_everything, SinglesGroup, SinglesGroupKey, SinglesGroupPageVm,
+    SinglesGroupRowVm,
 };
 use crate::view_models::text_filter::contains_normalized;
 #[cfg(test)]
@@ -3248,22 +3251,35 @@ impl LibraryViewModel {
     /// In the scope "Everything", `page` adds the `MusicIndex` releases
     /// ([`releases_everything::everything_entries`]). A `MusicIndex` release
     /// that the Library holds, also as a grouped single, gives no second
-    /// row (decision D4).
+    /// row (decision D4). The groups of "Everything" also hold the loaded
+    /// `MusicIndex` singles of each artist feed in `fills`, and a
+    /// `MusicIndex` single in a group gives no row of its own. A group row
+    /// of "Everything" takes the order position of its first single in
+    /// title order (packet 026 decision D5).
     #[must_use]
     pub(crate) fn releases_list(
         &self,
         scope: MusicListScope,
         page: &IndexNameListPage<crate::api::Feed>,
+        fills: &IndexFeedSingles,
         expanded: &BTreeSet<SinglesGroupKey>,
     ) -> Vec<ReleasesListEntryVm> {
         let tree = &self.snapshot.tree;
-        let groups = singles_groups(tree);
-        let library_keys: BTreeSet<ReleaseKey> = tree
+        let groups: Vec<SinglesGroup<'_>> = match scope {
+            MusicListScope::Library => singles_groups(tree),
+            MusicListScope::Everything => singles_groups_everything(tree, fills),
+        };
+        let mut hidden_keys: BTreeSet<ReleaseKey> = tree
             .artists
             .iter()
             .flat_map(|artist| artist.albums.iter())
             .filter_map(AlbumNode::release_key)
             .collect();
+        hidden_keys.extend(
+            groups
+                .iter()
+                .flat_map(|group| group.index_singles.iter().map(|single| single.key.clone())),
+        );
         let release_row =
             |artist: &ArtistNode, album: &AlbumNode| library_release_row(artist, album, scope);
         let mut entries: Vec<LibraryReleaseEntry> = tree
@@ -3288,17 +3304,31 @@ impl LibraryViewModel {
             .collect();
         entries.extend(groups.iter().map(|group| {
             let row = SinglesGroupRowVm::new(group, expanded.contains(&group.key()), release_row);
+            let order = match scope {
+                MusicListScope::Library => ReleaseOrderKey::group(&row.label, group.key()),
+                MusicListScope::Everything => {
+                    ReleaseOrderKey::group_at(group.first_title_sort_key(), group.key())
+                }
+            };
             LibraryReleaseEntry {
-                order: ReleaseOrderKey::group(&row.label, group.key()),
+                order,
                 entry: ReleasesListEntryVm::SinglesGroup(row),
             }
         }));
         match scope {
             MusicListScope::Library => releases_everything::library_entries(entries),
             MusicListScope::Everything => {
-                releases_everything::everything_entries(entries, &library_keys, page)
+                releases_everything::everything_entries(entries, &hidden_keys, page)
             }
         }
+    }
+
+    /// The GUID of each artist feed with one or more Library singles (ADR
+    /// 0084 packet 026). Page 1 of the Releases scope "Everything" reads
+    /// the `MusicIndex` singles of each of these feeds.
+    #[must_use]
+    pub(crate) fn library_single_artist_feeds(&self) -> Vec<String> {
+        library_single_artist_feeds(&self.snapshot.tree)
     }
 
     /// The status row of the Releases list (ADR 0084 packet 016 decision
@@ -3327,13 +3357,14 @@ impl LibraryViewModel {
         &self,
         scope: MusicListScope,
         page: &IndexNameListPage<crate::api::Feed>,
+        fills: &IndexFeedSingles,
         expanded: &BTreeSet<SinglesGroupKey>,
         selection: &ListSelection<ReleaseKey, ReleasesRowId>,
         mode: SelectionMode,
     ) -> Vec<ReleasesListEntryVm> {
         let selecting = mode.is_selecting();
         let focused_row = selection.focused().cloned();
-        self.releases_list(scope, page, expanded)
+        self.releases_list(scope, page, fills, expanded)
             .into_iter()
             .map(|entry| match entry {
                 ReleasesListEntryVm::Release(mut row) => {
@@ -3506,12 +3537,15 @@ impl LibraryViewModel {
     /// The plan of "Download" of the Releases selection (ADR 0084 packet
     /// 016 Required Change 15). A Library release that is not fully
     /// downloaded gives its feed id. A key that the tree does not hold
-    /// gives a `MusicIndex` release, with the title of its loaded row.
+    /// gives a `MusicIndex` release, with the title of its loaded row. The
+    /// title of a `MusicIndex` single of a group comes from `fills` when no
+    /// loaded page holds it (packet 026).
     #[must_use]
     pub(crate) fn releases_download_plan(
         &self,
         selection: &ListSelection<ReleaseKey, ReleasesRowId>,
         page: &IndexNameListPage<crate::api::Feed>,
+        fills: &IndexFeedSingles,
     ) -> ReleasesDownloadPlan {
         let mut library_feed_ids = self.releases_downloadable_feed_ids(selection);
         let mut seen_feed_ids = BTreeSet::new();
@@ -3528,7 +3562,7 @@ impl LibraryViewModel {
             .map(|feed_guid| {
                 (
                     feed_guid.clone(),
-                    loaded_index_release_title(page, feed_guid),
+                    loaded_index_release_title(page, fills, feed_guid),
                 )
             })
             .collect();
@@ -8544,6 +8578,7 @@ mod tests {
         let entries = vm.releases_list(
             MusicListScope::Library,
             &IndexNameListPage::default(),
+            &IndexFeedSingles::default(),
             &BTreeSet::new(),
         );
 
@@ -8582,6 +8617,7 @@ mod tests {
         let entries = vm.releases_list(
             MusicListScope::Library,
             &IndexNameListPage::default(),
+            &IndexFeedSingles::default(),
             &BTreeSet::new(),
         );
         let ReleasesListEntryVm::SinglesGroup(group) = &entries[0] else {
@@ -8604,6 +8640,7 @@ mod tests {
         let entries = vm.releases_list(
             MusicListScope::Library,
             &IndexNameListPage::default(),
+            &IndexFeedSingles::default(),
             &expanded,
         );
         let ReleasesListEntryVm::SinglesGroup(group) = &entries[0] else {
@@ -8627,6 +8664,7 @@ mod tests {
         let entries = vm.releases_list(
             MusicListScope::Library,
             &IndexNameListPage::default(),
+            &IndexFeedSingles::default(),
             &BTreeSet::new(),
         );
         let ReleasesListEntryVm::SinglesGroup(group) = &entries[0] else {
@@ -8655,6 +8693,7 @@ mod tests {
         let closed = vm.releases_list(
             MusicListScope::Library,
             &IndexNameListPage::default(),
+            &IndexFeedSingles::default(),
             &BTreeSet::new(),
         );
         assert_eq!(
@@ -8669,6 +8708,7 @@ mod tests {
         let open = vm.releases_list(
             MusicListScope::Library,
             &IndexNameListPage::default(),
+            &IndexFeedSingles::default(),
             &BTreeSet::from([group_key.clone()]),
         );
         assert_eq!(
@@ -8706,6 +8746,7 @@ mod tests {
         let entries = vm.releases_list_with_selection(
             MusicListScope::Library,
             &IndexNameListPage::default(),
+            &IndexFeedSingles::default(),
             &expanded,
             &selection,
             SelectionMode::Selecting,
@@ -8792,6 +8833,7 @@ mod tests {
         let rows = release_rows(vm.releases_list(
             MusicListScope::Library,
             &IndexNameListPage::default(),
+            &IndexFeedSingles::default(),
             &BTreeSet::new(),
         ));
 
@@ -8829,6 +8871,7 @@ mod tests {
         let rows = release_rows(vm.releases_list(
             MusicListScope::Library,
             &IndexNameListPage::default(),
+            &IndexFeedSingles::default(),
             &BTreeSet::new(),
         ));
         let windowlicker = rows
@@ -10572,10 +10615,15 @@ mod tests {
         ]);
         let page = releases_everything::tests::loaded_page(Vec::new(), false);
         let texts = |scope| {
-            release_rows(vm.releases_list(scope, &page, &BTreeSet::new()))
-                .into_iter()
-                .map(|row| row.secondary_text)
-                .collect::<Vec<_>>()
+            release_rows(vm.releases_list(
+                scope,
+                &page,
+                &IndexFeedSingles::default(),
+                &BTreeSet::new(),
+            ))
+            .into_iter()
+            .map(|row| row.secondary_text)
+            .collect::<Vec<_>>()
         };
         assert_eq!(
             texts(MusicListScope::Everything),
@@ -10610,7 +10658,12 @@ mod tests {
         rows.push(grouped);
         let page = releases_everything::tests::loaded_page(rows, false);
 
-        let entries = vm.releases_list(MusicListScope::Everything, &page, &BTreeSet::new());
+        let entries = vm.releases_list(
+            MusicListScope::Everything,
+            &page,
+            &IndexFeedSingles::default(),
+            &BTreeSet::new(),
+        );
         let groups = entries
             .iter()
             .filter(|entry| matches!(entry, ReleasesListEntryVm::SinglesGroup(_)))
@@ -10712,7 +10765,7 @@ mod tests {
             ReleaseKey::LibraryFeed(99),
         ]);
 
-        let plan = vm.releases_download_plan(&selection, &page);
+        let plan = vm.releases_download_plan(&selection, &page, &IndexFeedSingles::default());
         assert_eq!(plan.library_feed_ids, [2]);
         assert_eq!(
             plan.index_releases,
@@ -10738,6 +10791,7 @@ mod tests {
         let rows = releases_selection_rows(vm.releases_list(
             MusicListScope::Everything,
             &page,
+            &IndexFeedSingles::default(),
             &BTreeSet::new(),
         ));
         let mut selection: ListSelection<ReleaseKey, ReleasesRowId> = ListSelection::new();
@@ -10762,10 +10816,15 @@ mod tests {
             false,
         );
         let motive_row = |vm: &LibraryViewModel| {
-            release_rows(vm.releases_list(MusicListScope::Everything, &page, &BTreeSet::new()))
-                .into_iter()
-                .find(|row| row.open == DestinationListRowTarget::Release(guid_key("motive-album")))
-                .expect("one Motive to Kill row")
+            release_rows(vm.releases_list(
+                MusicListScope::Everything,
+                &page,
+                &IndexFeedSingles::default(),
+                &BTreeSet::new(),
+            ))
+            .into_iter()
+            .find(|row| row.open == DestinationListRowTarget::Release(guid_key("motive-album")))
+            .expect("one Motive to Kill row")
         };
         let before = motive_row(&scopes_vm(Vec::new()));
         assert_eq!(before.secondary_text, "Motive to Kill \u{b7} Album");
@@ -10787,6 +10846,212 @@ mod tests {
             "Motive to Kill \u{b7} Album \u{b7} In Library"
         );
         assert_eq!(page.rows().len(), 3);
+    }
+
+    /// The Library artist feed of Haleen in the packet 026 tests.
+    const HALEEN_FEED: &str = "64569161-a8f7-52e5-8aae-9e0385043149";
+
+    /// A Library single of the Haleen feed, with a confirmed link.
+    fn haleen_single(name: &str, feed_id: i64, guid: &str, in_library: bool) -> AlbumNode {
+        let mut album = scopes_album(name, feed_id, guid, usize::from(in_library), 1);
+        album.tracks[0].pub_date = Some(feed_id * 100);
+        album.named_feeds = vec![NamedFeed {
+            feed_guid: HALEEN_FEED.to_owned(),
+            title: Some("Haleen".to_owned()),
+            position: Some(1),
+            role: None,
+            role_agreement: None,
+            feed_rel: None,
+            album_rel: None,
+            confirmed: true,
+            image_url: None,
+        }];
+        album
+    }
+
+    /// The Library of the packet 026 tests: two Haleen singles, "Mango" in
+    /// the Library and "Kiwi" not downloaded, and the album "Zebra".
+    fn index_singles_vm() -> LibraryViewModel {
+        scopes_vm(vec![
+            haleen_single("Mango", 1, "mango", true),
+            haleen_single("Kiwi", 2, "kiwi", false),
+            scopes_album("Zebra", 3, "zebra", 2, 2),
+        ])
+    }
+
+    /// The loaded singles of the Haleen feed: "Apple" on a loaded page, and
+    /// "Durian" on a page that did not load.
+    fn haleen_fills() -> IndexFeedSingles {
+        use crate::view_models::index_feed_singles::tests::single_naming;
+        let mut fills = IndexFeedSingles::default();
+        let generation = fills.begin_request();
+        fills.record(
+            HALEEN_FEED,
+            vec![
+                single_naming("apple", "Apple", HALEEN_FEED, 900),
+                single_naming("durian", "Durian", HALEEN_FEED, 800),
+                single_naming("mango", "Mango", HALEEN_FEED, 100),
+            ],
+            generation,
+        );
+        fills
+    }
+
+    /// Page 1 of the release name list: "Apple", "Banana" and "Cherry".
+    fn fruit_page(has_more: bool) -> IndexNameListPage<crate::api::Feed> {
+        use crate::view_models::index_feed_singles::tests::single_naming;
+        let mut banana = single_naming("banana", "Banana", "other-feed", 500);
+        banana.named_feeds = Some(Vec::new());
+        let mut cherry = single_naming("cherry", "Cherry", "other-feed", 400);
+        cherry.named_feeds = Some(Vec::new());
+        releases_everything::tests::loaded_page(
+            vec![
+                single_naming("apple", "Apple", HALEEN_FEED, 900),
+                banana,
+                cherry,
+            ],
+            has_more,
+        )
+    }
+
+    /// R26-08: page 1 of "Everything" reads each Library artist feed with
+    /// one or more Library singles.
+    #[test]
+    fn adr_0084_index_singles_r26_08_library_feeds_of_singles() {
+        assert_eq!(
+            index_singles_vm().library_single_artist_feeds(),
+            [HALEEN_FEED]
+        );
+        assert!(scopes_vm(vec![scopes_album("Zebra", 3, "zebra", 2, 2)])
+            .library_single_artist_feeds()
+            .is_empty());
+    }
+
+    /// R26-11 and R26-15: the group counts a member whose page did not
+    /// load, and a `MusicIndex` member gives no release row. In
+    /// "Everything", the group row takes the place of its first single in
+    /// title order, and the watermark applies. In "Library", the group row
+    /// keeps the order of its label.
+    #[test]
+    fn adr_0084_index_singles_r26_15_group_order_and_members() {
+        let vm = index_singles_vm();
+        let fills = haleen_fills();
+        let page = fruit_page(true);
+        let entries = vm.releases_list(MusicListScope::Everything, &page, &fills, &BTreeSet::new());
+        assert_eq!(
+            entries
+                .iter()
+                .map(ReleasesListEntryVm::label)
+                .collect::<Vec<_>>(),
+            ["Haleen", "Banana", "Cherry"],
+            "the group at Apple, and Zebra waits for its page"
+        );
+        let ReleasesListEntryVm::SinglesGroup(group) = &entries[0] else {
+            panic!("a group row");
+        };
+        assert_eq!(
+            group.secondary_text,
+            "4 singles \u{b7} 1 in Library \u{b7} Artist feed"
+        );
+        assert!(group.single_keys.contains(&guid_key("durian")));
+
+        let complete = vm.releases_list(
+            MusicListScope::Everything,
+            &fruit_page(false),
+            &fills,
+            &BTreeSet::new(),
+        );
+        assert_eq!(
+            complete
+                .iter()
+                .map(ReleasesListEntryVm::label)
+                .collect::<Vec<_>>(),
+            ["Haleen", "Banana", "Cherry", "Zebra"]
+        );
+
+        let library = vm.releases_list(MusicListScope::Library, &page, &fills, &BTreeSet::new());
+        assert_eq!(
+            library
+                .iter()
+                .map(ReleasesListEntryVm::label)
+                .collect::<Vec<_>>(),
+            ["Haleen", "Zebra"]
+        );
+        let ReleasesListEntryVm::SinglesGroup(library_group) = &library[0] else {
+            panic!("a group row");
+        };
+        assert_eq!(
+            library_group.secondary_text, "2 singles \u{b7} 1 in Library \u{b7} Artist feed",
+            "the scope Library has no MusicIndex single (decision D15)"
+        );
+    }
+
+    /// R26-18: the group checkbox selects each member. The bar counts
+    /// follow R18-06. The download plan holds each selected `MusicIndex`
+    /// member with its title, with no duplicate.
+    #[test]
+    fn adr_0084_index_singles_r26_18_group_selection_and_download_plan() {
+        use crate::view_models::selection_action_bar::SelectionActionKind;
+        let vm = index_singles_vm();
+        let fills = haleen_fills();
+        let page = fruit_page(true);
+        let rows = releases_selection_rows(vm.releases_list(
+            MusicListScope::Everything,
+            &page,
+            &fills,
+            &BTreeSet::new(),
+        ));
+        let mut selection: ListSelection<ReleaseKey, ReleasesRowId> = ListSelection::new();
+        let group_row = rows
+            .iter()
+            .find(|row| matches!(row.id, ReleasesRowId::Group(_)))
+            .expect("a group row");
+        selection.toggle(group_row);
+        selection.toggle(&SelectionRow::new(
+            ReleasesRowId::Release(guid_key("apple")),
+            vec![guid_key("apple")],
+        ));
+        selection.toggle(group_row);
+        let selected: BTreeSet<&ReleaseKey> = selection.selected_keys().collect();
+        assert_eq!(
+            selected,
+            BTreeSet::from([
+                &guid_key("apple"),
+                &guid_key("durian"),
+                &guid_key("kiwi"),
+                &guid_key("mango")
+            ])
+        );
+
+        let label = |kind| {
+            vm.releases_selection_action_bar(&selection, SelectionMode::Selecting)
+                .expect("a bar")
+                .action(kind)
+                .map(|action| action.label.clone())
+        };
+        assert_eq!(
+            label(SelectionActionKind::Download).as_deref(),
+            Some("Download 3 releases")
+        );
+        assert_eq!(
+            label(SelectionActionKind::AddToPlaylist).as_deref(),
+            Some("Add 2 releases to playlist")
+        );
+        assert_eq!(
+            label(SelectionActionKind::Remove).as_deref(),
+            Some("Remove 1 release\u{2026}")
+        );
+
+        let plan = vm.releases_download_plan(&selection, &page, &fills);
+        assert_eq!(plan.library_feed_ids, [2]);
+        assert_eq!(
+            plan.index_releases,
+            [
+                ("apple".to_owned(), Some("Apple".to_owned())),
+                ("durian".to_owned(), Some("Durian".to_owned())),
+            ],
+            "Durian takes its title from the loaded singles of the feed"
+        );
     }
 
     /// Orchestrator correction of 2026-10-20 (C3): while a download job of

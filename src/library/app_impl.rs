@@ -78,6 +78,7 @@ use crate::ui::tokens::Motion;
 use crate::view_models::artist_identity::{ArtistNameDestination, ArtistNameKey, NameFeedMatches};
 use crate::view_models::detail_selection::DetailSelection;
 use crate::view_models::entity_detail::TrackMetadataActionState;
+use crate::view_models::index_feed_singles::IndexFeedSingles;
 use crate::view_models::index_name_list::{IndexNameListPage, MusicListScope};
 use crate::view_models::library::{
     description_line_count, list_column_header_action, releases_disclosure_step, AlbumNode,
@@ -1073,6 +1074,7 @@ impl LibraryApp {
             artists_scope: MusicListScope::default(),
             artist_name_page: IndexNameListPage::default(),
             release_name_page: IndexNameListPage::default(),
+            index_feed_singles: IndexFeedSingles::default(),
             discover_scroll_reveal: ScrollReveal::new(recent_music_scroll.clone()),
             recent_music_scroll,
             expanded_singles_groups: BTreeSet::new(),
@@ -4001,9 +4003,11 @@ impl LibraryApp {
             // for each MusicIndex release. Each job reads its feed in its
             // own queue slot.
             SelectionActionKind::Download => {
-                let plan = self
-                    .vm
-                    .releases_download_plan(&self.releases_selection, &self.release_name_page);
+                let plan = self.vm.releases_download_plan(
+                    &self.releases_selection,
+                    &self.release_name_page,
+                    &self.index_feed_singles,
+                );
                 self.download_library_feeds(&plan.library_feed_ids, cx);
                 let index_jobs = plan
                     .index_releases
@@ -4535,6 +4539,7 @@ impl LibraryApp {
                 let entries = self.vm.releases_list_with_selection(
                     self.releases_scope,
                     &self.release_name_page,
+                    &self.index_feed_singles,
                     &self.expanded_singles_groups,
                     &self.releases_selection,
                     self.releases_selection_mode,

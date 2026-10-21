@@ -139,7 +139,8 @@ pub struct ArtistNameRow {
 
 /// One entry of `named_feeds` on a release (Stophammer ADR 0071 §3, ADR
 /// 0084 packet 016): a feed that the release names in
-/// `<podcast:publisher>`. The entry gives no `two_way_validated`.
+/// `<podcast:publisher>`. Contract 0.13.0 adds `two_way_validated` (ADR
+/// 0084 packet 026).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct NamedFeedEntry {
@@ -149,6 +150,10 @@ pub struct NamedFeedEntry {
     pub album_names_rank: Option<i64>,
     pub role: Option<String>,
     pub role_agreement: Option<RoleAgreement>,
+    /// `true` when the album names the feed and the feed lists the album.
+    /// The contract makes it required. `None` keeps a response of an older
+    /// node decodable.
+    pub two_way_validated: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -959,6 +964,32 @@ impl Client {
         if let Some(cursor) = cursor {
             params.push(("cursor", cursor.to_string()));
         }
+        self.get_json(&["v1", "feeds", "recent"], &params)
+    }
+
+    /// Fetches one page of the music releases that name the feed
+    /// `named_feed_guid` at any rank (`GET /v1/feeds/recent` with
+    /// `named_feed_guid`, Stophammer ADR 0076 section 2, ADR 0084 packet
+    /// 026). The rows come newest first. The profile gives the `include`
+    /// value.
+    ///
+    /// # Errors
+    /// Returns an error when the request fails or the response does not
+    /// decode.
+    pub(crate) fn fetch_releases_naming(
+        &self,
+        named_feed_guid: &str,
+        limit: i32,
+        cursor: Option<&str>,
+        profile: &RequestProfile,
+    ) -> Result<RecentFeedsResponse> {
+        debug_assert_eq!(
+            profile.path_shape(),
+            RequestPathShape::RecentFeedList,
+            "ADR 0084 packet 026: {profile:?} must name the recent feed list path shape"
+        );
+        let mut params = vec![("named_feed_guid", named_feed_guid.to_string())];
+        params.extend(name_list_params(limit, cursor, profile));
         self.get_json(&["v1", "feeds", "recent"], &params)
     }
 
@@ -4118,6 +4149,46 @@ mod adr_0084_scopes_tests {
         assert_eq!(entry.role, None);
         assert_eq!(entry.role_agreement, None);
         assert!(!page.pagination.has_more);
+    }
+
+    /// R26-02 (ADR 0084 packet 026): an entry decodes `two_way_validated`
+    /// true and false. An entry with no such field decodes as `None`. The
+    /// rows follow the recorded rows of
+    /// `GET /v1/feeds/recent?named_feed_guid=fe80a515-2826-4a46-aa37-b27f38d3c30f&include=named_feeds&limit=200`
+    /// of 2026-10-21.
+    #[test]
+    fn adr_0084_index_singles_r26_02_named_feed_entry_decodes_two_way_validated() {
+        let page: RecentFeedsResponse = serde_json::from_value(serde_json::json!({
+            "data": [
+                {"feed_guid": "you-are-enough", "title": "You Are Enough",
+                 "release_kind": "unknown", "episode_count": 1,
+                 "named_feeds": [
+                     {"publisher_feed_guid": "fe80a515-2826-4a46-aa37-b27f38d3c30f",
+                      "remote_feed_title": "Haleen", "album_names_rank": 1,
+                      "role": null, "role_agreement": null,
+                      "two_way_validated": false}
+                 ]},
+                {"feed_guid": "haleen-single", "title": "A Haleen single",
+                 "release_kind": "unknown", "episode_count": 1,
+                 "named_feeds": [
+                     {"publisher_feed_guid": "fe80a515-2826-4a46-aa37-b27f38d3c30f",
+                      "remote_feed_title": "Haleen", "album_names_rank": 1,
+                      "role": null, "role_agreement": null,
+                      "two_way_validated": true}
+                 ]},
+                {"feed_guid": "older-node", "title": "Older node row",
+                 "named_feeds": [
+                     {"publisher_feed_guid": "older-guid", "album_names_rank": 1}
+                 ]}
+            ],
+            "pagination": {"cursor": null, "has_more": false}
+        }))
+        .expect("the recorded page decodes");
+
+        let entry = |index: usize| &page.data[index].named_feeds.as_deref().unwrap()[0];
+        assert_eq!(entry(0).two_way_validated, Some(false));
+        assert_eq!(entry(1).two_way_validated, Some(true));
+        assert_eq!(entry(2).two_way_validated, None);
     }
 }
 

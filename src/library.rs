@@ -32,6 +32,7 @@ use crate::runtime::actor::ActorHandle;
 use crate::runtime::musicbrainz_feed_saga::MusicBrainzFeedSagaHandle;
 use crate::ui::composites::music_column_scroll::ScrollReveal;
 use crate::view_models::detail_selection::DetailSelection;
+use crate::view_models::index_feed_singles::IndexFeedSingles;
 use crate::view_models::index_name_list::{IndexNameListPage, MusicListScope};
 use crate::view_models::library::{
     description_line_count, AlbumNode, InspectorPanelKind, LibraryTrackInspectorDisplay,
@@ -267,6 +268,10 @@ pub struct LibraryApp {
     /// The loaded MusicIndex release name pages of the Releases scope
     /// "Everything" (packet 016 decision D9).
     release_name_page: IndexNameListPage<Feed>,
+    /// The loaded `MusicIndex` singles of each artist feed of the Releases
+    /// scope "Everything" (ADR 0084 packet 026). They stay until the app
+    /// stops.
+    index_feed_singles: IndexFeedSingles,
     /// The singles groups whose Releases list rows show their singles
     /// (ADR 0084 Decision 6). This is view state. It is not stored.
     expanded_singles_groups: BTreeSet<SinglesGroupKey>,

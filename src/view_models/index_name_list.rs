@@ -157,8 +157,14 @@ enum IndexNameListLoadState {
     Loading { append: bool },
     /// The last request gave its page.
     Loaded,
-    /// The last request failed. `append` is false for page 1.
-    Failed { append: bool, detail: String },
+    /// The last request failed. `append` is false for page 1. `request`
+    /// names the failed request when it is not the name list request, for
+    /// example a feed request of the page (ADR 0084 packet 026).
+    Failed {
+        append: bool,
+        detail: String,
+        request: Option<String>,
+    },
 }
 
 /// The loaded pages of one `MusicIndex` name list (ADR 0084 packet 016).
@@ -171,6 +177,10 @@ pub(crate) struct IndexNameListPage<Row> {
     has_more: bool,
     state: IndexNameListLoadState,
     generation: u64,
+    /// The rows of a page whose name list request had an answer while
+    /// another request of the page failed (ADR 0084 packet 026 decision
+    /// D10). They show only after "Try again" gets each answer.
+    pending: Option<IndexNameListBatch<Row>>,
 }
 
 impl<Row> Default for IndexNameListPage<Row> {
@@ -181,6 +191,7 @@ impl<Row> Default for IndexNameListPage<Row> {
             has_more: false,
             state: IndexNameListLoadState::NotStarted,
             generation: 0,
+            pending: None,
         }
     }
 }
@@ -224,6 +235,7 @@ impl<Row> IndexNameListPage<Row> {
             if matches!(self.state, IndexNameListLoadState::Loading { .. }) || !self.has_more {
                 return None;
             }
+            self.pending = None;
             self.state = IndexNameListLoadState::Loading { append: true };
             return Some(IndexNameListLoadIntent {
                 cursor: self.cursor.clone(),
@@ -231,6 +243,7 @@ impl<Row> IndexNameListPage<Row> {
             });
         }
         self.generation += 1;
+        self.pending = None;
         self.rows.clear();
         self.cursor = None;
         self.has_more = false;
@@ -239,6 +252,19 @@ impl<Row> IndexNameListPage<Row> {
             cursor: None,
             generation: self.generation,
         })
+    }
+
+    /// Begins the "Try again" of a page whose rows wait (ADR 0084 packet 026
+    /// decision D10). Gives the waiting rows and the generation, and starts the load state again. The caller sends only the failed
+    /// requests of the page. Gives `None` when no rows wait.
+    #[must_use]
+    pub(crate) fn begin_pending_retry(&mut self) -> Option<(IndexNameListBatch<Row>, u64)> {
+        let IndexNameListLoadState::Failed { append, .. } = self.state else {
+            return None;
+        };
+        let pending = self.pending.take()?;
+        self.state = IndexNameListLoadState::Loading { append };
+        Some((pending, self.generation))
     }
 
     /// Begins the load that "Try again" asks for: page 1 after an error on
@@ -250,6 +276,12 @@ impl<Row> IndexNameListPage<Row> {
             return None;
         };
         self.begin_load(append)
+    }
+
+    /// True when `generation` is the generation of the request in flight.
+    #[must_use]
+    pub(crate) const fn is_current(&self, generation: u64) -> bool {
+        generation == self.generation
     }
 
     /// Adds the rows of `batch`. Gives `false` and changes nothing when
@@ -275,7 +307,32 @@ impl<Row> IndexNameListPage<Row> {
         self.state = IndexNameListLoadState::Failed {
             append,
             detail: detail.into(),
+            request: None,
         };
+        true
+    }
+
+    /// Records a page whose name list request had an answer while another
+    /// request of the page failed (ADR 0084 packet 026 decision D10). The
+    /// rows of `batch` wait, and the error row names `request`. Gives
+    /// `false` and changes nothing when `generation` is old.
+    pub(crate) fn fail_pending(
+        &mut self,
+        batch: IndexNameListBatch<Row>,
+        request: String,
+        detail: impl Into<String>,
+        generation: u64,
+    ) -> bool {
+        if generation != self.generation {
+            return false;
+        }
+        let append = matches!(self.state, IndexNameListLoadState::Loading { append: true });
+        self.state = IndexNameListLoadState::Failed {
+            append,
+            detail: detail.into(),
+            request: Some(request),
+        };
+        self.pending = Some(batch);
         true
     }
 
@@ -294,20 +351,22 @@ impl<Row> IndexNameListPage<Row> {
             }
             IndexNameListLoadState::Loading { append: true } => Some(list.load_more_row(false)),
             IndexNameListLoadState::Loaded => self.has_more.then(|| list.load_more_row(true)),
-            IndexNameListLoadState::Failed { append, detail } => {
-                Some(IndexListStatusRowVm::Failed {
-                    element_id: list.element_id("error"),
-                    first_page: !*append,
-                    message: list.failure_message(*append),
-                    detail: format!("{}: {detail}", list.request()),
-                    retry: IndexListActionDisplay {
-                        id: list.element_id("retry"),
-                        label: "Try again",
-                        a11y_label: list.retry_a11y_label(),
-                        available: true,
-                    },
-                })
-            }
+            IndexNameListLoadState::Failed {
+                append,
+                detail,
+                request,
+            } => Some(IndexListStatusRowVm::Failed {
+                element_id: list.element_id("error"),
+                first_page: !*append,
+                message: list.failure_message(*append),
+                detail: format!("{}: {detail}", request.as_deref().unwrap_or(list.request())),
+                retry: IndexListActionDisplay {
+                    id: list.element_id("retry"),
+                    label: "Try again",
+                    a11y_label: list.retry_a11y_label(),
+                    available: true,
+                },
+            }),
         }
     }
 }

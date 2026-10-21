@@ -1,6 +1,6 @@
 # ADR 0084 Task 026: The Singles Groups Of Index Releases In "Everything"
 
-Status: Ready - 2026-10-21. The operator answered decisions D4, D5, D12 and D13 on 2026-10-21. The orchestrator decided D6, D9 and D14 by their recommendations. Run it after packets 028 and 029, in two sessions: Part A, then Part B.
+Status: Part A implemented - 2026-10-21. The mechanical cases of Part A pass. The Part A visual checks V1 to V6 and V10 are open. Part B is not started, and it runs in its own session.
 
 ## Goal
 
@@ -367,6 +367,95 @@ Revert the commit of each part, Part B first. When Part A replaced the stored co
 ## Size
 
 Large. Part A changes about 14 files, with about 1,000 lines with tests. Part B changes about 8 files, with about 600 lines with tests. Each part runs in its own session. Each part leaves no code that no composition root reaches.
+
+## Implementation Result, Part A - 2026-10-21
+
+Part A makes Required Changes 2 to 10. Packet 029 made Required Change 1 (D1), so R26-01 is complete.
+
+### What changed
+
+- `src/api.rs`: `NamedFeedEntry` decodes `two_way_validated: Option<bool>`. `Client::fetch_releases_naming` sends `GET /v1/feeds/recent` with `named_feed_guid`, `limit`, the cursor and the profile include.
+- `src/application/request_profiles.rs`: `RequestPathShape::RecentFeedList` and `INDEX_FEED_SINGLES` (`named_feeds`). The registry test is now `adr_0075_request_profile_registry_names_twelve_profiles`.
+- `src/view_models/named_feeds.rs`: `index_named_feeds`.
+- `src/view_models/singles_group.rs`: `index_release_identity`, `index_single_artist_feed`, `index_singles_of_feed`, `library_single_artist_feeds` and `singles_groups_everything`. `SinglesGroup` has `index_singles`, `members()` and `first_title_sort_key()`. The group row gives the `MusicIndex` members with `index_release_row`.
+- `src/view_models/index_feed_singles.rs` (new): `IndexFeedSingles` with its generation, `ReleaseNamePageLoad` and `finish_release_page`.
+- `src/view_models/index_name_list.rs`: a page can keep its rows apart after a failed feed request (`fail_pending`, `begin_pending_retry`). The error row names the failed request.
+- `src/application/queries/name_lists.rs`: `FetchReleaseNamePage` reads the singles of each new artist feed of its page, and of each Library artist feed with singles on page 1. `fetch_feed_singles` reads at most 5 pages of 200 rows. At most 4 requests run at the same time, on scoped threads inside the command.
+- `src/view_models/releases_everything.rs`, `src/view_models/library.rs`: "Everything" uses the new groups, the order position of the first single, and drops each `MusicIndex` row that is a group member. The download plan takes a title from `IndexFeedSingles` when no loaded page holds the release.
+- `src/library.rs`, `src/library/music_scopes.rs`, `src/library/app_impl.rs`: `LibraryApp` keeps `IndexFeedSingles`. "Try again" of a page with waiting rows sends only the failed feed requests.
+
+### Proof
+
+| Case | Test |
+|---|---|
+| R26-01 | Packet 029: `adr_0084_scopes_r16_03_contract_fixture_is_0_13_0` and the contract field guard |
+| R26-02 | `adr_0084_index_singles_r26_02_named_feed_entry_decodes_two_way_validated` |
+| R26-03 | `adr_0084_index_singles_r26_03_index_named_feeds` |
+| R26-04 | `adr_0084_index_singles_r26_04_identity_of_index_rows` |
+| R26-05 | `adr_0084_index_singles_r26_05_a_label_at_rank_2_makes_no_group`, and the rank 2 row of the R26-07 test |
+| R26-06 | `adr_0084_index_singles_r26_06_feed_singles_profile`, `adr_0084_index_singles_r26_06_feed_singles_follow_the_cursor_up_to_five_pages` |
+| R26-07 | `adr_0084_index_singles_r26_07_page_reads_each_new_feed_four_at_a_time` |
+| R26-08 | `adr_0084_index_singles_r26_08_library_feeds_of_singles`, and the Library feed of the R26-07 test |
+| R26-09 | `adr_0084_index_singles_r26_09_a_failed_feed_request_fails_the_page`, `adr_0084_index_singles_r26_09_two_failures_name_the_first`, `adr_0084_index_singles_r26_09_retry_sends_only_the_failed_requests` |
+| R26-10, R26-14 | `adr_0084_index_singles_r26_10_library_and_index_singles_make_one_group` |
+| R26-11, R26-15 | `adr_0084_index_singles_r26_15_group_order_and_members` |
+| R26-12, R26-13 | `adr_0084_index_singles_r26_12_one_single_and_name_level_make_no_index_group` |
+| R26-16 | `adr_0084_index_singles_r26_16_group_text_with_no_library_single`, and the texts of the R26-10 and R26-15 tests |
+| R26-17 | `adr_0084_index_singles_r26_17_open_group_gives_members_newest_first` |
+| R26-18 | `adr_0084_index_singles_r26_18_group_selection_and_download_plan` |
+| R26-19 | `adr_0084_index_singles_r26_19_library_groups_have_no_index_single`, the Library part of the R26-15 test, and the tests of packets 015 and 016 |
+| R26-26 (A) | `adr_0084_singles_group_r15_09_only_the_owner_groups_singles`. Each new use of `ReleaseKind::Single` is in `src/view_models/singles_group.rs` |
+
+The gate of 2026-10-21: `cargo test` gave 2,195 unit tests and 360 architecture tests, all Green. `cargo fmt -- --check`, `cargo clippy --all-targets -- -D warnings`, `cargo check --all-targets` and `cargo build --bin v4vmm` are Green.
+
+### Deviations
+
+- `singles_groups_everything` has the parameters `tree` and `fills`, with no `page`. The `MusicIndex` members of a group come from the loaded feed results only.
+- Decision D11: the command reads 5 pages at most. Part A does not keep the fact that more rows exist, because no Part A surface shows it. Part B adds this fact for the group page.
+- Two or more feed requests of one page can fail. The error row then names the first failed request and gives the count of the other failed requests.
+
+### Live measurement - 2026-10-21
+
+The implementer sent read-only GET requests to `https://api.musicindex.org` from 17:52:52 UTC to 17:52:57 UTC. At most 4 feed requests ran at the same time:
+
+- Page 1: the name list request took 1.06 s. The 37 feed requests took 2.36 s.
+- Page 2: the name list request took 0.20 s. The 28 feed requests took 1.06 s.
+
+These times agree with the estimate of decision D4. The requests for the Library artist feeds on page 1 are not in this measurement.
+
+### What Part B still needs
+
+- Required Changes 11 to 16 and the cases R26-20 to R26-25.
+- The group page reads `singles_groups` only. Until Part B, a group row of "Everything" with no Library single opens the empty state, and a group page shows the Library singles only.
+- The link "All n singles" uses the Library groups only.
+- `IndexFeedSingles` has a generation for each loaded feed. Part B adds the load state of a running request and of a failed request. The group page and the release page use these states. Part B also adds the fact that more rows exist (D11).
+
+## Orchestrator Review, Part A - 2026-10-21
+
+Pass, with two corrections that the orchestrator made.
+
+1. Each page command now reads the Library artist feeds with singles, not only page 1. Before, page 1 could start before the Library loaded, or a download could add a Library single later. That single then showed as a row, and a later page moved it into a group (D10). The command skips each loaded feed, so the app still reads each feed one time. The guard `adr_0084_index_singles_each_page_reads_the_library_feeds` pins this.
+2. `finish_release_page` now records no feed singles when the page generation is old. The test `adr_0084_index_singles_old_page_result_records_no_singles` proves it. The unused `append` value of `begin_pending_retry` is deleted.
+
+Until Part B, an "Everything" group with no Library single opens the empty group page. The final walk must not click such a row before Part B.
+
+## Operator Visual Check
+
+Walk this check in a desktop session after the commit of Part A. The machine must reach `https://api.musicindex.org`.
+
+1. Run `cargo build --release`, then run `target/release/v4vmm`.
+2. Open Music, then Releases. Select the scope "Everything".
+3. V1: find the group row "Haleen". It shows "n singles · 3 in Library · Artist feed", with n about 55. No Haleen single of that feed shows as its own row. A Haleen single row of that feed is wrong.
+4. V2: find the second group row "Haleen". It shows "38 singles · Artist feed". "You Are Enough" shows as its own row. A Library part in the text of this row is wrong.
+5. V3: find the group row "Paul Birken". Sir Libre Records has no group row.
+6. V4: scroll to the end and click "Load more". The new rows show at the end. A row that showed before and moves, or that goes into a group, is wrong.
+7. V5: click the chevron of the Haleen group row. The singles show newest first. Each Library single shows its state word.
+8. V6: click "Select", select the Haleen group row, and click "Download". The progress item shows the MusicIndex singles. After each download, its row changes in place.
+9. V10: do steps 3 to 7 in the Light theme and in the Dark theme. Do them at normal width and at narrow width. Clipped row text or a clipped action is wrong.
+
+Do not open the group page in this walk. Part B owns the group page (V7 to V9).
+
+Cleanup: the downloads of step 8 add releases to the Library. Remove them from the Library when you do not want to keep them.
 
 ## Prompt for lower-context coding model
 

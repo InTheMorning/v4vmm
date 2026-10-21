@@ -120,6 +120,7 @@ Each entry names the step, the decision and the reason.
 | Packet 028: the open defects of search | Implemented. V1 to V4 open | `5bdeec1` |
 | Packets 026 and 029 written after Stophammer release 0.13.0 | Ready. The operator answered their decisions | `22c7f7d` |
 | Packet 029: the link facts of search, the 0.13.0 contract | Implemented. V1 to V6 open | `e7c431b` |
+| Packet 026 Part A: the Index singles groups in the Releases list | Implemented. V1 to V6 and V10 open | this commit |
 
 ## Questions For The Operator
 

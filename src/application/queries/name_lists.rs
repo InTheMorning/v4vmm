@@ -5,24 +5,62 @@
 //! release detail for a row (ADR 0075 section 6, packet 016 decision D16).
 //! `FetchReleaseNamePage` sends `GET /v1/feeds/by-name`, and
 //! `FetchArtistNamePage` sends `GET /v1/artist-names`.
+//!
+//! The release page command also reads the `MusicIndex` singles of each new
+//! artist feed of its singles, with one list request for each feed (ADR
+//! 0084 Decision 6, packet 026 decision D4). At most
+//! [`FEED_SINGLES_PARALLEL`] of these requests run at the same time.
 
 #![warn(clippy::pedantic)]
+
+use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 use crate::api::{ArtistNameRow, Client, Feed};
 use crate::application::command_bus::{ApplicationCommand, CommandOutcome, CommandResult};
 use crate::application::command_context::CommandContext;
 use crate::application::errors::command::CommandError;
-use crate::application::request_profiles::{INDEX_ARTIST_NAME_LIST, INDEX_RELEASE_NAME_LIST};
+use crate::application::request_profiles::{
+    INDEX_ARTIST_NAME_LIST, INDEX_FEED_SINGLES, INDEX_RELEASE_NAME_LIST,
+};
+use crate::view_models::index_feed_singles::{FeedSinglesResult, ReleaseNamePageLoad};
 use crate::view_models::index_name_list::IndexNameListBatch;
+use crate::view_models::singles_group::index_single_artist_feed;
+
+/// The result of the request for the singles of one feed: the rows, or
+/// the error text.
+type FeedSinglesRows = Result<Vec<Feed>, String>;
 
 /// The row count of one name list page (packet 016 decision D7).
 pub(crate) const NAME_LIST_PAGE_LIMIT: i32 = 100;
+/// The row count of one page of the releases that name one feed (packet
+/// 026). The contract permits 1 to 200.
+pub(crate) const FEED_SINGLES_PAGE_LIMIT: i32 = 200;
+/// The most pages that the app reads for one feed (packet 026 decision
+/// D11).
+pub(crate) const FEED_SINGLES_MAX_PAGES: usize = 5;
+/// The most feed requests that run at the same time (packet 026 decision
+/// D4).
+pub(crate) const FEED_SINGLES_PARALLEL: usize = 4;
 
-/// Fetches one page of `MusicIndex` music releases in name order.
+/// Fetches one page of `MusicIndex` music releases in name order, and the
+/// `MusicIndex` singles of each new artist feed of the singles on that
+/// page (packet 026 decision D4).
 #[derive(Clone, Debug)]
 pub(crate) struct FetchReleaseNamePage {
     endpoint: crate::config::MusicIndexEndpoint,
     cursor: Option<String>,
+    /// The rows of a page whose name list request had an answer before.
+    /// "Try again" sends them again, and the command sends no name list
+    /// request (packet 026 decision D10).
+    pending: Option<IndexNameListBatch<Feed>>,
+    /// The feeds that page 1 also reads: each Library artist feed with one
+    /// or more Library singles.
+    library_feeds: Vec<String>,
+    /// The feeds with a loaded result. The command sends no request for
+    /// these.
+    known_feeds: BTreeSet<String>,
 }
 
 impl FetchReleaseNamePage {
@@ -35,31 +73,158 @@ impl FetchReleaseNamePage {
         Self {
             endpoint: endpoint.into(),
             cursor,
+            pending: None,
+            library_feeds: Vec::new(),
+            known_feeds: BTreeSet::new(),
         }
+    }
+
+    /// Creates the "Try again" command of a page whose rows wait. It sends
+    /// no name list request.
+    #[must_use]
+    pub(crate) fn retry_pending(
+        endpoint: impl Into<crate::config::MusicIndexEndpoint>,
+        pending: IndexNameListBatch<Feed>,
+    ) -> Self {
+        Self {
+            pending: Some(pending),
+            ..Self::new(endpoint, None)
+        }
+    }
+
+    /// Sets the feeds of the singles requests: `library_feeds` for page 1,
+    /// and the `known_feeds` that need no request.
+    #[must_use]
+    pub(crate) fn with_feeds(
+        mut self,
+        library_feeds: Vec<String>,
+        known_feeds: BTreeSet<String>,
+    ) -> Self {
+        self.library_feeds = library_feeds;
+        self.known_feeds = known_feeds;
+        self
+    }
+
+    /// The feeds to read for `rows`: the Library feeds, then the artist
+    /// feed of each single of `rows`, each one time, with no known feed.
+    fn feeds_to_read(&self, rows: &[Feed]) -> Vec<String> {
+        let mut seen = self.known_feeds.clone();
+        self.library_feeds
+            .iter()
+            .cloned()
+            .chain(rows.iter().filter_map(index_single_artist_feed))
+            .filter(|feed_guid| seen.insert(feed_guid.clone()))
+            .collect()
     }
 }
 
 impl ApplicationCommand for FetchReleaseNamePage {
-    type Output = IndexNameListBatch<Feed>;
+    type Output = ReleaseNamePageLoad;
 
     fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
-        let response = Client::new_with_base_url(self.endpoint)
-            .fetch_feeds_by_name(
-                NAME_LIST_PAGE_LIMIT,
-                self.cursor.as_deref(),
-                None,
-                &INDEX_RELEASE_NAME_LIST,
-            )
-            .map_err(|error| CommandError::Query(format!("{error:#}")))?;
-        Ok(CommandOutcome::without_events(IndexNameListBatch {
-            rows: response.data,
-            cursor: response.pagination.cursor,
-            has_more: response.pagination.has_more,
+        let client = Client::new_with_base_url(self.endpoint.clone());
+        let batch = if let Some(pending) = self.pending.clone() {
+            pending
+        } else {
+            let response = client
+                .fetch_feeds_by_name(
+                    NAME_LIST_PAGE_LIMIT,
+                    self.cursor.as_deref(),
+                    None,
+                    &INDEX_RELEASE_NAME_LIST,
+                )
+                .map_err(|error| CommandError::Query(format!("{error:#}")))?;
+            IndexNameListBatch {
+                rows: response.data,
+                cursor: response.pagination.cursor,
+                has_more: response.pagination.has_more,
+            }
+        };
+        let feeds = self.feeds_to_read(&batch.rows);
+        let results = fetch_feed_singles_set(&client, &feeds, context)?;
+        Ok(CommandOutcome::without_events(ReleaseNamePageLoad {
+            batch,
+            feeds: results,
         }))
     }
+}
+
+/// Reads the releases that name the feed `feed_guid`, newest first: one
+/// request for each page of [`FEED_SINGLES_PAGE_LIMIT`] rows, up to
+/// [`FEED_SINGLES_MAX_PAGES`] pages (packet 026 decision D11). It reads no
+/// release detail.
+///
+/// # Errors
+/// Gives the error text of the first failed request.
+pub(crate) fn fetch_feed_singles(client: &Client, feed_guid: &str) -> FeedSinglesRows {
+    let mut rows = Vec::new();
+    let mut cursor: Option<String> = None;
+    for _ in 0..FEED_SINGLES_MAX_PAGES {
+        let response = client
+            .fetch_releases_naming(
+                feed_guid,
+                FEED_SINGLES_PAGE_LIMIT,
+                cursor.as_deref(),
+                &INDEX_FEED_SINGLES,
+            )
+            .map_err(|error| format!("{error:#}"))?;
+        rows.extend(response.data);
+        match response.pagination.cursor {
+            Some(next) if response.pagination.has_more => cursor = Some(next),
+            _ => break,
+        }
+    }
+    Ok(rows)
+}
+
+/// Reads the singles of each feed of `feeds` with
+/// [`fetch_feed_singles`]. At most [`FEED_SINGLES_PARALLEL`] requests run
+/// at the same time (packet 026 decision D4). The results keep the
+/// sequence of `feeds`.
+///
+/// # Errors
+/// Gives [`CommandError::Cancelled`] when the command is cancelled.
+fn fetch_feed_singles_set(
+    client: &Client,
+    feeds: &[String],
+    context: &CommandContext,
+) -> Result<Vec<FeedSinglesResult>, CommandError> {
+    let next = AtomicUsize::new(0);
+    let results: Mutex<Vec<Option<FeedSinglesRows>>> = Mutex::new(vec![None; feeds.len()]);
+    std::thread::scope(|scope| {
+        for _ in 0..FEED_SINGLES_PARALLEL.min(feeds.len()) {
+            scope.spawn(|| loop {
+                if context.cancellation().is_cancelled() {
+                    return;
+                }
+                let index = next.fetch_add(1, Ordering::SeqCst);
+                let Some(feed_guid) = feeds.get(index) else {
+                    return;
+                };
+                let rows = fetch_feed_singles(client, feed_guid);
+                if let Ok(mut results) = results.lock() {
+                    results[index] = Some(rows);
+                }
+            });
+        }
+    });
+    if context.cancellation().is_cancelled() {
+        return Err(CommandError::Cancelled);
+    }
+    let results = results
+        .into_inner()
+        .map_err(|_| CommandError::Query("a feed singles request stopped".to_owned()))?;
+    Ok(feeds
+        .iter()
+        .zip(results)
+        .map(|(feed_guid, rows)| FeedSinglesResult {
+            feed_guid: feed_guid.clone(),
+            rows: rows.unwrap_or_else(|| Err("the request did not run".to_owned())),
+        })
+        .collect())
 }
 
 /// Fetches one page of `MusicIndex` artist names in name order.
@@ -207,12 +372,257 @@ mod tests {
             .into_parts()
             .0;
 
-        assert_eq!(batch.rows.len(), 2);
-        assert_eq!(batch.cursor.as_deref(), Some("next-cursor"));
-        assert!(batch.has_more);
+        assert_eq!(batch.batch.rows.len(), 2);
+        assert_eq!(batch.batch.cursor.as_deref(), Some("next-cursor"));
+        assert!(batch.batch.has_more);
+        assert!(batch.feeds.is_empty(), "no single has an artist feed");
         assert_eq!(
             *requests.lock().unwrap(),
             ["/v1/feeds/by-name?limit=100&include=named_feeds"]
+        );
+    }
+
+    /// A single row that names `feed_guid` at rank 1 with a confirmed link.
+    fn single_json(release_guid: &str, feed_guid: &str) -> serde_json::Value {
+        serde_json::json!({
+            "feed_guid": release_guid, "title": release_guid,
+            "sort_name": release_guid, "release_kind": "unknown",
+            "episode_count": 1, "newest_item_at": 1_700_000_000,
+            "named_feeds": [
+                {"publisher_feed_guid": feed_guid, "remote_feed_title": "Haleen",
+                 "album_names_rank": 1, "role": null, "role_agreement": null,
+                 "two_way_validated": true}
+            ]
+        })
+    }
+
+    /// A local HTTP server that answers each request with `answer(path)`
+    /// and records each request path. Each connection has its own thread,
+    /// and each answer waits a short time, so that requests can overlap.
+    /// `peak` gives the most requests that ran at the same time.
+    #[expect(
+        clippy::type_complexity,
+        reason = "a test server gives its address, its request log and its request counts"
+    )]
+    fn serve_routes(
+        answer: fn(&str) -> String,
+        expected_requests: usize,
+    ) -> (String, Arc<Mutex<Vec<String>>>, Arc<Mutex<(usize, usize)>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let running = Arc::new(Mutex::new((0_usize, 0_usize)));
+        let received = Arc::clone(&requests);
+        let counter = Arc::clone(&running);
+        std::thread::spawn(move || {
+            for _ in 0..expected_requests {
+                let (mut stream, _) = listener.accept().unwrap();
+                let received = Arc::clone(&received);
+                let counter = Arc::clone(&counter);
+                std::thread::spawn(move || {
+                    {
+                        let mut count = counter.lock().unwrap();
+                        count.0 += 1;
+                        count.1 = count.1.max(count.0);
+                    }
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(2)))
+                        .unwrap();
+                    let mut bytes = Vec::new();
+                    let mut buffer = [0; 4096];
+                    while !bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                        match stream.read(&mut buffer) {
+                            Ok(0) | Err(_) => break,
+                            Ok(read) => bytes.extend_from_slice(&buffer[..read]),
+                        }
+                    }
+                    let request = String::from_utf8_lossy(&bytes);
+                    let path = request
+                        .lines()
+                        .next()
+                        .and_then(|line| line.split_whitespace().nth(1))
+                        .unwrap_or_default()
+                        .to_owned();
+                    received.lock().unwrap().push(path.clone());
+                    std::thread::sleep(Duration::from_millis(60));
+                    let body = answer(&path);
+                    counter.lock().unwrap().0 -= 1;
+                    let status = if body.is_empty() {
+                        "500 Internal Server Error"
+                    } else {
+                        "200 OK"
+                    };
+                    write!(
+                        stream,
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .unwrap();
+                });
+            }
+        });
+        (format!("http://{address}"), requests, running)
+    }
+
+    /// R26-06: the singles of one feed send `GET /v1/feeds/recent` with
+    /// `named_feed_guid`, `limit=200` and `include=named_feeds`. The read
+    /// follows the cursor, up to 5 pages, and sends no detail request.
+    #[test]
+    fn adr_0084_index_singles_r26_06_feed_singles_follow_the_cursor_up_to_five_pages() {
+        fn answer(path: &str) -> String {
+            let page = path
+                .split("cursor=")
+                .nth(1)
+                .and_then(|rest| rest.split('&').next())
+                .map_or(0, |cursor| cursor.parse::<usize>().unwrap());
+            serde_json::json!({
+                "data": [single_json(&format!("r{page}"), "feed-g")],
+                "pagination": {"cursor": (page + 1).to_string(), "has_more": true}
+            })
+            .to_string()
+        }
+        let (endpoint, requests, _) = serve_routes(answer, 5);
+        let client = Client::new_with_base_url(endpoint);
+
+        let rows = fetch_feed_singles(&client, "feed-g").unwrap();
+
+        assert_eq!(rows.len(), FEED_SINGLES_MAX_PAGES);
+        let requests = requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 5, "at most 5 pages");
+        assert_eq!(
+            requests[0],
+            "/v1/feeds/recent?named_feed_guid=feed-g&limit=200&include=named_feeds"
+        );
+        assert_eq!(
+            requests[1],
+            "/v1/feeds/recent?named_feed_guid=feed-g&limit=200&cursor=1&include=named_feeds"
+        );
+        assert!(requests
+            .iter()
+            .all(|path| path.starts_with("/v1/feeds/recent?")));
+    }
+
+    /// R26-07 and R26-08: a page command sends one request for each new
+    /// artist feed of its singles, and for each Library feed on page 1. It
+    /// sends no request for a known feed, and never runs more than four
+    /// requests at the same time. A row at rank 2, as a label, gives no
+    /// request.
+    #[test]
+    fn adr_0084_index_singles_r26_07_page_reads_each_new_feed_four_at_a_time() {
+        fn answer(path: &str) -> String {
+            if path.starts_with("/v1/feeds/by-name") {
+                let mut rows: Vec<serde_json::Value> = (0..8)
+                    .map(|index| single_json(&format!("s{index}"), &format!("feed-{index}")))
+                    .collect();
+                rows.push(single_json("s-again", "feed-0"));
+                rows.push(single_json("s-known", "known-feed"));
+                rows.push(serde_json::json!({
+                    "feed_guid": "label-single", "title": "Label single",
+                    "release_kind": "unknown", "episode_count": 1,
+                    "named_feeds": [
+                        {"publisher_feed_guid": "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+                         "remote_feed_title": "Sir Libre Records", "album_names_rank": 2,
+                         "role": "label", "role_agreement": "both",
+                         "two_way_validated": true}
+                    ]
+                }));
+                return serde_json::json!({
+                    "data": rows,
+                    "pagination": {"cursor": "next", "has_more": true}
+                })
+                .to_string();
+            }
+            if path.contains("named_feed_guid=feed-3&") {
+                return String::new();
+            }
+            serde_json::json!({"data": [], "pagination": {"cursor": null, "has_more": false}})
+                .to_string()
+        }
+        // The page, eight new feeds and one Library feed.
+        let (endpoint, requests, running) = serve_routes(answer, 10);
+
+        let load = FetchReleaseNamePage::new(endpoint, None)
+            .with_feeds(
+                vec!["library-feed".to_owned(), "known-feed".to_owned()],
+                BTreeSet::from(["known-feed".to_owned()]),
+            )
+            .execute(&CommandContext::next())
+            .unwrap()
+            .into_parts()
+            .0;
+
+        assert_eq!(load.batch.rows.len(), 11);
+        let read: Vec<&str> = load
+            .feeds
+            .iter()
+            .map(|result| result.feed_guid.as_str())
+            .collect();
+        assert_eq!(
+            read,
+            [
+                "library-feed",
+                "feed-0",
+                "feed-1",
+                "feed-2",
+                "feed-3",
+                "feed-4",
+                "feed-5",
+                "feed-6",
+                "feed-7"
+            ]
+        );
+        assert!(load.feeds[4].rows.is_err(), "the failed request of feed-3");
+        assert!(load.feeds[1].rows.is_ok());
+        let requests = requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 10);
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|path| path.starts_with("/v1/feeds/recent?named_feed_guid="))
+                .count(),
+            9,
+            "one request for each new feed"
+        );
+        assert!(!requests.iter().any(|path| path.contains("known-feed")));
+        assert!(!requests.iter().any(|path| path.contains("34bf795f")));
+        let peak = running.lock().unwrap().1;
+        assert!(peak <= FEED_SINGLES_PARALLEL, "{peak} requests at one time");
+        assert!(peak > 1, "the requests run at the same time");
+    }
+
+    /// R26-09: "Try again" of a page whose rows wait sends no name list
+    /// request. It sends only the requests of the feeds with no result.
+    #[test]
+    fn adr_0084_index_singles_r26_09_retry_sends_only_the_failed_requests() {
+        fn answer(_path: &str) -> String {
+            serde_json::json!({"data": [], "pagination": {"cursor": null, "has_more": false}})
+                .to_string()
+        }
+        let (endpoint, requests, _) = serve_routes(answer, 1);
+        let pending: Vec<Feed> = serde_json::from_value(serde_json::json!([
+            single_json("a1", "feed-a"),
+            single_json("b1", "feed-b")
+        ]))
+        .unwrap();
+
+        let load = FetchReleaseNamePage::retry_pending(
+            endpoint,
+            IndexNameListBatch {
+                rows: pending,
+                cursor: None,
+                has_more: false,
+            },
+        )
+        .with_feeds(Vec::new(), BTreeSet::from(["feed-a".to_owned()]))
+        .execute(&CommandContext::next())
+        .unwrap()
+        .into_parts()
+        .0;
+
+        assert_eq!(load.batch.rows.len(), 2);
+        assert_eq!(
+            *requests.lock().unwrap(),
+            ["/v1/feeds/recent?named_feed_guid=feed-b&limit=200&include=named_feeds"]
         );
     }
 }

@@ -43,7 +43,7 @@ step. The [run record](docs/reviews/orchestrated-run-2026-10-20.md) holds the st
 Delete this paragraph when the operator walks the final walk.
 
 Ready packets include
-[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md), and ADR 0084 packet 026.
+[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md), and Part B of ADR 0084 packet 026. Its Part A is implemented.
 
 Known open defects:
 

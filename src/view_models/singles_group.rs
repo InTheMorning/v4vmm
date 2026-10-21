@@ -1,25 +1,34 @@
-//! The singles groups of the Library (ADR 0084 Decision 6).
+//! The singles groups of the Library and of the scope "Everything" (ADR
+//! 0084 Decision 6).
 //!
-//! Two or more Library singles of one artist identity (ADR 0084 Decision 7)
-//! make one group. This module owns the one function that groups singles:
-//! [`singles_groups`]. The Releases list, the group page and the link on a
-//! single page each use it. No other code groups releases by kind.
+//! Two or more singles of one artist identity (ADR 0084 Decision 7) make
+//! one group. This module owns the functions that group singles:
+//! [`singles_groups`] for the Library, and [`singles_groups_everything`] for
+//! the Releases scope "Everything", which adds the `MusicIndex` singles of
+//! each artist feed (packet 026). The Releases list, the group page and the
+//! link on a single page each use them. No other code groups releases by
+//! kind.
 
 #![warn(clippy::pedantic)]
 
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
+use crate::api::Feed;
 use crate::db::TrackRow;
 use crate::view_models::album_page::{AlbumNameLinkTarget, AlbumNameLinkVm};
-use crate::view_models::artist_identity::ArtistIdentity;
+use crate::view_models::artist_identity::{ArtistIdentity, UNKNOWN_ARTIST_TEXT};
 use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
 use crate::view_models::format::{fmt_date, plural};
+use crate::view_models::index_feed_singles::IndexFeedSingles;
+use crate::view_models::index_name_list::name_sort_key;
 use crate::view_models::library::{
     AlbumNode, ArtistNode, BusyItems, DestinationListRowVm, LibraryTree, TrackRowWork,
 };
 use crate::view_models::list_selection::RowSelectionVm;
+use crate::view_models::named_feeds::index_named_feeds;
 use crate::view_models::release_kind::ReleaseKind;
+use crate::view_models::releases_everything::index_release_row;
 use crate::view_models::workspace::ReleaseKey;
 
 /// The separator between the count and the Library state of a group.
@@ -65,32 +74,131 @@ pub(crate) struct GroupSingle<'a> {
     pub(crate) in_library: bool,
 }
 
-/// Two or more Library singles of one artist identity (ADR 0084 Decision
-/// 6), newest first.
+/// One `MusicIndex` single of a group in the scope "Everything" (ADR 0084
+/// packet 026). The Library does not hold it.
+#[derive(Clone, Debug)]
+pub(crate) struct IndexGroupSingle<'a> {
+    /// The release row of `GET /v1/feeds/recent?named_feed_guid=<guid>`.
+    pub(crate) feed: &'a Feed,
+    /// The release key of the single.
+    pub(crate) key: ReleaseKey,
+    /// `newest_item_at` of the release.
+    pub(crate) date: Option<i64>,
+    /// The sort key of the title.
+    pub(crate) sort_key: String,
+}
+
+/// One member of a group: a Library single or a `MusicIndex` single.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum GroupMember<'g, 'a> {
+    /// A Library single.
+    Library(&'g GroupSingle<'a>),
+    /// A `MusicIndex` single (packet 026).
+    Index(&'g IndexGroupSingle<'a>),
+}
+
+impl GroupMember<'_, '_> {
+    /// The release key of the member.
+    #[must_use]
+    pub(crate) fn key(&self) -> &ReleaseKey {
+        match self {
+            Self::Library(single) => &single.key,
+            Self::Index(single) => &single.key,
+        }
+    }
+
+    /// The date of the member: the latest `pub_date` of the tracks of a
+    /// Library single, or `newest_item_at` of a `MusicIndex` single.
+    fn date(&self) -> Option<i64> {
+        match self {
+            Self::Library(single) => single.date,
+            Self::Index(single) => single.date,
+        }
+    }
+
+    /// The sort key of the title of the member.
+    fn sort_key(&self) -> String {
+        match self {
+            Self::Library(single) => name_sort_key(&single.album.name),
+            Self::Index(single) => single.sort_key.clone(),
+        }
+    }
+
+    /// The release image of the member.
+    fn image(&self) -> Option<&str> {
+        match self {
+            Self::Library(single) => single.album.image_href.as_deref(),
+            Self::Index(single) => single.feed.image_url.as_deref(),
+        }
+        .filter(|url| !url.is_empty())
+    }
+}
+
+/// Two or more singles of one artist identity (ADR 0084 Decision 6),
+/// newest first. A group of the scope "Library" holds Library singles
+/// only. A group of an artist feed in the scope "Everything" also holds the
+/// `MusicIndex` singles of that feed (packet 026).
 #[derive(Clone, Debug)]
 pub(crate) struct SinglesGroup<'a> {
     /// The artist identity of each single in the group.
     pub(crate) identity: ArtistIdentity,
-    /// The artist node name of the newest single.
+    /// The label of the group: the artist node name of the newest Library
+    /// single. A group with no Library single uses the title of the artist
+    /// feed of its newest `MusicIndex` single, else the `release_artist` of
+    /// that single (packet 026 decision D9).
     pub(crate) display_artist: &'a str,
-    /// The singles, newest first.
+    /// The Library singles, newest first.
     pub(crate) singles: Vec<GroupSingle<'a>>,
+    /// The `MusicIndex` singles, newest first. Empty in the scope
+    /// "Library".
+    pub(crate) index_singles: Vec<IndexGroupSingle<'a>>,
     /// The channel image of the artist feed of a feed-level group, from
     /// [`LibraryTree::feed_images`]. `None` for a group of a name.
     pub(crate) feed_image: Option<&'a str>,
 }
 
-impl SinglesGroup<'_> {
+impl<'a> SinglesGroup<'a> {
     /// The key of the group page.
     #[must_use]
     pub(crate) fn key(&self) -> SinglesGroupKey {
         SinglesGroupKey(self.identity.clone())
     }
 
-    /// The number of singles in the group.
+    /// The number of singles in the group: the Library singles and the
+    /// `MusicIndex` singles.
     #[must_use]
     pub(crate) fn count(&self) -> usize {
-        self.singles.len()
+        self.singles.len() + self.index_singles.len()
+    }
+
+    /// Each member, newest first (packet 026): a member with no date comes
+    /// last, and equal dates sort by the sort key of the title. A group
+    /// with no `MusicIndex` single keeps the order of its Library singles.
+    #[must_use]
+    pub(crate) fn members(&self) -> Vec<GroupMember<'_, 'a>> {
+        let mut members: Vec<GroupMember<'_, 'a>> =
+            self.singles.iter().map(GroupMember::Library).collect();
+        if self.index_singles.is_empty() {
+            return members;
+        }
+        members.extend(self.index_singles.iter().map(GroupMember::Index));
+        members.sort_by(|left, right| {
+            newest_date_first(left.date(), right.date())
+                .then_with(|| left.sort_key().cmp(&right.sort_key()))
+        });
+        members
+    }
+
+    /// The order position of the group row in the scope "Everything": the
+    /// sort key of its first single in title order (packet 026 decision
+    /// D5).
+    #[must_use]
+    pub(crate) fn first_title_sort_key(&self) -> String {
+        self.members()
+            .iter()
+            .map(GroupMember::sort_key)
+            .min()
+            .unwrap_or_default()
     }
 
     /// The number of singles in the Library.
@@ -105,15 +213,29 @@ impl SinglesGroup<'_> {
     /// The count, the Library state and the identity level, for example
     /// "7 singles · 5 in Library · By name" or "7 singles · In Library ·
     /// Artist feed". One name can have a group at each level (ADR 0084
-    /// Decision 7), so the level tells the two rows apart.
+    /// Decision 7), so the level tells the two rows apart. A group with no
+    /// Library single has no Library state, for example "38 singles ·
+    /// Artist feed" (packet 026 decision D9).
     #[must_use]
     pub(crate) fn summary_text(&self) -> String {
-        format!(
-            "{} singles{SUMMARY_SEPARATOR}{}{SUMMARY_SEPARATOR}{}",
-            self.count(),
-            self.library_state_text(),
-            self.level_label()
-        )
+        match self.library_state_part() {
+            Some(state) => format!(
+                "{} singles{SUMMARY_SEPARATOR}{state}{SUMMARY_SEPARATOR}{}",
+                self.count(),
+                self.level_label()
+            ),
+            None => format!(
+                "{} singles{SUMMARY_SEPARATOR}{}",
+                self.count(),
+                self.level_label()
+            ),
+        }
+    }
+
+    /// The Library state of [`Self::summary_text`]. `None` for a group with
+    /// no Library single (packet 026 decision D9).
+    fn library_state_part(&self) -> Option<String> {
+        (!self.singles.is_empty()).then(|| self.library_state_text())
     }
 
     /// "In Library" when each single is in the Library, else "5 in
@@ -138,15 +260,14 @@ impl SinglesGroup<'_> {
 
     /// The art of the group in the logo frame (ADR 0084 Decision 12): the
     /// newest four images of its singles. A group of an artist feed gives
-    /// the channel image of that feed first. A group of a name gives no
-    /// image of its own.
+    /// the channel image of that feed first, when the Library knows it. A
+    /// group of a name gives no image of its own.
     #[must_use]
     pub(crate) fn collection_art(&self) -> CollectionArtVm {
+        let members = self.members();
         CollectionArtVm::resolve(
             self.feed_image,
-            self.singles
-                .iter()
-                .filter_map(|single| single.album.image_href.as_deref()),
+            members.iter().filter_map(GroupMember::image),
             CollectionKind::SinglesGroup,
         )
     }
@@ -155,6 +276,7 @@ impl SinglesGroup<'_> {
     #[must_use]
     pub(crate) fn contains(&self, key: &ReleaseKey) -> bool {
         self.singles.iter().any(|single| single.key == *key)
+            || self.index_singles.iter().any(|single| single.key == *key)
     }
 }
 
@@ -169,6 +291,33 @@ impl SinglesGroup<'_> {
 /// come in the order of their identity.
 #[must_use]
 pub(crate) fn singles_groups(tree: &LibraryTree) -> Vec<SinglesGroup<'_>> {
+    let feed_images = tree.feed_images();
+    library_singles_by_identity(tree)
+        .into_iter()
+        .filter(|(_, singles)| singles.len() >= 2)
+        .map(|(identity, mut singles)| {
+            singles.sort_by(newest_first);
+            let display_artist = singles[0].artist.name.as_str();
+            let feed_image = match &identity {
+                ArtistIdentity::Publisher(feed_guid) => feed_images.get(feed_guid),
+                ArtistIdentity::Name(_) => None,
+            };
+            SinglesGroup {
+                identity,
+                display_artist,
+                singles,
+                index_singles: Vec::new(),
+                feed_image,
+            }
+        })
+        .collect()
+}
+
+/// The Library singles of the tree by artist identity, one or more for
+/// each identity, in no order.
+fn library_singles_by_identity(
+    tree: &LibraryTree,
+) -> BTreeMap<ArtistIdentity, Vec<GroupSingle<'_>>> {
     let mut by_identity: BTreeMap<ArtistIdentity, Vec<GroupSingle<'_>>> = BTreeMap::new();
     for artist in &tree.artists {
         for album in &artist.albums {
@@ -191,37 +340,194 @@ pub(crate) fn singles_groups(tree: &LibraryTree) -> Vec<SinglesGroup<'_>> {
                 });
         }
     }
-    let feed_images = tree.feed_images();
     by_identity
+}
+
+/// The GUID of each artist feed with one or more Library singles (ADR 0084
+/// packet 026). Page 1 of the scope "Everything" reads the `MusicIndex`
+/// singles of each of these feeds.
+#[must_use]
+pub(crate) fn library_single_artist_feeds(tree: &LibraryTree) -> Vec<String> {
+    library_singles_by_identity(tree)
+        .into_keys()
+        .filter_map(|identity| match identity {
+            ArtistIdentity::Publisher(feed_guid) => Some(feed_guid),
+            ArtistIdentity::Name(_) => None,
+        })
+        .collect()
+}
+
+/// The artist identity of a `MusicIndex` release row: the rule of the
+/// Library, with the named feeds of the row (ADR 0085 Decisions 2 and 6,
+/// packet 026).
+#[must_use]
+pub(crate) fn index_release_identity(feed: &Feed) -> ArtistIdentity {
+    ArtistIdentity::resolve(
+        &index_named_feeds(feed.named_feeds.as_deref().unwrap_or_default()),
+        feed.release_artist.as_deref().unwrap_or_default(),
+    )
+}
+
+/// Tells if a `MusicIndex` release row is a single (ADR 0084 Decision 5):
+/// `release_kind` when it names a kind, else `episode_count`.
+fn index_release_is_single(feed: &Feed) -> bool {
+    let track_count = feed
+        .episode_count
+        .and_then(|count| usize::try_from(count).ok())
+        .unwrap_or(0);
+    ReleaseKind::resolve(feed.release_kind.as_deref(), track_count) == ReleaseKind::Single
+}
+
+/// The artist feed of a `MusicIndex` single (packet 026). `None` for a row
+/// that is not a single, and for a single at the name level, for example a
+/// single whose link to its feed is not confirmed (decision D7).
+#[must_use]
+pub(crate) fn index_single_artist_feed(feed: &Feed) -> Option<String> {
+    if !index_release_is_single(feed) {
+        return None;
+    }
+    match index_release_identity(feed) {
+        ArtistIdentity::Publisher(feed_guid) => Some(feed_guid),
+        ArtistIdentity::Name(_) => None,
+    }
+}
+
+/// The singles of the feed `feed_guid` in `rows`, the releases that name
+/// the feed (packet 026). A single of the feed is a row that is a single
+/// and whose identity is `ArtistIdentity::Publisher(feed_guid)`. A row that
+/// names the feed at rank 2, for example as its label, has another
+/// identity. A row with no feed GUID is not a single of the feed.
+#[must_use]
+pub(crate) fn index_singles_of_feed(feed_guid: &str, rows: Vec<Feed>) -> Vec<Feed> {
+    rows.into_iter()
+        .filter(|row| {
+            row.feed_guid
+                .as_deref()
+                .is_some_and(|guid| !guid.is_empty())
+        })
+        .filter(|row| index_single_artist_feed(row).as_deref() == Some(feed_guid))
+        .collect()
+}
+
+/// Groups the singles of the Releases scope "Everything" (ADR 0084
+/// Decisions 6 and 7, packet 026).
+///
+/// - A group of the artist feed G holds the Library singles whose identity
+///   is `ArtistIdentity::Publisher(G)`, and each loaded `MusicIndex` single
+///   of G whose release key is not a Library release (decision D8).
+/// - A group of a name holds Library singles only (decision D6).
+/// - A group holds two or more members. The groups come in the order of
+///   their identity.
+///
+/// `fills` holds the loaded `MusicIndex` singles of each feed. A member
+/// counts also when its name list page did not load.
+#[must_use]
+pub(crate) fn singles_groups_everything<'a>(
+    tree: &'a LibraryTree,
+    fills: &'a IndexFeedSingles,
+) -> Vec<SinglesGroup<'a>> {
+    let library_keys: BTreeSet<ReleaseKey> = tree
+        .artists
+        .iter()
+        .flat_map(|artist| artist.albums.iter())
+        .filter_map(AlbumNode::release_key)
+        .collect();
+    let mut library = library_singles_by_identity(tree);
+    let mut index: BTreeMap<ArtistIdentity, Vec<IndexGroupSingle<'a>>> = BTreeMap::new();
+    for (feed_guid, singles) in fills.iter() {
+        let mut seen: BTreeSet<ReleaseKey> = BTreeSet::new();
+        let members: Vec<IndexGroupSingle<'a>> = singles
+            .iter()
+            .filter_map(|feed| {
+                let guid = feed.feed_guid.as_deref().filter(|guid| !guid.is_empty())?;
+                let key = ReleaseKey::FeedGuid(guid.to_owned());
+                if library_keys.contains(&key) || !seen.insert(key.clone()) {
+                    return None;
+                }
+                Some(IndexGroupSingle {
+                    feed,
+                    key,
+                    date: feed.newest_item_at,
+                    sort_key: feed.sort_name.clone().unwrap_or_else(|| {
+                        name_sort_key(feed.title.as_deref().unwrap_or_default())
+                    }),
+                })
+            })
+            .collect();
+        if !members.is_empty() {
+            index.insert(ArtistIdentity::Publisher(feed_guid.to_owned()), members);
+        }
+    }
+    let identities: BTreeSet<ArtistIdentity> =
+        library.keys().chain(index.keys()).cloned().collect();
+    let feed_images = tree.feed_images();
+    identities
         .into_iter()
-        .filter(|(_, singles)| singles.len() >= 2)
-        .map(|(identity, mut singles)| {
+        .filter_map(|identity| {
+            let mut singles = library.remove(&identity).unwrap_or_default();
+            let mut index_singles = index.remove(&identity).unwrap_or_default();
+            if singles.len() + index_singles.len() < 2 {
+                return None;
+            }
             singles.sort_by(newest_first);
-            let display_artist = singles[0].artist.name.as_str();
-            let feed_image = match &identity {
-                ArtistIdentity::Publisher(feed_guid) => feed_images.get(feed_guid),
+            index_singles.sort_by(|left, right| {
+                newest_date_first(left.date, right.date)
+                    .then_with(|| left.sort_key.cmp(&right.sort_key))
+            });
+            let feed_guid = match &identity {
+                ArtistIdentity::Publisher(feed_guid) => Some(feed_guid.as_str()),
                 ArtistIdentity::Name(_) => None,
             };
-            SinglesGroup {
+            let display_artist = match singles.first() {
+                Some(newest) => newest.artist.name.as_str(),
+                None => index_group_label(&index_singles[0], feed_guid),
+            };
+            let feed_image = feed_guid.and_then(|guid| feed_images.get(guid));
+            Some(SinglesGroup {
                 identity,
                 display_artist,
                 singles,
+                index_singles,
                 feed_image,
-            }
+            })
         })
         .collect()
+}
+
+/// The label of a group with no Library single (packet 026 decision D9):
+/// the `remote_feed_title` of the entry of the artist feed in the newest
+/// `MusicIndex` single, else its `release_artist`.
+fn index_group_label<'a>(newest: &IndexGroupSingle<'a>, feed_guid: Option<&str>) -> &'a str {
+    let feed: &'a Feed = newest.feed;
+    let feed_title = feed
+        .named_feeds
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .find(|entry| Some(entry.publisher_feed_guid.as_str()) == feed_guid)
+        .and_then(|entry| entry.remote_feed_title.as_deref());
+    [feed_title, feed.release_artist.as_deref()]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|text| !text.is_empty())
+        .unwrap_or(UNKNOWN_ARTIST_TEXT)
+}
+
+/// Newest date first, and a missing date last.
+fn newest_date_first(left: Option<i64>, right: Option<i64>) -> Ordering {
+    match (left, right) {
+        (Some(left), Some(right)) => right.cmp(&left),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
 }
 
 /// The order of the singles in a group: newest first, a single with no
 /// date last, and equal dates by the lowercase release name.
 fn newest_first(left: &GroupSingle<'_>, right: &GroupSingle<'_>) -> Ordering {
-    let by_date = match (left.date, right.date) {
-        (Some(left), Some(right)) => right.cmp(&left),
-        (Some(_), None) => Ordering::Less,
-        (None, Some(_)) => Ordering::Greater,
-        (None, None) => Ordering::Equal,
-    };
-    by_date.then_with(|| {
+    newest_date_first(left.date, right.date).then_with(|| {
         left.album
             .name
             .to_lowercase()
@@ -275,7 +581,9 @@ pub(crate) struct SinglesGroupRowVm {
 
 impl SinglesGroupRowVm {
     /// Builds the group row. `release_row` gives the release row of one
-    /// single, the same row that a release that is not in a group gets.
+    /// Library single, the same row that a release that is not in a group
+    /// gets. A `MusicIndex` single gets the `MusicIndex` release row
+    /// ([`index_release_row`], packet 026).
     #[must_use]
     pub(crate) fn new(
         group: &SinglesGroup<'_>,
@@ -284,17 +592,25 @@ impl SinglesGroupRowVm {
     ) -> Self {
         let element_id = group_element_id(&group.identity);
         let count = group.count();
+        let members = group.members();
+        let a11y_label = match group.library_state_part() {
+            Some(state) => format!(
+                "{}, {count} singles, {state}, {}",
+                group.display_artist,
+                group.level_label()
+            ),
+            None => format!(
+                "{}, {count} singles, {}",
+                group.display_artist,
+                group.level_label()
+            ),
+        };
         Self {
             disclosure_element_id: format!("{element_id}-disclosure"),
             element_id,
             label: group.display_artist.to_owned(),
             secondary_text: group.summary_text(),
-            a11y_label: format!(
-                "{}, {count} singles, {}, {}",
-                group.display_artist,
-                group.library_state_text(),
-                group.level_label()
-            ),
+            a11y_label,
             art: group.collection_art(),
             open: group.key(),
             expanded,
@@ -304,19 +620,17 @@ impl SinglesGroupRowVm {
                 SHOW_SINGLES_LABEL
             },
             singles: if expanded {
-                group
-                    .singles
+                members
                     .iter()
-                    .filter_map(|single| release_row(single.artist, single.album))
+                    .filter_map(|member| match member {
+                        GroupMember::Library(single) => release_row(single.artist, single.album),
+                        GroupMember::Index(single) => index_release_row(single.feed),
+                    })
                     .collect()
             } else {
                 Vec::new()
             },
-            single_keys: group
-                .singles
-                .iter()
-                .map(|single| single.key.clone())
-                .collect(),
+            single_keys: members.iter().map(|member| member.key().clone()).collect(),
             selection: RowSelectionVm::none(),
         }
     }
@@ -1083,5 +1397,327 @@ mod tests {
             );
             assert_eq!(links, base, "{key} must get no group link");
         }
+    }
+
+    // ADR 0084 packet 026: the groups of the scope "Everything".
+
+    use crate::view_models::index_feed_singles::tests::single_naming;
+    use crate::view_models::index_feed_singles::IndexFeedSingles;
+
+    /// The Library artist feed of Haleen (packet 008 record).
+    const HALEEN: &str = "64569161-a8f7-52e5-8aae-9e0385043149";
+    /// The second Haleen feed with the same title (packet 028 D4).
+    const HALEEN_2: &str = "fe80a515-2826-4a46-aa37-b27f38d3c30f";
+    /// Sir Libre Records.
+    const SIR_LIBRE: &str = "34bf795f-f551-4db1-8877-ad19aa5f89c8";
+
+    fn fills(feed_guid: &str, rows: Vec<Feed>) -> IndexFeedSingles {
+        let mut store = IndexFeedSingles::default();
+        let generation = store.begin_request();
+        store.record(feed_guid, rows, generation);
+        store
+    }
+
+    /// The recorded "You Are Enough" row: it names the second Haleen feed
+    /// at rank 1 with `two_way_validated` false.
+    fn you_are_enough() -> Feed {
+        let mut feed = single_naming("you-are-enough", "You Are Enough", HALEEN_2, 50);
+        feed.named_feeds.as_mut().unwrap()[0].two_way_validated = Some(false);
+        feed
+    }
+
+    /// A recorded Sir Libre Records row: an artist feed at rank 1, and the
+    /// label at rank 2 with `label` and `both`.
+    fn sir_libre_row(release_guid: &str, artist_feed: &str) -> Feed {
+        serde_json::from_value(serde_json::json!({
+            "feed_guid": release_guid, "title": release_guid,
+            "release_kind": "unknown", "episode_count": 1, "newest_item_at": 10,
+            "named_feeds": [
+                {"publisher_feed_guid": artist_feed, "album_names_rank": 1,
+                 "two_way_validated": true},
+                {"publisher_feed_guid": SIR_LIBRE, "remote_feed_title": "Sir Libre Records",
+                 "album_names_rank": 2, "role": "label", "role_agreement": "both",
+                 "two_way_validated": true}
+            ]
+        }))
+        .unwrap()
+    }
+
+    /// R26-04: the identity of a recorded Haleen single is the feed. "You
+    /// Are Enough" and a release with no named feed have the name level.
+    #[test]
+    fn adr_0084_index_singles_r26_04_identity_of_index_rows() {
+        let haleen = single_naming("h1", "A Haleen single", HALEEN, 1);
+        assert_eq!(
+            index_release_identity(&haleen),
+            ArtistIdentity::Publisher(HALEEN.to_owned())
+        );
+        assert_eq!(index_single_artist_feed(&haleen).as_deref(), Some(HALEEN));
+        assert_eq!(
+            index_release_identity(&you_are_enough()),
+            ArtistIdentity::Name("haleen".to_owned())
+        );
+        assert_eq!(index_single_artist_feed(&you_are_enough()), None);
+        let mut empty = single_naming("e1", "No feed", HALEEN, 1);
+        empty.named_feeds = Some(Vec::new());
+        assert_eq!(
+            index_release_identity(&empty),
+            ArtistIdentity::Name("haleen".to_owned())
+        );
+        let mut album = single_naming("album", "An album", HALEEN, 1);
+        album.episode_count = Some(11);
+        assert_eq!(index_single_artist_feed(&album), None, "not a single");
+    }
+
+    /// R26-05: a rank 2 entry with `label` and `both` makes no group of Sir
+    /// Libre Records, also when the app read the list of that feed.
+    #[test]
+    fn adr_0084_index_singles_r26_05_a_label_at_rank_2_makes_no_group() {
+        let rows = vec![
+            sir_libre_row("sl-1", "artist-a"),
+            sir_libre_row("sl-2", "artist-b"),
+            sir_libre_row("sl-3", "artist-c"),
+        ];
+        let store = fills(SIR_LIBRE, rows.clone());
+        assert_eq!(store.iter().next().unwrap().1.len(), 0);
+        let tree = LibraryTree::default();
+        assert!(singles_groups_everything(&tree, &store).is_empty());
+        assert_eq!(
+            index_single_artist_feed(&rows[0]).as_deref(),
+            Some("artist-a")
+        );
+    }
+
+    /// R26-10, R26-14 and R26-16: one Library single and one `MusicIndex`
+    /// single of one feed make one group. The count is the size of the
+    /// union by release key. The `MusicIndex` row of a Library release is
+    /// not a second member (decision D8).
+    #[test]
+    fn adr_0084_index_singles_r26_10_library_and_index_singles_make_one_group() {
+        let tree = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![
+                    with_publisher(single("Library One", 1, Some(100), true), HALEEN),
+                    with_publisher(single("Library Two", 2, Some(200), false), HALEEN),
+                ],
+            )],
+        };
+        let mut library_copy = single_naming("guid-1", "Library One", HALEEN, 100);
+        library_copy.title = Some("Library One".to_owned());
+        let store = fills(
+            HALEEN,
+            vec![
+                single_naming("i1", "Index One", HALEEN, 300),
+                library_copy,
+                single_naming("i1", "Index One", HALEEN, 300),
+            ],
+        );
+        let groups = singles_groups_everything(&tree, &store);
+        assert_eq!(groups.len(), 1);
+        let group = &groups[0];
+        assert_eq!(group.identity, ArtistIdentity::Publisher(HALEEN.to_owned()));
+        assert_eq!(
+            group.count(),
+            3,
+            "two Library singles and one MusicIndex single"
+        );
+        assert_eq!(group.index_singles.len(), 1);
+        assert!(group.contains(&ReleaseKey::FeedGuid("i1".to_owned())));
+        assert_eq!(group.display_artist, "Haleen");
+        assert_eq!(
+            group.summary_text(),
+            "3 singles \u{b7} 1 in Library \u{b7} Artist feed"
+        );
+
+        let one_library = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![with_publisher(
+                    single("Library One", 1, Some(100), true),
+                    HALEEN,
+                )],
+            )],
+        };
+        let store = fills(HALEEN, vec![single_naming("i1", "Index One", HALEEN, 300)]);
+        let groups = singles_groups_everything(&one_library, &store);
+        assert_eq!(
+            groups.len(),
+            1,
+            "one Library single and one MusicIndex single"
+        );
+        assert_eq!(
+            groups[0].summary_text(),
+            "2 singles \u{b7} 1 in Library \u{b7} Artist feed"
+        );
+    }
+
+    /// R26-16 and decision D9: a group with no Library single shows no
+    /// Library part, and its label is the title of the artist feed.
+    #[test]
+    fn adr_0084_index_singles_r26_16_group_text_with_no_library_single() {
+        let store = fills(
+            HALEEN_2,
+            (1..=38)
+                .map(|n| single_naming(&format!("h2-{n}"), &format!("Single {n}"), HALEEN_2, n))
+                .collect(),
+        );
+        let tree = LibraryTree::default();
+        let groups = singles_groups_everything(&tree, &store);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].summary_text(), "38 singles \u{b7} Artist feed");
+        assert_eq!(groups[0].display_artist, "Haleen");
+        let row = SinglesGroupRowVm::new(&groups[0], false, |_, _| None);
+        assert_eq!(row.label, "Haleen");
+        assert_eq!(row.secondary_text, "38 singles \u{b7} Artist feed");
+        assert_eq!(row.a11y_label, "Haleen, 38 singles, Artist feed");
+        assert_eq!(row.single_keys.len(), 38);
+
+        let all_in = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![
+                    with_publisher(single("A", 1, Some(1), true), HALEEN),
+                    with_publisher(single("B", 2, Some(2), true), HALEEN),
+                ],
+            )],
+        };
+        let empty = IndexFeedSingles::default();
+        let groups = singles_groups_everything(&all_in, &empty);
+        assert_eq!(
+            groups[0].summary_text(),
+            "2 singles \u{b7} In Library \u{b7} Artist feed"
+        );
+
+        let mut no_title = single_naming("x1", "X", "feed-x", 2);
+        no_title.named_feeds.as_mut().unwrap()[0].remote_feed_title = None;
+        let store = fills(
+            "feed-x",
+            vec![no_title, single_naming("x2", "Y", "feed-x", 1)],
+        );
+        let groups = singles_groups_everything(&tree, &store);
+        assert_eq!(
+            groups[0].display_artist, "Haleen",
+            "the release_artist of the newest single"
+        );
+    }
+
+    /// R26-12 and R26-13: one `MusicIndex` single of a feed makes no
+    /// group. A single at the name level joins no group, also when a
+    /// Library name group has the same key (decision D6).
+    #[test]
+    fn adr_0084_index_singles_r26_12_one_single_and_name_level_make_no_index_group() {
+        let tree = LibraryTree::default();
+        let store = fills(HALEEN, vec![single_naming("i1", "Only", HALEEN, 1)]);
+        assert!(singles_groups_everything(&tree, &store).is_empty());
+
+        let name_tree = haleen_tree(2, 2);
+        let store = fills(HALEEN_2, vec![you_are_enough()]);
+        let groups = singles_groups_everything(&name_tree, &store);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(
+            groups[0].identity,
+            ArtistIdentity::Name("haleen".to_owned())
+        );
+        assert_eq!(
+            groups[0].count(),
+            2,
+            "the name group keeps its Library singles"
+        );
+        assert!(!groups[0].contains(&ReleaseKey::FeedGuid("you-are-enough".to_owned())));
+    }
+
+    /// R26-17: the open group gives its members newest first. A member with
+    /// no date comes last, and equal dates sort by the sort key of the
+    /// title. A `MusicIndex` member uses the `MusicIndex` release row. The
+    /// group art gives the feed image when the Library knows it, else the
+    /// newest four images.
+    #[test]
+    fn adr_0084_index_singles_r26_17_open_group_gives_members_newest_first() {
+        let tree = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![
+                    with_publisher(single("Library Mid", 1, Some(200), true), HALEEN),
+                    with_publisher(single("Library Undated", 2, None, false), HALEEN),
+                ],
+            )],
+        };
+        let mut undated = single_naming("i-undated", "Index Undated", HALEEN, 0);
+        undated.newest_item_at = None;
+        let store = fills(
+            HALEEN,
+            vec![
+                single_naming("i-new", "Index New", HALEEN, 300),
+                single_naming("i-tie-b", "B tie", HALEEN, 200),
+                undated,
+            ],
+        );
+        let groups = singles_groups_everything(&tree, &store);
+        let library_row = |artist: &ArtistNode, album: &AlbumNode| {
+            Some(DestinationListRowVm {
+                element_id: album.name.clone(),
+                label: album.name.clone(),
+                secondary_text: format!("{} \u{b7} Library", artist.name),
+                a11y_label: String::new(),
+                thumbnail_href: None,
+                art: None,
+                open: crate::view_models::library::DestinationListRowTarget::Release(
+                    album.release_key().unwrap(),
+                ),
+                selection: RowSelectionVm::none(),
+            })
+        };
+        let row = SinglesGroupRowVm::new(&groups[0], true, library_row);
+        let labels: Vec<&str> = row.singles.iter().map(|row| row.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            [
+                "Index New",
+                "B tie",
+                "Library Mid",
+                "Index Undated",
+                "Library Undated"
+            ]
+        );
+        assert_eq!(row.singles[0].secondary_text, "Haleen \u{b7} Single");
+        assert_eq!(row.singles[2].secondary_text, "Haleen \u{b7} Library");
+        assert_eq!(row.single_keys.len(), 5);
+        assert_eq!(row.single_keys[0], ReleaseKey::FeedGuid("i-new".to_owned()));
+        assert_eq!(
+            row.art,
+            CollectionArtVm::Mosaic(
+                [
+                    "https://img.test/i-new.jpg",
+                    "https://img.test/i-tie-b.jpg",
+                    "1.jpg",
+                    "https://img.test/i-undated.jpg"
+                ]
+                .map(str::to_owned)
+            )
+        );
+        assert_eq!(groups[0].first_title_sort_key(), "b tie");
+    }
+
+    /// R26-19: the scope "Library" keeps its groups: `singles_groups` gives
+    /// no `MusicIndex` single, and a group of Library singles keeps its
+    /// order of singles.
+    #[test]
+    fn adr_0084_index_singles_r26_19_library_groups_have_no_index_single() {
+        let tree = haleen_tree(3, 2);
+        let groups = singles_groups(&tree);
+        assert!(groups[0].index_singles.is_empty());
+        assert_eq!(names(&groups[0]), ["Single 3", "Single 2", "Single 1"]);
+        let members: Vec<ReleaseKey> = groups[0]
+            .members()
+            .iter()
+            .map(|member| member.key().clone())
+            .collect();
+        let singles: Vec<ReleaseKey> = groups[0]
+            .singles
+            .iter()
+            .map(|single| single.key.clone())
+            .collect();
+        assert_eq!(members, singles);
     }
 }
