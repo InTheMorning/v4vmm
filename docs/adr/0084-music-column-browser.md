@@ -24,7 +24,7 @@ It amends these decisions:
 
 Amended 2026-10-18 by [ADR 0085](0085-artists-by-confirmation.md): in Decision 7, the publisher level is the feed level, and ADR 0085 Decisions 5 and 6 replace the "Publisher" link and the label rule. ADR 0085 Decision 3 groups the releases of an artist page by kind.
 
-Amended 2026-10-20: the operator decided the download rules of the action bar. Decision 10 now gives one download queue and a progress item. The operator also decided that an image that an artist feed gives replaces the logo mosaic (Decision 12).
+Amended 2026-10-20: the operator decided the download rules of the action bar. Decision 10 now gives one download queue and a progress item. The operator also decided that an image that an artist feed gives replaces the logo mosaic (Decision 12). The name level uses the sort key of a name (Decision 7). A feed page lists the releases that match its name (Decision 7).
 
 Amended 2026-10-17 by operator decision: Decision 1 adds a visible scrollbar to each Music column that scrolls. [Task 014](../tasks/archive/adr-0084-task-014-music-column-scrollbars.md) builds it.
 
@@ -128,7 +128,10 @@ The group key is the artist identity of Decision 7. Two artists with the same na
 An artist page has one layout and one of two identities. The page says which identity it has.
 
 - **Feed level.** The page of a feed that albums name, keyed by its feed GUID ([ADR 0077](0077-publisher-feed-artist-binding.md) Decision 1). It shows the feed title, its confirmation level and the releases of [ADR 0085](0085-artists-by-confirmation.md) Decisions 2 to 4.
-- **Name level.** A labeled grouping of the releases that name an artist text and name no publisher feed, for example "Releases that name Ledbetter". The page says that a name is not an identity, and it never merges with a publisher page.
+- **Name level.** A labeled grouping of the releases that name an artist text and name no publisher feed, for example "Releases that name Ledbetter". The page says that a name is not an identity. A name level page never merges with a publisher page. The "Matched by name" rule below lists such releases on a feed page, marked as inferred.
+  The key of a name is its sort key, as Stophammer ADR 0070 gives it: white space collapsed and lowercase. Two names that differ only in case or white space are one name. The operator decided this on 2026-10-20.
+- **Matched by name.** A name can match exactly one artist feed. Then the feed page also lists the releases of that name, in a section "Matched by name". The section says that the relationship is inferred from the name.
+  A name matches a feed when its key is the key of the feed title. It also matches when its key is the key of an artist text that a release of that feed states. That name then has no name level page and no row of its own. When two or more feeds match a name, the name keeps its name level page. The operator decided this on 2026-10-20.
 
 The artist name on a release page opens the feed level of the artist feed of [ADR 0085](0085-artists-by-confirmation.md) Decision 6. When the release names no feed, it opens the name level. ADR 0085 Decisions 5 and 6 give the role rows and the "Also named" rows of the other named feeds.
 

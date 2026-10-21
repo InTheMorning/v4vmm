@@ -27,6 +27,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 6 | A list of releases and of artists by name | API addition | Deployed in release 0.9.0 on 2026-10-18 |
 | 7 | The named feed rank and the release kind facts in each publisher relationship entry | API field addition | Deployed in release 0.11.0 on 2026-10-18, without `remote_release_kind` |
 | 8 | Each list row and each search row is complete | API rule and field additions | Deployed in release 0.12.0 on 2026-10-18 |
+| 9 | A named feed entry states its confirmation | API field, filter and include additions | Draft, operator review |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -177,6 +178,76 @@ musicindex.org can add its own entry to `docs/plans/musicindex-open-requests.md`
 **What v4vmm does with it.** v4vmm ADR 0084 packet 016 (the two scopes) and packet 017 (the name level page) wait for items 2 to 4. Packet 010 (search) waits for item 5.
 Until then, packet 010 can use `GET /v1/artist-names?from=` to find the start of a name. v4vmm sends no request for each row.
 
+### 9. A Named Feed Entry States Its Confirmation
+
+Status: Draft - 2026-10-20. The v4vmm operator reviews it before Stophammer reads it.
+
+**What happens.** Release 0.12.0 (Stophammer ADR 0071) gives the named feeds of each release row, a filter for the releases of a name row, and publisher feeds in search.
+v4vmm ADR 0084 packets 010 and 016 use these routes. Their authors found three gaps on 2026-10-20.
+
+The v4vmm orchestrator checked the gaps again with 13 read-only GET requests to `https://api.musicindex.org` on 2026-10-20, from 20:02 local time (2026-10-21 00:02 UTC).
+`GET /node/info` gave `git_revision` `056199b`. `GET /openapi.json` gave `info.version` `0.12.0`.
+
+**A. A named feed entry does not state its confirmation.** A `NamedFeedEntry` (ADR 0071 §3) gives `publisher_feed_guid`, `remote_feed_title`, `album_names_rank`, `role` and `role_agreement`. It gives no `two_way_validated` (ADR 0049).
+ADR 0071 §3 gives one entry for each `music_to_publisher` row. Thus an entry can be a link that only the album states.
+
+- `GET /v1/feeds/by-name?include=named_feeds&limit=200` gave 200 music rows. 188 rows gave one entry each, at rank 1. Each entry had `role` null and `role_agreement` null.
+- Two entries name a feed that the node does not hold, with `remote_feed_title` null: "#LIII4PRESIDENT" and "1 Take First Freestyle (No Edit)". Such a link cannot be confirmed.
+- 12 entries name Rap Central (`a453c8d0-a2b1-45aa-bcbb-9200461e844c`). `GET /v1/feeds/a453c8d0-a2b1-45aa-bcbb-9200461e844c?include=publisher` gave 15 links. Each link has `two_way_validated` true and `album_names_rank` 1.
+- Thus the confirmed Rap Central entries and the two entries that cannot be confirmed have the same fields and the same values.
+
+**B. No route lists the releases that name one feed.** `GET /v1/feeds/by-name` takes `cursor`, `limit`, `include`, `medium`, `from` and `artist_key`. It has no filter for a named feed.
+
+- The node ignores an unknown parameter. `GET /v1/feeds/by-name?named_feed_guid=a453c8d0-a2b1-45aa-bcbb-9200461e844c&limit=5` gave the first 5 rows of the full list. 2 of them name other feeds.
+- The list pages in title order. The first page of 200 rows held 12 of the 15 Rap Central singles. The page had `has_more` true.
+- Thus a client has all the singles of one feed only after it reads each page of the list.
+- `GET /v1/feeds/{guid}?include=publisher` gives the releases of one feed. But it is a read for each feed, and a client must read each feed of a list to group it.
+
+**C. A search row of a publisher feed gives no link facts.** `GET /v1/search?q=Libre&type=publisher` gave two rows: Sir Libre Records (`34bf795f-f551-4db1-8877-ad19aa5f89c8`) and "Kolomona Myer - AKA Sir Libre".
+Each row gives `entity_type`, `entity_id`, `rank`, `quality_score`, `title`, `feed_image_url`, `release_artist`, `release_artist_source` and `episode_count`.
+
+- The same search with `include=link_facts` gave the same bytes. The contract declares no `include` on `GET /v1/search`. `GET /v1/node/capabilities` lists no search entry in `include_params`.
+- `GET /v1/feeds/by-name?medium=publisher&include=link_facts&from=Sir%20Libre&limit=1` gave Sir Libre Records with `two_way_link_count` 3, `agreed_roles` `["label"]` and `first_named_count` 0.
+- Thus the facts that make Sir Libre Records a label are on the list row, but not on the search row. Stophammer ADR 0068, "Search is not in scope", records this.
+
+**A note on the name level, not a request item.** Packet 016 found a second difference between Stophammer ADR 0070 §4 and v4vmm ADR 0085 Decision 6. v4vmm calls it D-2.
+An album names a held feed first, through a link that only the album states, with no agreed role.
+Stophammer does not put the album on the name level, so no `name` row counts it. v4vmm puts it on the name level, because the link is not confirmed.
+
+ADR 0071 §6 keeps ADR 0070 §4, and v4vmm does not ask to change it. With item 1 of this request, v4vmm can find each D-2 album and report the count.
+
+**Why the two clients need it.**
+
+- v4vmm ADR 0084 Decision 6 shows the singles of one artist as one group. The group key is the artist feed.
+- v4vmm ADR 0085 Decision 6 selects the artist feed: the first named feed with an agreed `artist` role, else the primary named feed with a confirmed link.
+  On 2026-10-20, no entry on the first page had a role. Thus v4vmm needs the confirmation of each rank 1 entry.
+- Without A, a group from an album-only link makes an artist, which ADR 0085 forbids.
+- Without B, a group of Index singles is not complete until the client reads the last page of the list.
+- v4vmm ADR 0085 Decision 2 puts no label feed in Artists. Without C, search shows Sir Libre Records with no fact that tells a label from an artist. A read for each row is the pattern that ADR 0068 rejected.
+- musicindex.org can use C to show a role on a search row. The weakest part: musicindex.org has no screen for A and B today, so only v4vmm needs them.
+
+**Request.**
+
+1. Gap A: a confirmation fact on each `NamedFeedEntry`.
+   - One form is `two_way_validated` with its ADR 0049 meaning.
+   - Another form is `link_state`, with a value for each case: a confirmed link, a link that only the album states, and a feed that the node does not hold.
+   - A link with `role_agreement` `conflict` is not confirmed (ADR 0049). The field must let a client see this, as `role_agreement` does today.
+2. Gap B: a filter `named_feed_guid` on `GET /v1/feeds/by-name`.
+   - It gives the music releases that have a `named_feeds` entry with that GUID. The order, `limit`, `cursor` and `include` do not change.
+   - The same filter on `GET /v1/feeds/recent` is welcome if it is easy, because a group page lists its singles newest first (ADR 0084 Decision 6).
+   - ADR 0071 §1b gives a count a route that lists its items. `first_named_count` counts the confirmed rank 1 links of a feed. This filter, with the field of item 1, can be the route that lists them.
+3. Gap C: `include=link_facts` on `GET /v1/search`. With it, each `publisher` row gives the four fields of ADR 0068 and `first_named_count` (ADR 0071 §2). A `feed` row and a `track` row do not change.
+   ADR 0071 §1c then requires the contract and `GET /v1/node/capabilities` to declare the include.
+
+The field names are a proposal. Stophammer selects the names in its own ADR.
+
+**What v4vmm does with it.**
+
+- Proposed packet 026 (Index singles groups) waits for items 1 and 2. The v4vmm operator decided on 2026-10-20 that packet 016 groups no Index singles until then.
+- Packet 016 shows each Index single as a release row until packet 026.
+- Packet 010 uses item 3 when it exists. Until then, it gives each Index publisher row the badge "Feed", unless the Library Artists list holds that feed.
+- v4vmm sends no read for each row in place of these items.
+
 ## Open Question
 
 **The retention of a publisher resolution.** When an album feed changes or disappears, what happens to its stored back-link resolution and its `publisher_link_observed_at`?
@@ -185,7 +256,6 @@ The v4vmm publisher relationship request asked this for the Stophammer ADR. ADR 
 ## Stophammer Answers - 2026-09-25
 
 Stophammer examined each request against the live API and the source at commit `64052ea`.
-The work plan in `docs/plans/client-requests-work-plan.md` of the Stophammer repository gives the sequence of the work.
 These answers are advisory. The ADR that each answer names is the owner of the rule. The Stophammer operator approved the recommended work on 2026-09-25.
 
 | # | Answer | Work plan item |

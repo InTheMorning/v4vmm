@@ -73,6 +73,11 @@ Each entry names the step, the decision and the reason.
 
 - Final walk fixes, approved by the operator on 2026-10-20: a feed page stores its channel image for the feed. The playlist rows load their covers, and a release badge reads "release". The packets 021 and 024 record them as amendments.
 
+- Packet answers of the operator, 2026-10-20: the name key is the sort key (packet 017 D3). The drop target is the spring-loaded sidebar "Playlists" row (task 008 D1). Each Needs attention row keeps its main fix visible (task 007 D10).
+- Packet answers of the operator, 2026-10-20: the state word shows in "Everything" only, except a partial state (packet 016 D13). Search uses three tabs (packet 010 D1). Saved searches stay as written, and three ideas go to the HIG product polish backlog (packet 012).
+- Packet answers of the operator, 2026-10-20: a feed page lists the releases that match its name, marked as inferred, and that name has no row of its own (packet 017 D1, ADR 0084 Decision 7). A name search row opens the name page and is absent when no name-only release exists (packet 017 D6 and D7). A tab change clears the selection (packet 010 D8). One padding value for the track page (packet 023 D14).
+- Stophammer request 9 is a draft in both copies of `v4vmm-open-requests.md`. The orchestrator commits nothing in the Stophammer repository. The operator reviews the draft.
+
 ## Steps
 
 | Step | State | Commit |

@@ -1,6 +1,6 @@
 # ADR 0084 Task 017: The Name Level Of The Artist Page
 
-Status: Ready - 2026-10-20. The orchestrator wrote this packet on 2026-10-20. Decisions D1, D3, D5 and D7 remove or change something that the operator sees today. The orchestrator flags them for the operator before the implementation starts.
+Status: Ready - 2026-10-20. The orchestrator wrote this packet on 2026-10-20. The operator decided D1, D6 and D7 and confirmed D3 on 2026-10-20 ("Operator Answers - 2026-10-20"). Decision D5 changes something that the operator sees today. The orchestrator flags it for the operator before the implementation starts.
 
 ## Goal
 
@@ -8,18 +8,23 @@ The name level of the artist page replaces two old pages: the Library artist pag
 The new page shows "Releases that name <name>". It says that a name is not an identity, and it never merges with a feed page.
 
 The page groups its releases by kind: "Albums and EPs", then "Singles". It shows the Library releases of the name and the MusicIndex releases of the name, each release one time. A release in the Library shows the word "In Library".
-The Artists name row and the page count one set of releases with one function. The "Haleen · by name" row thus gives the same count as its page.
+
+A name that matches exactly one artist feed has no name level page and no Artists row (ADR 0084 Decision 7, amended on 2026-10-20). The feed page holds its releases in a section "Matched by name", and each row there says that the relationship is inferred.
+A name that two or more feeds match keeps its name level page. One pure function gives the match result of each name. The Artists rows, the feed page section, the name level page and the search rows all use it.
+
+The Haleen feed page thus lists its feed releases, then the name-only releases of "Haleen" under "Matched by name". The Artists list has no "Haleen · by name" row. The Haleen feed row counts both sets. Each release shows on one artist page only, so the "3 vs 6" defect goes.
 
 ## Authority
 
 - [ADR 0084](../adr/0084-music-column-browser.md) Decision 7: the name level, the label "Releases that name <name>", the note that a name is not an identity, and no merge with a feed page. It replaces the Library artist page by name and the Index name match page.
+  - The amendment of 2026-10-20 adds two rules. The key of a name is its sort key. A name that matches exactly one artist feed shows on that feed page in a section "Matched by name". It has no name level page and no row of its own.
 - ADR 0084 Decision 4: one page for each item, and the Library is a state. Decision 6: "Albums and EPs" before "Singles". Decision 5: the kind of a release.
 - ADR 0084 Decision 9: one navigation stack, and a breadcrumb that holds a page one time at most. Decision 10: the selection model of each list of releases.
 - ADR 0084 Decision 12: the name level gives no image. Its art is the logo mosaic, or the entity color.
 - [ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 2: the level "Name only" is the name level. Decision 1: no interface text names a feed "publisher". Decision 6: the rule that selects the name level for a Library release.
 - [ADR 0075](../adr/0075-metadata-contract.md) section 6: the stored contract changes in the same change as its decode.
 - [ADR 0016](../adr/README.md): no schema change in this packet.
-- The phase plan row of packet 017 and its note: "The 'Haleen · by name' row says 3 releases, and its page shows 6". The operator decided on 2026-10-18 that this defect waits for packet 017.
+- The phase plan row of packet 017 and its note: "The 'Haleen · by name' row says 3 releases, and its page shows 6". The operator decided on 2026-10-18 that this defect waits for packet 017. The operator chose the fix on 2026-10-20: the feed page holds all (decision D1).
 - Stophammer release 0.12.0 (Stophammer ADR 0071 section 4): `artist_key` on `GET /v1/feeds/by-name` gives the releases that the `release_count` of a `name` row counts.
 - Stophammer ADR 0070 section 1: one sort key function, the normalization of Stophammer ADR 0049 section 7.
 
@@ -32,7 +37,8 @@ Each of the two packets can come first. These rules apply to the one that comes 
 
 - The stored contract: the first packet replaces `musicindex-openapi-0.11.0.json` with the 0.12.0 contract. The second packet uses that file.
 - The sort key: this packet adds `artist_name_key` in `src/view_models/artist_identity.rs`. Packet 016 uses it to merge the Library rows and the MusicIndex rows of the Artists list.
-- The count: in the scope "Everything", packet 016 counts a name row as the "Releases" fact of this page counts it. That is the union of the Library set and the MusicIndex set, by feed GUID (decision D1).
+- The count: in the scope "Everything", packet 016 counts a name row as the "Releases" fact of this page counts it. That is the union of the Library set and the MusicIndex set, by feed GUID (decision D2).
+- The match: this packet adds `NameFeedMatch` and `LibraryViewModel::name_feed_matches`. In both scopes, a name row whose key gives `MatchedFeed` gives no row, and its Library releases count in the Library feed row (decision D14). When packet 016 comes first, this packet applies the rule to the "Everything" merge and adds the case R16-21 of packet 016.
 
 ## Recorded Facts - 2026-10-20
 
@@ -135,11 +141,34 @@ Add `artist_name_key(text: &str) -> String` to `src/view_models/artist_identity.
 - The singles group keeps its present label rule: `display_artist` of its newest single.
 - `merge_index_artist_candidates` in `src/application/queries/search.rs` uses `artist_name_key` in place of `to_lowercase()`.
 
+### The name match
+
+Add `NameFeedMatch`, `NameFeedMatches` and the pure function `name_feed_matches` to `src/view_models/artist_identity.rs`. The input is one entry for each artist feed: its feed GUID and its key set. The output gives one `NameFeedMatch` for each key:
+
+- `MatchedFeed(feed_guid)`: the key is in the key set of exactly one feed.
+- `Ambiguous`: the key is in the key sets of two or more feeds.
+- `NoFeed`: the key set of no feed holds the key.
+
+`NameFeedMatches::get(key)` gives `NoFeed` for a key with no entry. The key of "Unknown Artist", the fallback text of `display_artist`, always gives `NoFeed`.
+
+Add `LibraryViewModel::name_feed_matches(&self) -> NameFeedMatches` in `src/view_models/library.rs`. It builds the input from the Library tree at each call:
+
+- The feeds are the feed identities that `ArtistIdentity::resolve` gives over the tree. A label feed thus never matches (ADR 0085 Decision 2).
+- The key set of a feed holds `artist_name_key` of the feed title. The title comes from the `named_feeds` entry of the feed, as `artist_list_row` reads it.
+- The key set also holds `artist_name_key` of `display_artist` of each Library release whose identity is that feed.
+
+The match reads the Library tree only, in each scope and at each entry point (decision D14). A MusicIndex feed that the Library does not hold matches no name.
+
+Add `LibraryViewModel::matched_name_keys(&self, feed_guid) -> Vec<ArtistNameKey>`: each key of the key set of the feed whose match is `MatchedFeed(feed_guid)`, in key order.
+
 ### One count function
 
 Add `LibraryViewModel::name_level_members(&self, key: &str) -> Vec<NameLevelLibraryRelease>` in `src/view_models/library.rs`. It gives each album of the tree whose `artist_identity` is `ArtistIdentity::Name(key)`.
 
 - `artists_list` and the name level page both use this one function. The row count and the "In Library" fact of the page are the length of its result.
+- `artists_list` gives a name row only for a key whose match is `NoFeed` or `Ambiguous`.
+- For a key whose match is `MatchedFeed(guid)`, `artists_list` gives no name row. The members of the key count in the feed row of `guid`. The feed row text stays "n release(s)". Its n is the count of the feed members plus the count of `name_level_members` of each key of `matched_name_keys(guid)`.
+- The feed page section "Matched by name" uses the same two functions. The feed row count thus equals the Library rows of the feed members plus the Library rows of that section.
 - The Artists name row keeps its text form: "n release(s) · by name". Its label follows "The name key". Its target becomes `DestinationListRowTarget::ArtistName(ArtistNameKey)`.
 - `NameLevelLibraryRelease` holds the facts that a row needs. These are the release key, the feed GUID, the title and the image URL.
   They also include the raw artist text, the kind (`AlbumNode::release_kind`), the newest track date and the state "in Library".
@@ -187,7 +216,7 @@ Add `src/view_models/name_level_page.rs` with `NameLevelPageFacts` and `NameLeve
 
 ### The sections
 
-`sections()` merges the two lists into rows, then puts each row in one section.
+`sections()` merges the two lists into rows, then puts each row in one section. Rules 1, 2, 5 and 6 are one shared function, `name_level_rows` in `src/view_models/name_level_page.rs`. The feed page section "Matched by name" uses it too.
 
 1. Each Library release gives one row, with `in_library` true and the word "In Library".
 2. Each MusicIndex release gives one row, unless one of these is true:
@@ -197,6 +226,21 @@ Add `src/view_models/name_level_page.rs` with `NameLevelPageFacts` and `NameLeve
 4. "Albums and EPs" holds the rows of kind Album or EP. "Singles" holds the rows of kind Single. "Albums and EPs" comes first. A section with no row is absent.
 5. Inside a section, the rows go newest first. The date of a Library row is the newest `pub_date` of its tracks. The date of a MusicIndex row is `newest_item_at`. A row with no date comes last. Equal dates sort by the lowercase title.
 6. Each row is a `PublisherPageAlbumVm` with `artist: None`, `not_listed: false` and `role_line: None`. Its `open` action has the release key and the label "Open the release <title>". A Library release with no feed GUID uses its Library release key.
+
+### The feed page section "Matched by name"
+
+The feed page lists the releases of each matched name in one section (decision D1).
+
+- Add `MatchedByNameFacts` to `src/view_models/publisher_page.rs`: `keys: Vec<ArtistNameKey>`, `library: Vec<NameLevelLibraryRelease>`, `index: NameLevelIndexState` and `other_identity_feed_guids`.
+- Add `PublisherPageVm::with_matched_by_name(facts)`. `render_publisher_page_content` in `src/app/publisher_dispatch.rs` builds the facts at each render. The keys come from `matched_name_keys`, and `library` holds `name_level_members` of each key. A download or a removal thus changes the section in place.
+- After the feed page loads in the Library context, the dispatch sends `FetchNameLevelReleases` for each key, in key order. `PublisherPageState` keeps the results with the page. The Index context sends no request, because the match reads the Library tree only.
+- `sections()` adds the section after each other section. The heading is `MATCHED_BY_NAME_HEADING`, "Matched by name". The section has one list, newest first, with no split by kind.
+- The rows come from `name_level_rows`. A row whose feed GUID is in another section of the page is absent, so each release shows one time.
+- Each row has the detail line `names "<artist text>", no feed`, from `matched_by_name_line(text)`. The artist text is the raw text of the release: `display_artist` for a Library row, `release_artist` for a MusicIndex row.
+- Rename the field `role_line` of `PublisherPageAlbumVm` to `detail_line`, because it now holds two kinds of line. The renderer draws it at the same place.
+- `PublisherPageSectionVm` adds `note: Option<String>` and `status: Option<String>`. The note of this section is `MATCHED_BY_NAME_NOTE`: "These releases name no artist feed. The app relates them to this artist by the name only."
+  The status is the loading text, the failure report or the "more releases" text of the MusicIndex part, as on the name level page. Each other section has `None` for both fields.
+- The section shows when it has a row, or when its MusicIndex part is `Loading` or `Failed`. With `Failed`, the Library rows stay.
 
 ### The MusicIndex request
 
@@ -210,11 +254,14 @@ Add `src/view_models/name_level_page.rs` with `NameLevelPageFacts` and `NameLeve
 ### The dispatch and the screen
 
 - Replace `src/app/name_match_dispatch.rs` with `src/app/name_level_dispatch.rs`. It holds `NameLevelPageState { key, index: NameLevelIndexState }` on `TopApp`, in place of `name_match_page`.
-- `open_name_level_page(key, start, cx)` pushes the entry through the one navigation stack. `restore_name_level_page_for_nav(entry, cx)` starts the request for a different key, and skips it for the mounted key.
+- `open_name_level_page(key, start, cx)` reads `name_feed_matches` first. For `MatchedFeed(guid)`, it opens the feed page of `guid` with `PublisherPageContext::Library`. Else it pushes the entry through the one navigation stack.
+- `restore_name_level_page_for_nav(entry, cx)` starts the request for a different key, and skips it for the mounted key.
+- A Library change can make the key of a mounted or restored page match one feed. The page then shows `NameLevelPageVm::matched_feed_notice()`: "The releases of this name now show on the artist page <feed title>." It has an open action to that feed page, and the page shows no section (decision D16).
 - A result for a key that is not the current key is dropped, as `name_match_page_result_is_current` does today.
 - `render_name_level_page_content` reads `name_level_members` and the other-identity GUIDs from `LibraryApp` at each render. It builds `NameLevelPageVm` and calls the screen.
 - Add `src/ui/shells/name_level_page.rs`. It composes the header (`DetailHeader` with `EntityKind::Artist`, the `XXl` collection art and the `Display` title size), the MusicIndex status, and the sections.
-- Move `render_section` and `render_album_row` from `src/ui/shells/publisher.rs` to a new composite, `src/ui/composites/release_section_list.rs`. The feed page and the name level page call it. The feed page does not change.
+- Move `render_section` and `render_album_row` from `src/ui/shells/publisher.rs` to a new composite, `src/ui/composites/release_section_list.rs`. The feed page and the name level page call it. The composite also draws the section note and the section status, with named tokens.
+- The feed page changes only by the section "Matched by name" and the rename of `detail_line`. Each other section, row and text stays.
 - `LibraryApp::hydrate_detail_from_nav` clears the Library detail for `ArtistName`. `TopApp` renders the page, as it does the feed page.
 - The detail column keeps its scrollbar through `music_column_tracked_scrollbar`.
 
@@ -222,15 +269,27 @@ Add `src/view_models/name_level_page.rs` with `NameLevelPageFacts` and `NameLeve
 
 | Entry point | Today | After this packet |
 |---|---|---|
-| Artists name row | `ArtistDetail(name)`, old Library page | `ArtistName(key)` |
-| Artist name link of a Library release page | `OpenArtistPage`, old Library page | `ArtistName(key)` in the current path |
-| Artist name link of an Index release page | `IndexNameMatches(name)` | `ArtistName(key)` in the current path |
-| Search row `index-artist:<name>` | `IndexNameMatches(name)` | `ArtistName(key)` |
-| Search row `library-artist:<name>` | `ArtistDetail(name)`, old Library page | `ArtistName(key)` |
+| Artists name row | `ArtistDetail(name)`, old Library page | `ArtistName(key)`. A matched name has no row |
+| Artist name link of a Library release page | `OpenArtistPage`, old Library page | `ArtistName(key)` in the current path, or the matched feed page |
+| Artist name link of an Index release page | `IndexNameMatches(name)` | `ArtistName(key)` in the current path, or the matched feed page |
+| Search row `index-artist:<name>` | `IndexNameMatches(name)` | `ArtistName(key)`, as "The search rows" gives |
+| Search row `library-artist:<name>` | `ArtistDetail(name)`, old Library page | `ArtistName(key)`, as "The search rows" gives |
 | Back and Forward | `select_artist`, `restore_name_match_page_for_nav` | `restore_name_level_page_for_nav` |
 
 - Delete `LibraryAppEvent::OpenArtistPage`. `LibraryApp::open_album_name_link` emits `LibraryAppEvent::OpenPage` with the new entry.
-- Each search artist row gets the label `NameLevelPageVm::title_text_for_name(name)` and an equal accessibility label. It shows no count (decision D7).
+- Each entry point reads `name_feed_matches` for its key. `MatchedFeed(guid)` opens the feed page of `guid` with `PublisherPageContext::Library`. `NoFeed` and `Ambiguous` open `ArtistName(key)`.
+
+### The search rows
+
+The search gives no empty name level page (decisions D6 and D7).
+
+- Each search artist row reads the match of its key.
+- `MatchedFeed(guid)`: the name row is absent. One feed row shows in its place. Its label is the feed title, and its accessibility label is "Open the artist page <feed title>". It opens the feed page of `guid` with `PublisherPageContext::Library`. Two names that match one feed give one feed row.
+- `NoFeed` or `Ambiguous`: the Library row shows when `name_level_members(key)` is not empty. The MusicIndex row shows when the MusicIndex check finds a `name` row with the key.
+- The MusicIndex check sends `GET /v1/artist-names?from=<key>&limit=1` for each MusicIndex candidate key that is not `MatchedFeed`. The row shows when the first row has `kind` `name` and the same `key`.
+  On 2026-10-20, `from=haleen` gave the `name` row first, before the `publisher` rows of the same key. A failed check shows the row. The page then shows its failure report.
+- The check uses the request profile `INDEX_ARTIST_NAME_CHECK` with the path shape of `/v1/artist-names` and no include. When packet 016 added `Client::fetch_artist_names` and its path shape, add a `from` argument and use them. Else add them.
+- A name row has the label `NameLevelPageVm::title_text_for_name(name)` and an equal accessibility label. It shows no count (decision D7).
 
 ### Selection
 
@@ -242,62 +301,76 @@ Add `src/view_models/name_level_page.rs` with `NameLevelPageFacts` and `NameLeve
 
 Add one situational guard to `tests/architecture_tests.rs`: `adr_0084_name_level_r17_one_count_function`. It cites ADR 0084 Decision 7. It earns a test: the "3 vs 6" defect of 2026-10-18.
 
-- The body of `artists_list` calls `name_level_members(`, or a function that it calls does.
-- `src/app/name_level_dispatch.rs` calls `name_level_members(`.
+- The body of `artists_list` calls `name_level_members(` and `name_feed_matches(`, or a function that it calls does.
+- `src/app/name_level_dispatch.rs` and `src/app/publisher_dispatch.rs` call `name_level_members(` and `name_feed_matches(` or `matched_name_keys(`.
 - No file in `src/` contains `fn select_artist(`, `LibraryArtistDetailVm`, `FrameNavigationEntry::ArtistDetail`, `IndexNameMatches` or `FetchNameMatchTracks`.
 
 Its failure message names the owner and the fix:
 
 ```text
-ADR 0084 §7 One Artist Page With Two Levels: <file> counts or lists the name level apart from `name_level_members`.
-The Artists name row and the name level page count one set. Call `LibraryViewModel::name_level_members` in both.
+ADR 0084 §7 One Artist Page With Two Levels: <file> counts or lists the name level apart from `name_level_members` and `name_feed_matches`.
+The Artists rows, the name level page and the feed page section count one set. Call `LibraryViewModel::name_level_members` and `LibraryViewModel::name_feed_matches` in each.
 ```
 
 ## Orchestrator Decisions
 
-The orchestrator made these decisions on 2026-10-20. "Flag" marks a decision that removes or changes something that the operator sees today.
+The orchestrator made these decisions on 2026-10-20. "Flag" marks a decision that removes or changes something that the operator sees today. The operator made D1, D6 and D7 on 2026-10-20.
 
-- **D1. One count function.** The Artists name row and the "In Library" fact of the page use `name_level_members`. The page lists only the releases whose Library identity is the name.
-  - **Flag:** the Haleen name level page loses the releases that resolve to a Haleen artist feed. They stay on the Haleen feed page. The phase plan records 6 releases on the old page and 3 on the row.
+- **D1. The feed page holds all. Operator decision of 2026-10-20.** ADR 0084 Decision 7, as amended on 2026-10-20, records the rule.
+  - A name that matches exactly one artist feed has no name level page and no Artists row. The feed page lists its feed releases, then the section "Matched by name" with the name-only releases. Each row there says `names "<name>", no feed`.
+  - The Artists feed row counts the feed releases and the matched releases. A name that two or more feeds match keeps its name level page and its row.
+  - The name level page, a name row and the "In Library" fact use `name_level_members`. `name_feed_matches` gives the match for the Artists rows, the feed page section, the name level page and the search rows.
+  - The "3 vs 6" defect goes: each release shows on one artist page only, and the row count and the page agree.
+  - **Flag:** the "Haleen · by name" row goes, and the Haleen feed row count rises by the name-only releases. The phase plan records 6 releases on the old page and 3 on the row.
 - **D2. MusicIndex releases always show.** The page shows the MusicIndex releases of `artist_key` with no "Everything" scope, as the feed page does. Packet 016 is not a prerequisite. The page can thus show more rows than the row count. The header gives "In Library" and "Releases" as two facts.
-- **D3. The name key is the Stophammer sort key.** The name identity uses `artist_name_key`: white space collapsed and Unicode lowercase. The label is the raw text that the most releases state.
+- **D3. The name key is the Stophammer sort key.** The operator confirmed D3 on 2026-10-20, and ADR 0084 Decision 7 records it. The name identity uses `artist_name_key`: white space collapsed and Unicode lowercase. The label is the raw text that the most releases state.
   - **Flag:** two Artists rows or two singles groups that differ only in case or in white space become one. The test R15-01 asserted the old rule, and this packet replaces it.
-  ADR 0084 Decision 7 says "artist text" and states no case rule. The orchestrator reads this decision as inside Decision 7. The orchestrator asks the operator to confirm it, or to request an amendment line in ADR 0084 Decision 7, before the implementation starts.
 - **D4. The level word replaces "Grouped by name".** The header shows "Confirmation: Name only" (ADR 0085 Decision 2) and the note "A name is not an identity. These releases state this artist text and name no artist feed."
   - **Flag:** the text "Grouped by name" and the facts "Albums", "Tracks" and "Downloaded" go. The page shows releases, not tracks.
 - **D5. Titles.** The page title is `Releases that name <label>`, with no quotation marks, as ADR 0084 Decision 7 writes it. The frame title is "Artist name". The breadcrumb label is `<label> · by name`, the mark of the Artists row.
   - **Flag:** the frame title "Artist" of the old Library page and "Tracks matching" of the old Index page go. The quoted breadcrumb `"<name>"` goes.
-- **D6. The name match page goes, and search opens the name level.** Each search artist row, Library and MusicIndex, opens the name level page of its name. A name with no release on the name level shows the empty text of the page.
-  - **Flag:** the list of tracks whose artist text matches a name goes. A track search keeps the tracks. A name whose releases all have an artist feed now opens an empty name level page. Packet 010 adds the search entry of a feed page (flow map finding 6).
-- **D7. The search artist rows show no count.** Their label is the page title, `Releases that name <name>`, and their accessibility label is equal. A search hit count does not count the releases of the name level, so the row shows none.
+- **D6. The name match page goes, and search opens the name level. Operator decision of 2026-10-20.** The search row "Releases that name <name>" opens the name level page of its name.
+  - When the name has no name-only release, the name row is absent. When the name matches exactly one feed, the name row is absent, and the feed row of that artist shows in its place. The search never opens an empty page.
+  - **Flag:** the list of tracks whose artist text matches a name goes. A track search keeps the tracks. Packet 010 adds the search entry of each other feed page (flow map finding 6).
+- **D7. The search artist rows show no count. Operator decision of 2026-10-20.** Their label is the page title, `Releases that name <name>`, and their accessibility label is equal. A search hit count does not count the releases of the name level, so the row shows none. D6 gives when the row is absent.
   - **Flag:** the texts "n feeds · m tracks" and "n albums - m tracks" go from the Artists tab of search. The text `Tracks matching "<name>"` goes.
   A Library row and a MusicIndex row of one name can both show. Each opens the same page. Packet 010 owns the search results view and merges them.
 - **D8. One section pair only.** The name level page has "Albums and EPs" and "Singles" only. A name level release names no artist feed, so no "As <roles>", "Role not confirmed" or "Listed by" section applies.
 - **D9. The Library decides a Library release.** A MusicIndex row of a release that the Library holds under another identity is absent. Stophammer ADR 0070 section 4 and ADR 0085 Decision 6 differ for one case only. The phase plan open finding of 2026-10-18 records that case.
 - **D10. At most 5 requests of 200 rows.** The page lists the first 1,000 MusicIndex releases and says when more exist. On 2026-10-20, the largest recorded name row had a `release_count` far below this limit. This packet adds no "Load more".
 - **D11. Selection is on.** The page has the detail selection of packet 018 through the feed page rows. No new selection code.
-- **D12. No dependency on packet 016.** See "Dependency On Packet 016".
+- **D12. No dependency on packet 016.** See "Dependency On Packet 016". The match rule of D14 applies in both scopes, whichever packet comes first.
 - **D13. The dead artist code goes.** `src/ui/shells/artist.rs`, `src/view_models/artist.rs` and `src/view_models/artist_detail.rs` lose their last caller and go. `Source::fetch_artist` and `ArtistRef::LocalArtistName` go when no composition root reaches them. The rest of `src/sources.rs` stays, and the result records it as an open finding.
+- **D14. The match reads the Library tree only.** `name_feed_matches` uses the Library artist feeds, in each scope and at each entry point. Thus the scope, the load order of MusicIndex pages and the search never change the result of a name.
+  - The MusicIndex name rows of packet 016 follow the same rule. In "Everything", a MusicIndex name row whose key gives `MatchedFeed` merges into the Library feed row, because that feed row is in the same list. Any other MusicIndex name row stays.
+  - A MusicIndex name row can thus stay beside a MusicIndex feed row of the same name when the Library holds no feed of that name. The result records this as an open finding for a later packet.
+  - A feed page in the Index context has no section "Matched by name".
+- **D15. One check request for each MusicIndex search name.** The search cannot know from its hits if a name has a name-only release. It sends one `GET /v1/artist-names?from=<key>&limit=1` for each MusicIndex candidate key that is not `MatchedFeed`.
+  - The search response gives a small number of candidate keys. The check reads no release detail.
+  - **Flag:** a search sends more MusicIndex requests than today.
+- **D16. A matched key on a mounted page.** A download can make the key of an open name level page match one feed. The page then shows a notice and an open action to that feed page, not an empty page and not a navigation change.
 
 ## Required Changes
 
 1. Add `artist_name_key`, `ArtistNameKey` and the label rule. Change `ArtistIdentity::resolve`, the Artists row label and the search candidate merge to use them.
-2. Add `name_level_members` and use it in `artists_list`.
+2. Add `name_level_members` and use it in `artists_list`. Add `NameFeedMatch`, `NameFeedMatches`, `name_feed_matches` and `matched_name_keys`. Remove the matched name rows from `artists_list`, and add their counts to the feed rows.
 3. Replace the stored contract with the 0.12.0 contract, unless packet 016 did it first. Name the file `musicindex-openapi-0.12.0.json`, delete the 0.11.0 file and change each test that reads the file name. Change the contract line of `AGENTS.md` in the same change.
 4. Add the client method, the request profile and `FetchNameLevelReleases`. Delete `FetchNameMatchTracks`, `INDEX_NAME_MATCH_TRACKS` and `fetch_tracks_by_artist_with_profile` when no caller stays.
 5. Add `FrameNavigationEntry::ArtistName`. Delete `ArtistDetail` and `IndexNameMatches`, with their labels, ids, frame titles and body switch arms.
 6. Add `src/view_models/name_level_page.rs`, `src/app/name_level_dispatch.rs`, `src/ui/shells/name_level_page.rs` and `src/ui/composites/release_section_list.rs`.
 7. Change each entry point of "Each entry point". Delete `LibraryAppEvent::OpenArtistPage`, `open_library_artist_page` and `open_library_artist_in_frame`.
 8. Delete the replaced pages and their dead code: `LibraryDetail::Artist`, `LibraryArtistDetail`, `select_artist`, `select_album_by_name` when no caller stays, `LibraryArtistDetailVm`, `ArtistFeedSummaryVm`, `ArtistFeedSummaryDisplay`, `src/ui/shells/library/feed_list.rs`, `src/app/name_match_dispatch.rs`, `src/view_models/name_match_page.rs`, `src/ui/shells/name_match_page.rs`, and the files of D13.
-9. Add the selection of "Selection".
-10. Change each guard in "The guards that pin the old pages":
+9. Add the selection of "Selection". The rows of the section "Matched by name" are feed page rows, so `feed_page_release_rows` gives them with no new code.
+10. Add the feed page section of "The feed page section 'Matched by name'": `MatchedByNameFacts`, `with_matched_by_name`, the section, the note, the status, the rename of `role_line` to `detail_line`, and the MusicIndex requests of `src/app/publisher_dispatch.rs`.
+11. Add the search rows of "The search rows": the match of each row, the feed row in place of a matched name, the MusicIndex check and its request profile.
+12. Change each guard in "The guards that pin the old pages":
     - Delete `adr_0077_name_matches_index_row_opens_tracks_matching_not_artist_page` and its entry in `adr_0024_loading_shape_readiness_gate_is_locked`. ADR 0084 Decision 7 supersedes the rule of ADR 0077 packet 006 that it guards.
     - Replace `restore_name_match_page_for_nav`, `IndexNameMatches(` and `ArtistDetail(_)` with the new names in the other guards.
     - Remove the deleted files from `SCREEN_FILES`, `LIBRARY_SCREEN_SURFACE_FILES`, `entity_detail_pages_render_through_shell_helper_and_page_vm`, `shared_top_level_ui_shells_do_not_import_screen_modules` and `adr_0084_scrollbars_r14_01_music_columns_use_the_shared_helper`. Add the new files where the old ones were.
     - Move the end marker of `adr_0075_library_observation_callers_and_consumers_are_guarded` to the function that follows `hydrate_album_identity_on_view`.
     - Delete each unit test of the deleted code. Replace R15-01 with R17-02.
-11. Add the guard of "The guard".
-12. Change these documents in the same change:
+13. Add the guard of "The guard".
+14. Change these documents in the same change:
     - The phase plan row of packet 017.
     - The status line of ADR 0085: the name level is built.
     - The §12, §21 and §23 items of the overhaul plan list, as "Visual Acceptance Criteria" gives.
@@ -312,8 +385,8 @@ Use the prefix `adr_0084_name_level_` for unit tests beside the owning code. Eac
 |---|---|
 | R17-01 | `artist_name_key` gives "the best song" for "the  best\tsong ", "élan" for "Élan", "jimmy v" for "  Jimmy   V " and "the beatles" for "The Beatles" |
 | R17-02 | `ArtistIdentity::resolve(&[], "Haleen")` equals `ArtistIdentity::resolve(&[], " haleen ")`. A name identity and a feed identity with the same text stay two identities |
-| R17-03 | The Haleen tree: one `ArtistNode` "Haleen" with 3 albums that name no feed and 3 albums with a confirmed artist feed. `name_level_members("haleen")` gives 3. The `artists_list` name row gives "3 releases · by name". `NameLevelPageVm` gives "In Library" "3". No row of the 3 feed albums is in `sections()` |
-| R17-04 | For each name row of `artists_list` on a test tree with four names, the row count equals the "In Library" fact of its page |
+| R17-03 | The Haleen tree: one `ArtistNode` "Haleen" with 3 albums that name no feed and 3 albums with a confirmed artist feed titled "Haleen". `name_level_members("haleen")` gives 3. `name_feed_matches` gives `MatchedFeed` for "haleen". `artists_list` gives no "Haleen · by name" row, and the Haleen feed row gives "6 releases" |
+| R17-04 | A test tree has four names, and one of them is `Ambiguous`. For each name row of `artists_list`, the row count equals the "In Library" fact of its page. No name row has a `MatchedFeed` key |
 | R17-05 | The label of a name identity is the raw text that the most members state. A tie gives the first raw text in code point order |
 | R17-06 | `sections()` gives "Albums and EPs" before "Singles". A Library single and a MusicIndex row with `episode_count` 1 go in "Singles". A null count gives an Album. An empty section is absent. Rows go newest first, and a row with no date comes last |
 | R17-07 | A MusicIndex row with the feed GUID of a Library row appears one time, with "In Library". A MusicIndex row whose feed GUID is in `other_identity_feed_guids` is absent. A MusicIndex-only row has `in_library` false |
@@ -323,55 +396,69 @@ Use the prefix `adr_0084_name_level_` for unit tests beside the owning code. Eac
 | R17-11 | With `has_more` true on each response, the command sends 5 requests and sets `more_available`. The key of "Unknown Artist" sends no request |
 | R17-12 | A result for a key that is not the current key is dropped. A restore for the mounted key sends no request |
 | R17-13 | `ArtistNameKey` values with the key "haleen" and the labels "Haleen" and "HALEEN" are equal. A path that opens both holds one breadcrumb item |
-| R17-14 | Each entry point of "Each entry point" gives `FrameNavigationEntry::ArtistName` with the key of its text. A test covers the Artists row target, `ReleasePageVm::name_links` with `ArtistFeed::None`, and the two search row ids |
-| R17-15 | A search artist row has the label "Releases that name Survival Guide", an equal accessibility label, and no secondary text |
+| R17-14 | Each entry point of "Each entry point" gives `FrameNavigationEntry::ArtistName` with the key of its text for `NoFeed` and `Ambiguous`. It gives the feed page of the feed for `MatchedFeed`. A test covers the Artists row target, `ReleasePageVm::name_links` with `ArtistFeed::None`, and the two search row ids |
+| R17-15 | A search artist row of a `NoFeed` name with Library members has the label "Releases that name Survival Guide", an equal accessibility label, and no secondary text |
 | R17-16 | `DetailListKind::for_entry(&ArtistName(_))` gives `Releases`. The detail page rows of the page give one row for each release with a release key |
 | R17-17 | `collection_art()` gives the mosaic of the newest four covers with `CollectionKind::Artist`, a single cover as a square, and the entity color with no cover. It never uses a provided image |
 | R17-18 | A tree change that adds a Library album of the name gives "In Library" n + 1. It also gives an "In Library" row on the next `NameLevelPageVm`, with no new request |
 | R17-19 | The stored contract `musicindex-openapi-0.12.0.json` has `artist_key` on `/v1/feeds/by-name`. No test reads the 0.11.0 file |
-| R17-20 | The guard `adr_0084_name_level_r17_one_count_function` passes. A copy of `artists_list` that counts members with no call to `name_level_members` fails it |
-| R17-21 | The feed page gives the same sections, rows and texts as before the move of the row renderer. The present `adr_0085_feed_page_` tests pass with no change |
+| R17-20 | The guard `adr_0084_name_level_r17_one_count_function` passes. A copy of `artists_list` that counts members with no call to `name_level_members` fails it. A copy that gives a name row with no call to `name_feed_matches` fails it |
+| R17-21 | With no matched name, the feed page gives the same sections, rows and texts as before the move of the row renderer. The present `adr_0085_feed_page_` tests pass with the rename of `role_line` to `detail_line` as their only change |
+| R17-22 | `name_feed_matches`, exactly one: a key equal to the key of one feed title gives `MatchedFeed` of that feed. A key equal to the key of the artist text of a release of one feed gives the same. "HALEEN " matches the feed title "Haleen" |
+| R17-23 | `name_feed_matches`, two or more: a key in the key sets of two feeds gives `Ambiguous`. The name row stays with its count. Neither feed row counts its releases, and neither feed page has a section "Matched by name" |
+| R17-24 | `name_feed_matches`, none: a key in no key set gives `NoFeed`, and so does a key with no entry. The key of "Unknown Artist" gives `NoFeed` when a feed has that title. A label feed of ADR 0085 Decision 2 matches no key |
+| R17-25 | The feed page section: with the R17-03 tree, `sections()` puts the 3 feed albums in "Albums and EPs" or "Singles". "Matched by name" comes last with the 3 name-only albums. The section has the note. Each row has the detail line `names "Haleen", no feed`, "In Library" and an open action |
+| R17-26 | The feed page section, MusicIndex part: a MusicIndex row of a matched key with a new feed GUID is in the section. A row whose feed GUID is in another section is absent. `Loading` and `Failed` give the status, and the Library rows stay. With no Library row and `Loaded` with no row, the section is absent |
+| R17-27 | The Artists feed row count is the count of the feed members plus the count of `name_level_members` of each key of `matched_name_keys`. It equals the Library rows of the feed members plus the Library rows of the section "Matched by name" |
+| R17-28 | The search rows: a `MatchedFeed` name gives no name row. It gives one feed row with the feed title, its accessibility label and the feed page target. Two names that match one feed give one feed row |
+| R17-29 | The search rows: a `NoFeed` name with no Library member gives no Library row. A MusicIndex candidate sends one `GET /v1/artist-names?from=<key>&limit=1`. A first row `name` with the same key shows the row. A first row of another key or `kind` hides it. A failed check shows it. A `MatchedFeed` candidate sends no check |
+| R17-30 | A tree change makes the key of the mounted page `MatchedFeed`. Then `matched_feed_notice()` gives the feed title and its open action, and `sections()` gives no section |
 
 ## Visual Acceptance Criteria
 
 These are for the operator. No test proves them. Each check runs in the Light theme and in the Dark theme.
 
-- V1: the Artists list shows "Haleen" with "n releases · by name". Its page shows "In Library: n" with the same n. No release of the Haleen artist feed page shows on this page. The feed row "Haleen" stays a separate row.
-- V2: the page title reads "Releases that name Haleen". The header shows "Confirmation: Name only" and the note that a name is not an identity. The frame title is "Artist name". The breadcrumb reads "Artists › Haleen · by name".
+- V1: the Artists list shows no "Haleen · by name" row. The Haleen feed row shows "n releases", and n is the count of its feed releases plus its name-only releases in the Library. The feed page lists its feed releases, then the section "Matched by name" last.
+  - The section has the note that the app relates these releases to the artist by the name only. Each row shows `names "Haleen", no feed` and "In Library". Each release shows one time on the page.
+  - A "Haleen · by name" row, a name-only release that shows on no page, or a row of the section that looks like a confirmed release is wrong. This carries §12 V1 for a matched name.
+- V2: open a name row of the Artists list, for example "<name> · by name". The page title reads "Releases that name <name>". The header shows "Confirmation: Name only" and the note that a name is not an identity. The frame title is "Artist name". The breadcrumb reads "Artists › <name> · by name".
   - This carries §21 V3 of the overhaul plan list. ADR 0085 Decision 2 retires its text "Grouped by name": the level word of the name level is "Name only".
-- V3: the page shows "Albums and EPs" before "Singles". Each Library release shows "In Library". Each release shows one time. The page shows no aliases, no area, no active years and no source subjects.
+- V3: the page shows "Albums and EPs" before "Singles". Each Library release shows "In Library". Each release shows one time. The page shows no aliases, no area, no active years and no source subjects. The row count of V2 equals the "In Library" fact.
   - A missing Library release, an empty page for a name with Library releases, or an error report is wrong. This carries §12 V1. ADR 0084 Decision 7 retires its track list: the name level lists releases.
-- V4: from an Index release page that names no artist feed, the artist name opens the name level page. The page shows the MusicIndex releases of the name. A release row opens its release page, and Back returns to the name level page.
-- V5: a search for "Survival Guide" shows the row "Releases that name Survival Guide", with no count. The row opens the name level page. A release opens its release page.
+- V4: from an Index release page that names no artist feed and no matched name, the artist name opens the name level page. The page shows the MusicIndex releases of the name. A release row opens its release page, and Back returns to the name level page. From a release that names "Haleen" and no feed, the artist name opens the Haleen feed page.
+- V5: a search for a name with a name-only release and no matched feed shows the row "Releases that name <name>", with no count. The row opens the name level page. A release opens its release page.
   - This carries §23 V2. ADR 0084 Decision 7 retires its "Tracks matching" page and its track list. It also changes the row text of §23 V1, which is in the final walk of the run of 2026-10-20.
-- V6: a search for a name with no release on the name level opens the page with its empty text. This carries §23 V3.
-- V7: with MusicIndex unreachable, the page shows the report first, and the Library releases stay in their sections. While MusicIndex answers, the page shows the loading text.
+- V6: a search for "Haleen" shows no "Releases that name Haleen" row. It shows the Haleen feed row, which opens the Haleen feed page. A search for a name with no name-only release shows no name row, and no search opens an empty page.
+  - This replaces §23 V3. Operator decision D6 of 2026-10-20 retires its empty text.
+- V7: with MusicIndex unreachable, the page shows the report first, and the Library releases stay in their sections. While MusicIndex answers, the page shows the loading text. The section "Matched by name" of a feed page does the same.
 - V8: "Select", two releases, then "Download 2 releases" on the action bar. Each downloaded release then shows "In Library" in place, and the "In Library" count rises, with no navigation.
 - V9: the header art is the logo mosaic of up to four covers. A name with one cover shows that cover as a square. A name with no cover shows the artist color.
-- V10: normal and narrow widths, and the larger type sizes. Each element is in its place, with no clipped text. The section headings are stronger than the row text. This carries §21 V4 for the page and §23 V4 for the search row.
+- V10: normal and narrow widths, and the larger type sizes. Each element is in its place, with no clipped text. The section headings are stronger than the row text. The note and the detail line of "Matched by name" are weaker than the row title. This carries §21 V4 for the two pages and §23 V4 for the search row.
+- V11: a name that two Library artist feeds match keeps its name row "<name> · by name" and its name level page. Neither feed page shows its releases under "Matched by name". The implementer names such a name of the operator Library in the Operator Visual Check, or records that the Library holds none.
 
 The implementer changes the overhaul plan list in the same change:
 
-- §12: "Carried by ADR 0084 packet 017 V3. Retired: the track list of V1 (ADR 0084 Decision 7)."
+- §12: "Carried by ADR 0084 packet 017 V1 and V3. Retired: the track list of V1 (ADR 0084 Decision 7)."
 - §21: "Carried by ADR 0084 packet 017 V2 and V10. Retired: the text 'Grouped by name' of V3 (ADR 0085 Decision 2)."
-- §23: "Carried by ADR 0084 packet 017 V5, V6 and V10. Retired: the 'Tracks matching' page of V2 and the row text of V1 (ADR 0084 Decision 7)." V1 keeps its rule that the row does not look like an artist identity.
+- §23: "Carried by ADR 0084 packet 017 V5, V6 and V10. Retired: the 'Tracks matching' page of V2 and the row text of V1 (ADR 0084 Decision 7), and the empty text of V3 (packet 017 decision D6, operator decision of 2026-10-20)." V1 keeps its rule that the row does not look like an artist identity.
 
 ## Exclusions
 
 - No scope control and no MusicIndex rows in the Artists list. Packet 016 owns them.
 - No search entry of a feed page, no merge of the search rows and no new search view. Packet 010 owns them.
-- No change to the feed page, its sections or its texts.
+- No change to the feed page apart from the section "Matched by name" and the rename of `detail_line`.
 - No artist name link on the track page. The track page has none today.
 - No "Load more" on the name level page.
 - No schema change and no migration.
-- No new MusicIndex endpoint. The packet uses `artist_key` of release 0.12.0 only.
+- No new MusicIndex endpoint. The packet uses `artist_key` on `/v1/feeds/by-name` and `from` on `/v1/artist-names` of release 0.12.0 only.
+- No match against a MusicIndex feed that the Library does not hold (decision D14).
 - No change to `src/sources.rs` apart from D13.
 
 ## Files To Inspect
 
 - [Agent rules](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - `src/view_models/artist_identity.rs`, `src/view_models/library.rs` (`artists_list`, `artist_list_row`, `LibraryArtistDetailVm`), `src/view_models/singles_group.rs`.
-- `src/view_models/publisher_page.rs`, `src/ui/shells/publisher.rs`, `src/app/publisher_dispatch.rs`: the feed page that this page reuses.
+- `src/view_models/publisher_page.rs`, `src/ui/shells/publisher.rs`, `src/app/publisher_dispatch.rs`: the feed page that this page reuses. This packet edits all three for the section "Matched by name".
 - `src/view_models/name_match_page.rs`, `src/ui/shells/name_match_page.rs`, `src/app/name_match_dispatch.rs`: the replaced Index page.
 - `src/library.rs`, `src/library/app_impl.rs` (`select_artist`, `hydrate_detail_from_nav`, `open_destination_row`, `open_album_name_link`), `src/ui/shells/library/detail.rs`, `src/ui/shells/library/feed_list.rs`.
 - `src/app.rs` (`content_list_frame_title`, the body switch), `src/app/search_dispatch.rs` (the search row handlers, `open_index_album_name_link`, `open_library_artist_in_frame`).
@@ -401,6 +488,13 @@ cargo build --bin v4vmm
 
 Revert the commit. This packet adds no migration and no stored data. A revert also restores the 0.11.0 contract file, unless packet 016 replaced it first.
 
+## Operator Answers - 2026-10-20
+
+- D1: replaced. The operator chose "the feed page holds all". A name that matches exactly one artist feed shows on that feed page under "Matched by name", marked as inferred. It has no name level page and no Artists row. ADR 0084 Decision 7, amended on 2026-10-20, records the rule.
+- D3: confirmed. ADR 0084 Decision 7 records the name key.
+- D6: confirmed with a change. The search row "Releases that name <name>" opens the name level page. When the name has no name-only release, or when it matches exactly one feed, the name row is absent. For a matched name, the feed row of that artist shows in its place. No search opens an empty page.
+- D7: confirmed with the change of D6.
+
 ## Prompt for lower-context coding model
 
 You are implementing one bounded task from a larger plan.
@@ -410,12 +504,13 @@ Implement only this task. Do not redesign the architecture.
 Read:
 - `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0084-task-017-name-level-artist-page.md`
-- ADR 0084 Decisions 4, 6, 7, 9, 10 and 12, and ADR 0085 Decisions 1, 2 and 6
+- ADR 0084 Decisions 4, 6, 7, 9, 10 and 12, and ADR 0085 Decisions 1, 2 and 6. Read Decision 7 with its amendment of 2026-10-20: the name key and the rule "Matched by name".
 - The archived packet `docs/tasks/archive/adr-0084-task-008-feed-page-and-artists.md`
 - Each file in "Files To Inspect"
 
 Goal:
-- Make each change in "Required Changes": the name key, the count function, the entry, the page, the request, the entry points, the deletions, the guards and the documents.
+- Make each change in "Required Changes". These are the name key, the name match, the count function, the entry, the page and the request.
+- They also include the feed page section, the entry points, the search rows, the deletions, the guards and the documents.
 
 Constraints:
 - Follow the rust-dev skill and the conventions in `AGENTS.md`.
@@ -429,15 +524,15 @@ Constraints:
 - Do not run the app: no `cargo run`, no `xvfb-run` and no display attempt.
 
 Do not touch:
-- The feed page behavior, its sections and its texts.
-- The Artists list scope and the search results view. Packets 016 and 010 own them.
+- The feed page behavior, its sections and its texts, apart from the section "Matched by name" and the rename of `detail_line`.
+- The Artists list scope and the search results view. Packets 016 and 010 own them. This packet changes only the artist rows of "The search rows". When packet 016 is complete, it also changes the name rows of D14 in its merge.
 - The database schema and the migration registry.
 - Any ADR text apart from the status line of ADR 0085.
 
 Acceptance criteria:
-- Each case R17-01 to R17-21 has a passing test or guard.
+- Each case R17-01 to R17-30 has a passing test or guard.
 - Each command in "Checks" is Green, and `cargo check --all-targets` gives no warning.
-- The packet has an "Implementation Result - <date>" section and an "Operator Visual Check" section for V1 to V10, with numbered steps, the commands, what is wrong, and the cleanup.
+- The packet has an "Implementation Result - <date>" section and an "Operator Visual Check" section for V1 to V11, with numbered steps, the commands, what is wrong, and the cleanup.
 
 Test commands:
 - The commands in "Checks", with `cargo fmt -- --check` after the last edit and `cargo build --bin v4vmm` last.
@@ -450,8 +545,8 @@ At the end, report:
 5. unresolved concerns
 
 Stop and report the problem, and do not guess, when:
-- The operator did not confirm decision D3, and the orchestrator did not tell you to continue.
+- One name level page, one feed page section or one Artists row needs a second match rule apart from `name_feed_matches`.
 - The live contract or a recorded response does not agree with "Recorded Facts". An example is a `name` row whose `release_count` differs from the row count of `artist_key`.
 - `name_level_members` cannot serve both the Artists row and the page without a second grouping rule.
-- The feed page row renderer cannot move to a composite without a change to the feed page.
+- The feed page row renderer cannot move to a composite without a change to the feed page apart from the section "Matched by name".
 - A change needs a file in "Do not touch".

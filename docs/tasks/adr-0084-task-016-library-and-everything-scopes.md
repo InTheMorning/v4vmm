@@ -17,6 +17,7 @@ Part B gives the Releases list its "Everything" scope, with selection and downlo
   - Decision 8: the two scopes. Decision 2: the destinations.
   - Decision 4: one page for each item, and the state word.
   - Decision 6: the singles groups. Decision 7: the two artist levels.
+  - ADR 0084 Decision 7 amended on 2026-10-20: the key of a name is its sort key. A name that matches exactly one artist feed has no row of its own. Packet 017 gives the match function.
   - Decision 10: the selection model and the download queue.
 - [ADR 0085](../adr/0085-artists-by-confirmation.md) Decision 2: the three confirmation levels. Decision 6: the artist feed of an album. A label feed is not an artist.
 - [ADR 0062](../adr/0062-music-content-surface.md): paging. ADR 0084 replaces its three-state control.
@@ -139,15 +140,19 @@ A MusicIndex `publisher` row is in the list by ADR 0085 Decision 2:
 | `agreed_roles` is not empty and holds no `artist` | Absent. A label or another role |
 | `agreed_roles` is empty, and `first_named_count` is 0 or null | Absent. No confirmed link names the feed first |
 
-- Each MusicIndex `name` row is shown. It is the name level.
+- Each MusicIndex `name` row is shown, unless the match rule below removes it. It is the name level.
 - A MusicIndex feed row and a Library feed row with the same feed GUID give one row. A MusicIndex name row and each Library name row with the same sort key give one row. The Library row keeps its label, its art and its target.
+- The match rule (ADR 0084 Decision 7 amended on 2026-10-20, packet 017 decision D14): `LibraryViewModel::name_feed_matches` reads the Library tree only.
+  - A Library or MusicIndex name row whose key gives `MatchedFeed(guid)` gives no row. Its Library releases count in the Library feed row of `guid`.
+  - A MusicIndex name row whose key gives `NoFeed` or `Ambiguous` stays.
+  - The match does not change with the loaded MusicIndex pages. A shown row thus never goes when a page loads (D7).
 - No row shows a level word.
 
 Row text in "Everything":
 
 | Row | Secondary text | Opens |
 |---|---|---|
-| Library feed row | "3 in Library" | The feed page, as today |
+| Library feed row | "3 in Library". The count includes the Library releases of each matched name | The feed page, as today |
 | MusicIndex feed row | "Not in Library" | The feed page, with `PublisherPageContext::Index` |
 | Library name row | "3 in Library · by name" | The Library artist page by name, as today |
 | MusicIndex name row | "Not in Library · by name" | `FrameNavigationEntry::IndexNameMatches(name)`, until packet 017 |
@@ -196,6 +201,7 @@ FLAG marks a point that changes what the operator sees in a way that no ADR deci
 - **D10. Stale results.** Each list keeps a request generation. A result of an older generation changes nothing.
 - **D11. The artist classification.** The table of "The Artists list in Everything", from ADR 0085 Decision 2. A label feed such as Sir Libre Records is absent. No row shows a level word.
 - **D12. The Artists row text in "Everything".** "3 in Library", "Not in Library" and the mark "by name". A MusicIndex feed row gives no release count, because `ArtistNameRow` gives none for a feed. A MusicIndex name row does not show its `release_count`. FLAG.
+  - ADR 0084 Decision 7 amended on 2026-10-20: a name row whose key matches exactly one Library feed is absent. The count "n in Library" of that feed row includes the Library releases of the matched name. The `release_count` of a matched MusicIndex name row shows on no row.
 - **D13. The Releases state word in "Everything" only.** A Library row adds "In Library", "3 of 7 tracks" or "Not downloaded". A MusicIndex row adds no word. In the "Library" scope, each row is a Library item, and the word would repeat on each row, as ADR 0085 rejected for level words. FLAG.
 - **D14. The targets of MusicIndex rows.** A feed row opens the feed page with the MusicIndex context. A name row opens the present MusicIndex name match page until packet 017 replaces it. FLAG: this page goes in packet 017.
 - **D15. Selection and download.** MusicIndex rows in Releases are selectable. The bar counts follow packet 018 R18-06.
@@ -258,13 +264,14 @@ Use the prefix `adr_0084_scopes_` for unit tests beside the owning code. Each te
 | R16-18 | B | A scope change clears the selection and ends selection mode. Ctrl+A selects the shown rows only |
 | R16-19 | B | The same loaded page with a new tree that holds the release gives a Library row, with no new request |
 | R16-20 | B | Each case of packets 009, 015, 018, 019 and 022 still passes |
+| R16-21 | A | In "Everything", a Library name row and a MusicIndex name row whose key gives `MatchedFeed` give no row. The Library feed row count includes the matched Library releases. A `NoFeed` or `Ambiguous` MusicIndex name row stays. When packet 017 comes second, packet 017 adds this case |
 
 ## Visual Acceptance Criteria
 
 These are for the operator. No test proves them.
 
 - V1: Releases and Artists show "Library" and "Everything" under the list header. Tracks, Needs attention, Playlists and Discover show no scope control.
-- V2: Artists in "Everything" shows MusicIndex artists in name order. Sir Libre Records is absent. Each Library artist shows "n in Library".
+- V2: Artists in "Everything" shows MusicIndex artists in name order. Sir Libre Records is absent. Each Library artist shows "n in Library". When packet 017 is complete, no "Haleen · by name" row shows (ADR 0084 Decision 7 amended on 2026-10-20).
 - V3: a MusicIndex feed row opens its feed page. A MusicIndex name row opens the name match page.
 - V4: Releases in "Everything" shows MusicIndex releases with "artist · Kind". Library releases show their state word. One release shows one time.
 - V5: "Load more" adds rows at the end. No row moves after it shows.
@@ -332,6 +339,14 @@ Revert the commit of each part, Part B first. The revert of Part A restores the 
 ## Size
 
 Large. Part A changes about 15 files, with about 1,100 lines with tests. Part B changes about 8 files, with about 800 lines with tests. Each part runs in its own session. Each part leaves no code that no composition root reaches.
+
+## Operator Answers - 2026-10-20
+
+- D4: the operator agreed on 2026-10-20 that Index singles form no group in this packet. Packet 026 waits for Stophammer request 9.
+- D12: confirmed as written.
+- D13: confirmed: the state word shows in "Everything" only, except a partial state such as "3 of 7 tracks", which also shows in "Library".
+- D18: the orchestrator drafts the bundled Stophammer request 9. The operator reviews it before Stophammer reads it.
+- D14: packet 017 replaces the name match page. If packet 017 comes first, an Index name row opens the name level page.
 
 ## Prompt for lower-context coding model
 

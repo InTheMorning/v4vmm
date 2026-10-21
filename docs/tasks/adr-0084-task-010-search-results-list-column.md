@@ -289,6 +289,13 @@ cargo build --bin v4vmm
 
 Revert the commit. This packet adds no migration and no stored data. The revert also restores the 0.11.0 contract fixture.
 
+## Operator Answers - 2026-10-20
+
+- D1: confirmed: three tabs, Releases, Artists and Tracks.
+- D5: publisher rows stay labeled "Feed" until Stophammer request 9 item C gives link facts on search rows.
+- D8: confirmed: a change of tab clears the selection and ends selection mode.
+- ADR 0084 Decision 7, amended on 2026-10-20: a name that matches exactly one artist feed has no name row. Search shows the feed row of that artist instead. Packet 017 owns the match function.
+
 ## Prompt for lower-context coding model
 
 You are implementing one bounded task from a larger plan.

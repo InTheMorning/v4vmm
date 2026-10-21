@@ -259,6 +259,16 @@ IME composition and Wayland remain untested coverage limits. The
 [operator procedure](../runbooks/text-selection-check.md) remains a regression
 check. ADR 0063 task 005 and ADR 0069 task 001 remain closed.
 
+#### 12. Saved Search Names, Order And Place
+
+The operator recorded these ideas on 2026-10-20 as possible improvements. ADR 0084 packet 012 builds saved searches without them.
+
+- A saved search can get its own name, for example "Bluegrass picks" for the query "bluegrass".
+- The operator can move saved searches up and down in Discover.
+- A saved search can open its results in the list column, the same place as toolbar search, not in the detail column.
+
+Each idea changes what the operator sees, so each one needs an operator decision before a packet.
+
 ## Non-Goals
 
 - No return to a standalone Search tab.

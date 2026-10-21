@@ -44,7 +44,7 @@ Delete this paragraph when the operator walks the final walk.
 
 Ready packets include
 [ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md), ADR 0083 tasks 006 to 008 (the row actions),
-and ADR 0084 packets 010, 012, 016, 017 and 023. Some of their decisions wait for the operator. The phase plan names them.
+and ADR 0084 packets 010, 012, 016, 017 and 023. The operator answered their open decisions on 2026-10-20.
 
 Known open defects:
 

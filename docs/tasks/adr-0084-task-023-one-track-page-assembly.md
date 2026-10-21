@@ -242,6 +242,10 @@ cargo build --bin v4vmm
 
 Revert the commit. This packet adds no migration and no stored data.
 
+## Operator Answers - 2026-10-20
+
+- D14: confirmed: one padding value for both origins, scaled with the interface scale.
+
 ## Prompt for lower-context coding model
 
 You are implementing one bounded task from a larger plan.

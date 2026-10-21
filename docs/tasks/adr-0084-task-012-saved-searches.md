@@ -208,6 +208,10 @@ To roll back, close the app and revert the commit. Then copy `~/v4vmm-before-sch
 
 The backup holds no saved search. A rollback thus removes each saved search, and changes no other record.
 
+## Operator Answers - 2026-10-20
+
+- The operator confirmed each decision as written. Rename, reordering and results in the list column are recorded as possible improvements in item 12 of the [HIG product polish backlog](../plans/hig-product-polish-backlog.md).
+
 ## Prompt for lower-context coding model
 
 You are implementing one bounded task from a larger plan.

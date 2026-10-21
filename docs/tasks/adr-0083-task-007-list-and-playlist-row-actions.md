@@ -10,7 +10,7 @@ This packet changes three lists:
 
 - The playlist page rows.
 - The Tracks list of the list column.
-- The Needs attention list of the list column.
+- The Needs attention list of the list column. Each row keeps its one main fix as a visible button (D10).
 
 The release rows and the artist rows get no "⋯" menu. Decision D2 gives the reason.
 
@@ -94,15 +94,18 @@ The orchestrator made these decisions on 2026-10-20. The operator can audit each
 - **D7 "Remove from Library…".** On a playlist row and on a Needs attention row, this item is destructive and last. It calls `remove_track_after_confirmation`, the same as task 006 D5. It shows only for a downloaded idle track. Its accessibility label names the track, for example "Remove Face Pale from the Library…".
 - **D8 "Add to playlist" on a playlist row.** The item opens the second level of task 006 D3. The open playlist is not a choice, the same as the bar of packet 025.
 - **D9 The Tracks list rows.** The row shows "⋯" on hover and on keyboard focus. It shows no other row control. The menu holds the items of task 006 D2: "Add to playlist", "Download", "Inspect sources", a divider and "Remove…". The rules of task 006 D2 to D5 apply.
-- **D10 The Needs attention rows.** **Operator-visible, no ADR decides it.** The "Fix routes", "Confirm" and "Remove from library" buttons leave the row. The row shows "⋯" on hover and on keyboard focus. The menu holds, in this order:
-  - "Fix routes", for a `NoRouteTag` row that is not in repair.
-  - "Confirm", for a `RemovedFromFeed` row.
-  - "Inspect sources", for each row.
-  - A divider, then "Remove from Library…", for a `RemovedFromFeed` row.
-  - The reason: ADR 0083 Decision 6 puts row actions behind hover. The list column is narrow, and one hover control keeps each row's text width stable. The operator can ask for a "Fix routes" button on hover in a later packet.
-- **D11 The repair state.** While a route repair runs, "Fix routes" is absent from the menu. The state label "Repairing…" and the reason line show at all times, as today.
-- **D12 Selection mode.** In `Selecting`, no row of the three lists shows "⋯" or attaches the right-click menu. The playlist row keeps the packet 025 rule: the checkbox takes the place of the drag handle.
-- **D13 One menu composite.** Each list uses `track_row_menu.rs` of task 006. Add the variants `MoveUp`, `MoveDown`, `RemoveFromPlaylist`, `FixRoutes` and `ConfirmRemovedFromFeed` to `TrackRowMenuAction`. Each host maps only the variants that its view model gives.
+- **D10 The Needs attention rows.** Operator decision of 2026-10-20. Each row keeps its one main fix as a visible button at all times. The fix is a state with its action, the same as "Update" in an Apple update list.
+  - A `NoRouteTag` row shows the "Fix routes" button.
+  - A `RemovedFromFeed` row shows the "Confirm" button.
+  - A row in each other `BroadcastReadinessState` shows no fix button.
+  - The "Remove from library" button leaves the row.
+  - The row shows "⋯" on hover and on keyboard focus. The right-click menu holds the same items, as task 006 decides. The menu holds, in this order:
+    - "Inspect sources", for each row.
+    - A divider, then "Remove from Library…", for a `RemovedFromFeed` row.
+  - The menu does not hold the fix. The fix button is the one path to the fix.
+- **D11 The repair state.** While a route repair runs, the fix button of the row shows the working label "Repairing…" in place of "Fix routes". Its availability is `Working`, as today. The state label and the reason line show at all times, as today.
+- **D12 Selection mode.** In `Selecting`, no row of the three lists shows "⋯" or attaches the right-click menu. The fix button of a Needs attention row does not show in `Selecting`, the same as each other row action. The playlist row keeps the packet 025 rule: the checkbox takes the place of the drag handle.
+- **D13 One menu composite.** Each list uses `track_row_menu.rs` of task 006. Add the variants `MoveUp`, `MoveDown` and `RemoveFromPlaylist` to `TrackRowMenuAction`. Each host maps only the variants that its view model gives. The fix button is not a menu item, so it adds no menu variant.
 - **D14 One hover rule.** Each list uses `menu_cell_visibility` of task 006 and the same GPUI group name. The keyboard focus comes from `RowSelectionVm::focused`.
 - **D15 The return focus.** The right-click menu of a playlist row returns the focus to `detail_column_focus`. The right-click menu of a Tracks or Needs attention row returns the focus to `list_column_focus`.
 - **D16 Keyboard.** No key opens a row menu in this packet, the same as task 006 D14.
@@ -116,10 +119,11 @@ The orchestrator made these decisions on 2026-10-20. The operator can audit each
 - Give `PlaylistTrackControlsDisplay` a typed visibility for the play cell, for example `play_visibility: RowCellVisibility`. `RepairPlayback` gives always-visible. `Play` gives on-hover.
 - `PlaylistTrackRowVm` builds the menu items from these facts: `is_in_library`, the `TrackRowWork` of the track, `can_move_up`, `can_move_down` and the track key. The host gives `TrackRowWork` from `BusyItems`.
 - `with_selection` sets `menu` to `None` in `Selecting`. Keep `reorder_visible` for the handle and the drop target.
-- Give `ContentListRowDisplay` a `menu: Option<TrackRowMenuVm>`. Delete `actions` and `ContentListRowActionDisplay` when no renderer reads them. Keep `ContentListRowActionKind` only if the menu host uses it to dispatch.
-  - A Tracks list row gets the D9 menu when `content_list_track_row_key` gives a key.
-  - A Needs attention row gets the D10 menu from `broadcast_readiness_row_actions`.
-  - `content_list_rows_with_selection` sets `menu` to `None` in `Selecting`.
+- Give `ContentListRowDisplay` a `menu: Option<TrackRowMenuVm>`. Replace `actions` with one field for the D10 fix button, for example `fix: Option<ContentListRowActionDisplay>`.
+  - A Tracks list row gets the D9 menu when `content_list_track_row_key` gives a key. It gets no fix button.
+  - A Needs attention row gets its fix button from `broadcast_readiness_row_actions`, and the D10 menu.
+  - `broadcast_readiness_row_actions` gives at most one item: "Fix routes" or "Confirm". It gives no "Remove from library" item. Delete `ContentListRowActionKind::RemoveFromLibrary` when no caller remains.
+  - `content_list_rows_with_selection` sets `menu` and `fix` to `None` in `Selecting`.
 - The labels and the accessibility labels are named constants in the view model. The renderer makes no text.
 - The names are a proposal. Keep the meaning if a name collides with a task 006 name.
 
@@ -128,7 +132,8 @@ The orchestrator made these decisions on 2026-10-20. The operator can audit each
 - The playlist host maps `AddToPlaylist` to `add_track_to_playlist`, `Download` to `download_library_tracks` and `InspectSources` to the task 006 route.
   It maps `MoveUp` and `MoveDown` to `move_playlist_track`, `RemoveFromPlaylist` to `remove_playlist_track_at` and `Remove` to `remove_track_after_confirmation`.
 - The list column host maps the D9 items the same as the release page host of task 006.
-- The list column host maps `FixRoutes` to `repair_broadcast_routes_for_track`, `ConfirmRemovedFromFeed` to `confirm_removed_track` and `Remove` to `remove_track_after_confirmation`.
+- The list column host maps the `Remove` menu item of a Needs attention row to `remove_track_after_confirmation`.
+- The fix button keeps the present path: `run_content_list_row_action` maps `RepairBroadcastRoutes` and `ConfirmRemovedFromFeed` as today.
 
 ### The renderers
 
@@ -136,15 +141,15 @@ The orchestrator made these decisions on 2026-10-20. The operator can audit each
 - `render_playlist_track_controls` draws the menu through `track_row_menu.rs`. Delete `render_playlist_track_actions_menu` and `menu_item` when no caller remains.
 - The playlist row attaches the right-click menu only when `menu` is `Some`.
 - `ListRow` in `src/ui/composites/list_row.rs` gets one optional menu cell. When the cell is present, the row root gets the hover group, and the cell is the last fixed column with the width of `Size::PointerHitTarget`. With no menu cell, `ListRow` does not change.
-- `render_content_list_row` draws no action button. It gives the menu to `ListRow` and attaches the right-click menu only when `menu` is `Some`.
+- `render_content_list_row` draws the fix button at all times when `fix` is `Some`, as one `Secondary` button before the menu cell. It draws no other action button. It gives the menu to `ListRow` and attaches the right-click menu only when `menu` is `Some`.
 
 ## Required Changes
 
 1. Add the D13 variants to `TrackRowMenuAction` and their labels.
 2. Change the playlist row view model to D3 to D8. Update `controls_display`, `with_selection` and their tests.
-3. Change `ContentListRowDisplay` to the menu of D9 and D10. Update `content_list_rows_with_selection` and the Needs attention tests.
+3. Change `ContentListRowDisplay` to the menu of D9 and D10, and to the one D10 fix button. Change `broadcast_readiness_row_actions` to give at most one fix item. Update `content_list_rows_with_selection` and the Needs attention tests.
 4. Add the menu cell and the hover group to `ListRow`.
-5. Change `render_playlist_track_row`, `render_playlist_track_controls` and `render_content_list_row` to the hover rule and the menu composite.
+5. Change `render_playlist_track_row`, `render_playlist_track_controls` and `render_content_list_row` to the hover rule and the menu composite. `render_content_list_row` keeps the D10 fix button visible.
 6. Change the two hosts to the commands of "The commands".
 7. Update the guards in "Recorded Facts" with the same meaning. Add the tests and the guards of this packet.
 
@@ -162,11 +167,11 @@ Use the prefix `adr_0083_list_row_actions_` for unit tests beside the owning cod
 | R83-7-06 | `play_visibility` is always-visible for `RepairPlayback` and on-hover for `Play` |
 | R83-7-07 | In `Selecting`, the playlist row `menu` is `None` and `reorder_visible` is false. In `Normal`, `menu` is `Some` |
 | R83-7-08 | A Tracks list row with a track key gives the items of task 006 D2 for each pair of `is_in_library` and `TrackRowWork`. A row with no track key gives no menu |
-| R83-7-09 | A Needs attention row gives the D10 items for each `BroadcastReadinessState`. A `NoRouteTag` row in repair gives no "Fix routes". Each row gives "Inspect sources" |
-| R83-7-10 | The `Remove` command of a Needs attention row reaches `remove_track_after_confirmation` |
-| R83-7-11 | In `Selecting`, each Tracks and Needs attention row has `menu` `None` |
+| R83-7-09 | For each `BroadcastReadinessState`, a Needs attention row gives the D10 fix button and the D10 menu items. `NoRouteTag` gives the "Fix routes" fix, and `RemovedFromFeed` gives the "Confirm" fix. Each other state gives no fix. The menu never holds a fix item. Each row menu gives "Inspect sources". Only a `RemovedFromFeed` row menu gives "Remove from Library…" |
+| R83-7-10 | The `Remove` menu item of a Needs attention row reaches `remove_track_after_confirmation`. The fix buttons reach `run_content_list_row_action` with `RepairBroadcastRoutes` and `ConfirmRemovedFromFeed` |
+| R83-7-11 | In `Selecting`, each Tracks and Needs attention row has `menu` `None` and `fix` `None` |
 | R83-7-12 | A GPUI layout test of `ListRow` with a menu cell: the cell has its token width when it is hidden, visible or empty. Each cell starts at the same x position on each row |
-| R83-7-13 | A source guard: `render_content_list_row` makes no `UiButton` for a row action. `render_playlist_track_controls` and `render_content_list_row` build the menu through `track_row_menu.rs`. The right-click handler attaches only when the menu is `Some` |
+| R83-7-13 | A source guard: `render_content_list_row` makes one `UiButton` only, from `fix`, and no other `UiButton` for a row action. `render_playlist_track_controls` and `render_content_list_row` build the menu through `track_row_menu.rs`. The right-click handler attaches only when the menu is `Some` |
 | R83-7-14 | `playlist_reorder_display_contract_uses_drag_handle_and_menu_fallbacks` and `adr_0084_playlist_selection_r25_11_selection_mode_row_accepts_no_drop` keep their meaning with the new fields. Each packet 006, 019 and 025 test still passes |
 
 ## Visual Acceptance Criteria
@@ -179,10 +184,10 @@ These are for the operator. No test proves them.
 - V4: a right-click on a playlist row opens a menu with the same items, the same order and the same divider as "⋯". Only "Remove from Library…" has the danger color.
 - V5: "Move up", "Move down" and "Remove from playlist" change the page in place, with no navigation.
 - V6: in the Tracks list, the pointer on a row shows "⋯" only. The menu and the right-click menu hold the same items.
-- V7: in the Needs attention list, no row shows a button. "⋯" on hover holds "Fix routes" or "Confirm", "Inspect sources" and "Remove from Library…" when they apply.
-- V8: "Fix routes" from the menu shows "Repairing…" on the row in place. After the repair, the row updates or leaves the list with no navigation.
+- V7: in the Needs attention list, each route problem row shows "Fix routes", and each removed track row shows "Confirm", with no hover. "⋯" on hover holds "Inspect sources", and "Remove from Library…" for a removed track. The menu holds no fix.
+- V8: "Fix routes" shows "Repairing…" in its place on the row. After the repair, the row updates or leaves the list with no navigation.
 - V9: "Inspect sources" opens the track page with the "Inspect sources" disclosure open.
-- V10: "Select" hides "⋯" and the right-click menu in each of the three lists. "Done" shows them again.
+- V10: "Select" hides "⋯", the right-click menu and the Needs attention fix buttons in each of the three lists. "Done" shows them again.
 - V11: Light and Dark themes, a narrow width and the larger type sizes. No text is clipped, and no column overlaps another.
 
 ## Exclusions
@@ -228,6 +233,10 @@ cargo build --bin v4vmm
 
 Revert the commit. This packet adds no migration and no stored data. V5, V8 and the removal items change a playlist and the Library. Use a test playlist and a track that you can download again.
 
+## Operator Answers - 2026-10-20
+
+- D10: the operator decided that each Needs attention row keeps its main fix as a visible button.
+
 ## Prompt for lower-context coding model
 
 You are implementing one bounded task from a larger plan.
@@ -243,13 +252,14 @@ Read:
 - Each file in "Files To Inspect"
 
 Goal:
-- Make each change in "Required Changes": the menu actions, the playlist row, the list rows, the `ListRow` menu cell and the hosts.
+- Make each change in "Required Changes": the menu actions, the playlist row, the list rows, the `ListRow` menu cell, the Needs attention fix button and the hosts.
 
 Constraints:
 - Follow the rust-dev skill and the conventions in `AGENTS.md`.
 - Write each comment and each document sentence in ASD-STE100 Simplified Technical English. Use the shared skill at `~/.agents/skills/asd-ste100/SKILL.md`.
 - Follow each decision in "Orchestrator Decisions". Do not change a decision.
 - The view model gives each label, accessibility label, visibility and availability. The renderer only composes.
+- A Needs attention row keeps its one fix button visible at all times, outside the menu (D10).
 - Use named tokens and named icons. Never show a state by color only.
 - Tests use recorded values. No test sends a request or writes a file.
 - Never run `git checkout`, `git restore`, `git stash`, `git reset`, `git add` or `git commit`.
