@@ -17,14 +17,18 @@
 #![warn(clippy::pedantic)]
 
 use crate::api::{AlbumNamesAs, PublisherLinkResolution, RoleAgreement};
+use crate::view_models::artist_identity::ArtistNameKey;
 use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
 use crate::view_models::list_selection::RowSelectionVm;
+use crate::view_models::name_level_page::{
+    name_level_rows, NameLevelIndexState, NameLevelLibraryRelease, ReleaseListStatus,
+};
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::role_words::{
     capitalize_first, role_contains_artist, role_list_text, role_words, stated_sides_text,
 };
 use crate::view_models::workspace::ReleaseKey;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The route that opened a feed page (ADR 0077 packet 004). This value
 /// selects which query built the facts, and the loading message. It
@@ -161,7 +165,7 @@ impl TitleDisplay {
     /// The label the page shows next to a missing title.
     pub(crate) const MISSING_LABEL: &'static str = "No title";
 
-    fn from_stated(title: Option<&str>, guid: &str) -> Self {
+    pub(crate) fn from_stated(title: Option<&str>, guid: &str) -> Self {
         match title.map(str::trim).filter(|title| !title.is_empty()) {
             Some(title) => Self::Stated(title.to_owned()),
             None => Self::Missing(guid.to_owned()),
@@ -222,10 +226,12 @@ pub(crate) struct PublisherPageAlbumVm {
     /// unresolved link.
     pub(crate) not_listed: bool,
     pub(crate) in_library: bool,
-    /// The detail line of a "Role not confirmed" row: who stated which
-    /// role, by feed title (ADR 0085 Decision 3). `None` in every other
-    /// section: its heading already tells the relation.
-    pub(crate) role_line: Option<String>,
+    /// The detail line of a row. A "Role not confirmed" row tells who
+    /// stated which role, by feed title (ADR 0085 Decision 3). A row of
+    /// the section "Matched by name" tells that the relation is inferred
+    /// from the name (ADR 0084 Decision 7). `None` in every other section:
+    /// its heading already tells the relation.
+    pub(crate) detail_line: Option<String>,
     /// The open action of this row. `None` when the row has no feed GUID.
     pub(crate) open: Option<ReleaseRowOpenAction>,
     /// The selection facts of this row (ADR 0084 Decision 10, packet
@@ -250,6 +256,12 @@ impl PublisherPageAlbumVm {
 pub(crate) struct PublisherPageSectionVm {
     pub(crate) heading: String,
     pub(crate) rows: Vec<PublisherPageAlbumVm>,
+    /// The note under the heading. Only the section "Matched by name" has
+    /// one.
+    pub(crate) note: Option<&'static str>,
+    /// The status of the `MusicIndex` part of the section. Only the
+    /// section "Matched by name" has one.
+    pub(crate) status: Option<ReleaseListStatus>,
 }
 
 /// One "Shares albums with" entry, ready to view (ADR 0082 Decision 5).
@@ -456,6 +468,23 @@ pub(crate) struct PublisherPageHeaderFact {
 /// identifier.
 pub(crate) struct PublisherPageVm {
     facts: PublisherPageFacts,
+    matched_by_name: Option<MatchedByNameFacts>,
+}
+
+/// The facts of the feed page section "Matched by name" (ADR 0084 Decision
+/// 7, amendment of 2026-10-20). Only a feed page in the Library context
+/// has them (packet 017 decision D14).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct MatchedByNameFacts {
+    /// Each name key that matches exactly this feed, in key order.
+    pub(crate) keys: Vec<ArtistNameKey>,
+    /// The Library releases of each key.
+    pub(crate) library: Vec<NameLevelLibraryRelease>,
+    /// The `MusicIndex` part of each key, as one state.
+    pub(crate) index: NameLevelIndexState,
+    /// Each feed GUID of a Library release whose identity is not one of
+    /// the keys.
+    pub(crate) other_identity_feed_guids: BTreeSet<String>,
 }
 
 impl PublisherPageVm {
@@ -481,6 +510,12 @@ impl PublisherPageVm {
     pub(crate) const ALBUMS_AND_EPS_HEADING: &'static str = "Albums and EPs";
     /// Heading of the discography section for a Single.
     pub(crate) const SINGLES_HEADING: &'static str = "Singles";
+    /// Heading of the section of the releases of a matched name (ADR 0084
+    /// Decision 7, amendment of 2026-10-20).
+    pub(crate) const MATCHED_BY_NAME_HEADING: &'static str = "Matched by name";
+    /// The note of the section "Matched by name".
+    pub(crate) const MATCHED_BY_NAME_NOTE: &'static str =
+        "These releases name no artist feed. The app relates them to this artist by the name only.";
     /// Heading of the section for a stated role that is not confirmed.
     pub(crate) const ROLE_NOT_CONFIRMED_HEADING: &'static str = "Role not confirmed";
     /// The fallback name of this feed in its "Listed by … only" heading,
@@ -502,7 +537,10 @@ impl PublisherPageVm {
 
     #[must_use]
     pub(crate) const fn new(facts: PublisherPageFacts) -> Self {
-        Self { facts }
+        Self {
+            facts,
+            matched_by_name: None,
+        }
     }
 
     /// R3-10: the feed's own title, or its GUID with the "No title" label.
@@ -717,30 +755,101 @@ impl PublisherPageVm {
             sections.push(PublisherPageSectionVm {
                 heading: Self::ALBUMS_AND_EPS_HEADING.to_owned(),
                 rows: albums_and_eps,
+                note: None,
+                status: None,
             });
         }
         if !singles.is_empty() {
             sections.push(PublisherPageSectionVm {
                 heading: Self::SINGLES_HEADING.to_owned(),
                 rows: singles,
+                note: None,
+                status: None,
             });
         }
         for (heading, rows) in as_roles {
-            sections.push(PublisherPageSectionVm { heading, rows });
+            sections.push(PublisherPageSectionVm {
+                heading,
+                rows,
+                note: None,
+                status: None,
+            });
         }
         if !role_not_confirmed.is_empty() {
             sections.push(PublisherPageSectionVm {
                 heading: Self::ROLE_NOT_CONFIRMED_HEADING.to_owned(),
                 rows: role_not_confirmed,
+                note: None,
+                status: None,
             });
         }
         if !listed_only.is_empty() {
             sections.push(PublisherPageSectionVm {
                 heading: self.listed_only_heading(),
                 rows: listed_only,
+                note: None,
+                status: None,
             });
         }
+        if let Some(section) = self.matched_by_name_section(&sections) {
+            sections.push(section);
+        }
         sections
+    }
+
+    /// The section "Matched by name" (ADR 0084 Decision 7, amendment of
+    /// 2026-10-20), after each other section. It lists the releases of
+    /// each name that matches exactly this feed, newest first, with no
+    /// split by kind. A row whose feed GUID is in another section is
+    /// absent, so each release shows one time. The section shows when it
+    /// has a row, or while its `MusicIndex` part loads or after it fails.
+    fn matched_by_name_section(
+        &self,
+        other_sections: &[PublisherPageSectionVm],
+    ) -> Option<PublisherPageSectionVm> {
+        let facts = self.matched_by_name.as_ref()?;
+        if facts.keys.is_empty() {
+            return None;
+        }
+        let shown: BTreeSet<&str> = other_sections
+            .iter()
+            .flat_map(|section| section.rows.iter())
+            .filter_map(|row| row.feed_guid.as_deref())
+            .collect();
+        let rows: Vec<PublisherPageAlbumVm> = name_level_rows(
+            &facts.library,
+            &facts.index,
+            &facts.other_identity_feed_guids,
+            true,
+        )
+        .into_iter()
+        .map(|row| row.row)
+        .filter(|row| {
+            row.feed_guid
+                .as_deref()
+                .is_none_or(|guid| !shown.contains(guid))
+        })
+        .collect();
+        let status = facts.index.status();
+        let index_in_progress = matches!(
+            facts.index,
+            NameLevelIndexState::Loading | NameLevelIndexState::Failed { .. }
+        );
+        (!rows.is_empty() || index_in_progress).then(|| PublisherPageSectionVm {
+            heading: Self::MATCHED_BY_NAME_HEADING.to_owned(),
+            rows,
+            note: Some(Self::MATCHED_BY_NAME_NOTE),
+            status,
+        })
+    }
+
+    /// Returns this page with the facts of the section "Matched by name"
+    /// (ADR 0084 Decision 7). The app layer builds the facts at each
+    /// render, so a download or a removal changes the section in place.
+    #[must_use]
+    pub(crate) fn with_matched_by_name(mut self, facts: MatchedByNameFacts) -> Self {
+        self.matched_by_name = Some(facts);
+        self
     }
 
     /// The heading "Listed by <feed title> only" (ADR 0085 Decision 3).
@@ -802,7 +911,7 @@ impl PublisherPageVm {
             artist,
             not_listed,
             in_library: album.in_library,
-            role_line,
+            detail_line: role_line,
             open,
             selection: RowSelectionVm::none(),
         }
@@ -1064,7 +1173,7 @@ mod tests {
         assert_eq!(sections[1].rows.len(), 3);
         assert_eq!(sections[2].rows.len(), 1);
         assert!(
-            sections[1].rows.iter().all(|row| row.role_line.is_some()),
+            sections[1].rows.iter().all(|row| row.detail_line.is_some()),
             "each Role not confirmed row exposes a detail line"
         );
         assert!(vm
@@ -1172,14 +1281,14 @@ mod tests {
             .find(|section| section.heading == PublisherPageVm::ROLE_NOT_CONFIRMED_HEADING)
             .expect("a one-side row must give a Role not confirmed section");
         assert_eq!(
-            role_not_confirmed.rows[0].role_line.as_deref(),
+            role_not_confirmed.rows[0].detail_line.as_deref(),
             Some("The album: label \u{b7} Sir Libre Records: no role")
         );
         let discography_section = sections
             .iter()
             .find(|section| section.heading == PublisherPageVm::ALBUMS_AND_EPS_HEADING)
             .expect("a null role_agreement row joins the discography");
-        assert_eq!(discography_section.rows[0].role_line, None);
+        assert_eq!(discography_section.rows[0].detail_line, None);
     }
 
     /// R85-8-07: an empty section is absent, and each release appears one

@@ -11,11 +11,13 @@
 use std::collections::BTreeSet;
 
 use crate::api::{ArtistNameKind, ArtistNameRow};
+use crate::view_models::artist_identity::{
+    ArtistNameKey, NameFeedMatch, NameFeedMatches, ARTIST_NAME_ROW_MARK, ARTIST_ROW_SEPARATOR,
+};
 use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
 use crate::view_models::index_name_list::{watermark_shows, IndexNameListPage};
 use crate::view_models::library::{
-    release_row_slug_text, DestinationListRowTarget, DestinationListRowVm, ARTIST_NAME_ROW_MARK,
-    ARTIST_ROW_SEPARATOR,
+    release_row_slug_text, DestinationListRowTarget, DestinationListRowVm,
 };
 use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::role_words::role_contains_artist;
@@ -158,7 +160,10 @@ pub(crate) fn index_artist_row(row: &ArtistNameRow) -> DestinationListRowVm {
                 no_covers,
                 CollectionKind::Artist,
             )),
-            open: DestinationListRowTarget::IndexName(row.name.clone()),
+            open: DestinationListRowTarget::ArtistName(ArtistNameKey::new(
+                row.key.clone(),
+                row.name.clone(),
+            )),
             selection: RowSelectionVm::none(),
         },
         ArtistNameKind::Publisher | ArtistNameKind::Unknown => {
@@ -191,12 +196,14 @@ pub(crate) fn index_artist_row(row: &ArtistNameRow) -> DestinationListRowVm {
 /// - The rows come in the order of [`ArtistOrderKey`].
 /// - While `MusicIndex` has more pages, a row shows only at or before the
 ///   last loaded `MusicIndex` row.
-///
-/// Packet 017 adds the match of ADR 0084 Decision 7 ("Matched by name").
+/// - A `MusicIndex` name row whose key matches exactly one Library artist
+///   feed gives no row (ADR 0084 Decision 7, "Matched by name", packet 017
+///   decision D14). `matches` comes from the Library tree only.
 #[must_use]
 pub(crate) fn everything_rows(
     library: Vec<LibraryArtistRow>,
     page: &IndexNameListPage<ArtistNameRow>,
+    matches: &NameFeedMatches,
 ) -> Vec<DestinationListRowVm> {
     if page.first_page_in_flight() {
         return Vec::new();
@@ -209,6 +216,10 @@ pub(crate) fn everything_rows(
         .rows()
         .iter()
         .filter(|row| classify_index_artist(row).is_shown())
+        .filter(|row| {
+            row.kind != ArtistNameKind::Name
+                || !matches!(matches.get(&row.key), NameFeedMatch::MatchedFeed(_))
+        })
         .map(|row| LibraryArtistRow {
             order: ArtistOrderKey::index(row),
             row: index_artist_row(row),
@@ -270,6 +281,10 @@ mod tests {
         page
     }
 
+    fn no_match() -> NameFeedMatches {
+        NameFeedMatches::default()
+    }
+
     fn library_row(label: &str, order: ArtistOrderKey) -> LibraryArtistRow {
         LibraryArtistRow {
             order,
@@ -280,7 +295,7 @@ mod tests {
                 a11y_label: format!("Artist: {label}"),
                 thumbnail_href: None,
                 art: None,
-                open: DestinationListRowTarget::Artist(label.to_owned()),
+                open: DestinationListRowTarget::ArtistName(ArtistNameKey::from_text(label)),
                 selection: RowSelectionVm::none(),
             },
         }
@@ -311,7 +326,7 @@ mod tests {
             IndexArtistClass::NotNamedFirst
         );
 
-        let rows = everything_rows(Vec::new(), &loaded(recorded_rows(), false));
+        let rows = everything_rows(Vec::new(), &loaded(recorded_rows(), false), &no_match());
         let labels: Vec<&str> = rows.iter().map(|row| row.label.as_str()).collect();
         assert_eq!(labels, ["$2 Holla", "Motive to Kill", "Night Owl"]);
         for row in &rows {
@@ -344,7 +359,11 @@ mod tests {
             ),
         ];
 
-        let all = everything_rows(library.clone(), &loaded(recorded_rows(), false));
+        let all = everything_rows(
+            library.clone(),
+            &loaded(recorded_rows(), false),
+            &no_match(),
+        );
         let labels: Vec<&str> = all.iter().map(|row| row.label.as_str()).collect();
         assert_eq!(
             labels,
@@ -358,7 +377,11 @@ mod tests {
             "the Library rows win, and a name row comes before a feed row of the same key"
         );
 
-        let partial = everything_rows(library, &loaded(recorded_rows()[..2].to_vec(), true));
+        let partial = everything_rows(
+            library,
+            &loaded(recorded_rows()[..2].to_vec(), true),
+            &no_match(),
+        );
         let labels: Vec<&str> = partial.iter().map(|row| row.label.as_str()).collect();
         assert_eq!(
             labels,
@@ -376,7 +399,7 @@ mod tests {
         assert_eq!(name.secondary_text, "Not in Library \u{b7} by name");
         assert_eq!(
             name.open,
-            DestinationListRowTarget::IndexName("$2 Holla".to_owned())
+            DestinationListRowTarget::ArtistName(ArtistNameKey::new("$2 holla", "$2 Holla"))
         );
         assert_eq!(
             name.art,
@@ -402,10 +425,10 @@ mod tests {
         let library = vec![library_row("Zed", ArtistOrderKey::name("zed".to_owned()))];
         let mut page = IndexNameListPage::<ArtistNameRow>::default();
         let intent = page.begin_load(false).unwrap();
-        assert!(everything_rows(library.clone(), &page).is_empty());
+        assert!(everything_rows(library.clone(), &page, &no_match()).is_empty());
 
         page.fail_load("connection refused", intent.generation);
-        let rows = everything_rows(library, &page);
+        let rows = everything_rows(library, &page, &no_match());
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].label, "Zed");
     }

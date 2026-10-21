@@ -2320,6 +2320,35 @@ mod tests {
         );
     }
 
+    /// R17-14 (ADR 0084 Decision 7, packet 017): the artist name link of a
+    /// release with no artist feed opens the name level page of the key of
+    /// its text, or the feed page of the one feed that the name matches.
+    #[test]
+    fn adr_0084_name_level_r17_14_release_name_link_destination() {
+        use crate::view_models::artist_identity::{
+            name_feed_matches, ArtistNameDestination, ArtistNameKey, NameFeedEntry, NameFeedMatches,
+        };
+
+        let feed = feed_view();
+        let links = ReleaseDetailVm::new(&feed, EntitySurfaceContext::Library).name_links();
+        let AlbumNameLinkTarget::Artist(text) = &links[0].target else {
+            panic!("a release with no artist feed links its artist text");
+        };
+        assert_eq!(
+            NameFeedMatches::default().destination(ArtistNameKey::from_text(text)),
+            ArtistNameDestination::NameLevel(ArtistNameKey::new("artist", "Artist"))
+        );
+        let matches = name_feed_matches([NameFeedEntry {
+            feed_guid: "artist-guid".to_owned(),
+            title: Some("ARTIST".to_owned()),
+            keys: ["artist".to_owned()].into_iter().collect(),
+        }]);
+        assert_eq!(
+            matches.destination(ArtistNameKey::from_text(text)),
+            ArtistNameDestination::FeedPage("artist-guid".to_owned())
+        );
+    }
+
     /// R83-53: an album without an artist name has no artist link.
     #[test]
     fn adr_0083_album_name_links_skip_missing_names() {

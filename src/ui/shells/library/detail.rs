@@ -16,7 +16,6 @@ use crate::library::{LibraryApp, LibraryDetail};
 use crate::media::cover_color::CoverColor;
 use crate::ui::composites::CollectionArtImage;
 use crate::ui::shells::library::feed_detail::render_library_feed_detail;
-use crate::ui::shells::library::feed_list::render_library_feed_list;
 use crate::ui::shells::library::playlist_detail::{
     render_library_playlist_detail, LibraryPlaylistPage,
 };
@@ -77,10 +76,6 @@ pub(crate) fn render_library_detail(
                     .child(SharedString::from(chrome.empty_detail_label)),
             )
             .into_any_element(),
-
-        LibraryDetail::Artist(artist) => {
-            render_library_feed_list(artist, album_thumbs, chrome, scroll, cx)
-        }
 
         LibraryDetail::Album(album) => render_library_feed_detail(
             album,

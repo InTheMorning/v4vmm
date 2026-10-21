@@ -90,7 +90,6 @@ const NON_UI_CORE_PATHS: &[&str] = &[
     "src/playback_driver",
     "src/playlist_service.rs",
     "src/rss",
-    "src/sources.rs",
     "src/subscribe_service.rs",
     "src/track_compare.rs",
     "src/track_identity.rs",
@@ -325,7 +324,7 @@ const SCREEN_FILES: &[&str] = &[
     "src/app/events.rs",
     "src/app/keyboard.rs",
     "src/app/menu.rs",
-    "src/app/name_match_dispatch.rs",
+    "src/app/name_level_dispatch.rs",
     "src/app/playback_bar.rs",
     "src/app/publisher_dispatch.rs",
     "src/app/resize.rs",
@@ -340,7 +339,6 @@ const LIBRARY_SCREEN_SURFACE_FILES: &[&str] = &[
     "src/ui/shells/library/mod.rs",
     "src/ui/shells/library/detail.rs",
     "src/ui/shells/library/feed_detail.rs",
-    "src/ui/shells/library/feed_list.rs",
     "src/ui/shells/library/playlist_detail.rs",
     "src/ui/shells/library/sidebar.rs",
     "src/ui/shells/library/thumbnail.rs",
@@ -418,7 +416,6 @@ const ADR0054_METADATA_STORAGE_CALLER_ALLOWLIST: &[&str] = &[
     "src/db.rs",
     "src/identity_ingest.rs",
     "src/local_metadata.rs",
-    "src/sources.rs",
     "src/feed_service.rs",
     "src/library/app_impl.rs",
 ];
@@ -954,7 +951,7 @@ fn adr_0046_forward_go_forward_and_on_forward_have_production_callers() {
 
 /// R15-02 and R15-06 (ADR 0046 Task 015): Forward must restore a page
 /// through the same function calls Back uses, so a publisher page, a
-/// name-match page, and every other restored page keep the one stale-result
+/// name level page, and every other restored page keep the one stale-result
 /// check Back already proves.
 #[test]
 fn adr_0046_forward_restores_pages_through_the_shared_back_restore_path() {
@@ -986,7 +983,7 @@ fn adr_0046_forward_restores_pages_through_the_shared_back_restore_path() {
 
     for required in [
         "restore_publisher_page_for_nav",
-        "restore_name_match_page_for_nav",
+        "restore_name_level_page_for_nav",
         // ADR 0084 Decision 4 replaces the Index-only
         // `restore_index_feed_detail_for_nav` with the one release
         // resolver, used for the Library source and the Index source alike.
@@ -2200,8 +2197,9 @@ fn adr_0066_search_failure_report_stays_readable_and_vm_owned() {
     assert!(!dispatch.contains("fn command_error_detail("));
     let app = read_source(&manifest_path("src/app.rs"));
     // ADR 0077 packet 006 deleted the second wiring site: the scoped Index
-    // feed-results view. The name-match track page it replaced reports its
-    // own failure through `NameMatchPageLoadDisplay`, not this action.
+    // feed-results view. ADR 0084 packet 017 replaced its page with the
+    // name level page, which reports its own failure through
+    // `NameLevelPageVm::index_status`, not this action.
     assert_eq!(
         app.matches(".on_failure_action(").count(),
         1,
@@ -2720,7 +2718,7 @@ fn adr_0081_staged_frame_model_stays_deleted() {
 /// adds an artist view model or a track Play action again.
 #[test]
 fn music_flow_map_dead_artist_view_and_track_play_action_stay_deleted() {
-    const FIX: &str = "Music flow map findings 13 and 14, operator decision of 2026-10-20: this code had no live caller and is deleted. Render an artist page through `LibraryArtistDetailVm::page` and `render_artist_detail_shell`. Give a track action a render path and a click handler in the same change, or record the action in a decision first.";
+    const FIX: &str = "Music flow map findings 13 and 14, operator decision of 2026-10-20: this code had no live caller and is deleted. Render an artist page through `NameLevelPageVm` (ADR 0084 packet 017) or `PublisherPageVm`. Give a track action a render path and a click handler in the same change, or record the action in a decision first.";
     let deleted_names = ["ArtistVm", "render_artist_view", "EntityActionKind::Play"];
 
     let mut violations = Vec::new();
@@ -3013,11 +3011,12 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
     for required in [
         "handle_index_feed_result_selected(",
         "handle_index_track_result_selected(",
-        "handle_index_artist_result_selected(",
+        // ADR 0084 packet 017: an artist row resolves its page through
+        // `artist_result_destination`, and opens the name level entry.
+        "artist_result_destination(",
         "strip_prefix(\"index-feed:\")",
         "strip_prefix(\"index-track:\")",
-        "strip_prefix(\"index-artist:\")",
-        "FrameNavigationEntry::IndexNameMatches(",
+        "FrameNavigationEntry::ArtistName(",
         "FrameNavigationEntry::Track(",
         "render_index_detail_display(",
         "content_list_breadcrumb_labeler(",
@@ -3246,15 +3245,15 @@ fn adr_0024_index_track_detail_uses_rich_track_view_path() {
         read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
     let mut violations = Vec::new();
 
-    for required in [
-        "pub(crate) remote_track: Option<TrackView>",
-        "pub(crate) fn with_remote_track",
-    ] {
-        if !results_source.contains(required) {
-            violations.push(format!(
-                "src/view_models/search_results/results.rs: ADR 0024 Index track rows must carry rich remote track detail; missing `{required}`"
-            ));
-        }
+    // ADR 0084 packet 017 deleted the name match page, the only source of
+    // a track row that carried a fetched `TrackView`. A search row carries
+    // summary fields only (ADR 0075 packet 047), so no row field is
+    // required here.
+    if results_source.contains("remote_track") {
+        violations.push(
+            "src/view_models/search_results/results.rs: ADR 0075 packet 047: a search track row carries summary fields only. Load the rich track through `FetchIndexTrackDetail`."
+                .to_string(),
+        );
     }
 
     // ADR 0075 packet 047 moved the Index track detail fetch out of the
@@ -3275,7 +3274,7 @@ fn adr_0024_index_track_detail_uses_rich_track_view_path() {
 
     for required in [
         "pub(crate) track: Option<TrackView>",
-        "display.track.clone_from(&row.remote_track)",
+        "pub(crate) fn loaded_track(track: TrackView",
     ] {
         if !index_detail_source.contains(required) {
             violations.push(format!(
@@ -3426,7 +3425,6 @@ fn adr_0024_loading_shape_readiness_gate_is_locked() {
         "local_feed_language_parity_is_loaded_through_read_model_path",
         "adr_0024_index_track_detail_uses_rich_track_view_path",
         "local_track_pubdate_and_explicit_projection_path_is_guarded",
-        "adr_0077_name_matches_index_row_opens_tracks_matching_not_artist_page",
         "adr_0024_playlist_local_detail_metadata_is_vm_owned_without_index_detail",
     ] {
         let fn_signature = format!("fn {guard_name}(");
@@ -3453,13 +3451,27 @@ fn adr_0024_loading_shape_readiness_gate_is_locked() {
         }
     }
 
+    // ADR 0084 packet 017: the artist row ids resolve in the view model,
+    // the Index prefix before the Library prefix.
+    let search_results_source =
+        read_source(&manifest_path("src/view_models/search_results/results.rs"));
+    let artist_destination = source_between(
+        &search_results_source,
+        "pub(crate) fn artist_result_destination(",
+        "/// The Library facts that the artist rows of a search read",
+    );
+    let index_artist = artist_destination.find("strip_prefix(\"index-artist:\")");
+    let library_artist = artist_destination.find("strip_prefix(\"library-artist:\")");
+    if !matches!((index_artist, library_artist), (Some(index), Some(library)) if index < library) {
+        violations.push(
+            "src/view_models/search_results/results.rs: `artist_result_destination` must strip the Index artist prefix before the Library artist prefix"
+                .to_string(),
+        );
+    }
+
     for (prefix, parse_pattern) in [
         ("strip_prefix(\"index-track:\")", "parse::<i64>()"),
         ("strip_prefix(\"index-feed:\")", "parse::<i64>()"),
-        (
-            "strip_prefix(\"index-artist:\")",
-            "strip_prefix(\"library-artist:\")",
-        ),
     ] {
         let Some(prefix_index) = search_dispatch_source.find(prefix) else {
             violations.push(format!(
@@ -3842,7 +3854,7 @@ fn adr_0047_task_015_search_submit_commands() {
         "fn open_search_results_in_content_list(",
         "fn search_results_detail_for_query(",
         ".search_local_library_tracks(&conn, query, None)",
-        "SearchResultsInspectorPageVm::from_local_library_tracks(query, &local_tracks)",
+        "SearchResultsInspectorPageVm::from_local_library_tracks(query, &local_tracks, &artist_facts)",
     ] {
         if !search_dispatch_source.contains(required) {
             violations.push(format!(
@@ -6320,7 +6332,7 @@ fn screens_do_not_call_migrated_subscription_remove_paths() {
 /// the DDL of migrations 4 and 5. Unit test modules are not production code.
 #[test]
 fn adr_0079_removed_artist_storage_stays_deleted() {
-    const FIX: &str = "ADR 0079: MusicIndex artist subject storage is deleted. Use ArtistRef::LocalArtistName for a name grouping, or the ADR 0077 publisher feed GUID for an artist identity.";
+    const FIX: &str = "ADR 0079: MusicIndex artist subject storage is deleted. Use the name level of ADR 0084 Decision 7 (`ArtistNameKey`) for a name grouping, or the ADR 0077 publisher feed GUID for an artist identity.";
     let forbidden = [
         "track_artist_source_bindings",
         "artist_source_ids",
@@ -7535,7 +7547,7 @@ fn screens_do_not_inline_value_route_recipient_label_fallbacks() {
 fn shared_top_level_ui_shells_do_not_import_screen_modules() {
     let forbidden = ["crate::search", "crate::library", "SearchApp", "LibraryApp"];
     let screen_free_shells = [
-        "src/ui/shells/artist.rs",
+        "src/ui/shells/name_level_page.rs",
         "src/ui/shells/entity.rs",
         "src/ui/shells/playlist.rs",
     ];
@@ -8263,11 +8275,11 @@ fn entity_detail_pages_render_through_shell_helper_and_page_vm() {
             "build_track_detail_surface(&vm.page",
         ),
         (
-            "Library artist detail",
-            "src/ui/shells/library/feed_list.rs",
-            "LibraryArtistDetailVm::new(",
-            ".page()",
-            "render_artist_detail_shell(",
+            "Name level artist page (ADR 0084 packet 017)",
+            "src/ui/shells/name_level_page.rs",
+            "NameLevelPageVm",
+            ".header_facts()",
+            "render_release_section(",
         ),
         (
             "Library playlist detail",
@@ -8305,13 +8317,6 @@ fn entity_detail_pages_render_through_shell_helper_and_page_vm() {
     if !track_vm.contains("pub struct TrackDetailPageVm") {
         violations.push(
             "src/view_models/track_detail.rs: Task 006 requires `TrackDetailPageVm`".to_string(),
-        );
-    }
-
-    let artist_vm = read_source(&manifest_path("src/view_models/artist_detail.rs"));
-    if !artist_vm.contains("pub struct ArtistDetailPageVm") {
-        violations.push(
-            "src/view_models/artist_detail.rs: Task 006 requires `ArtistDetailPageVm`".to_string(),
         );
     }
 
@@ -9412,11 +9417,6 @@ fn view_models_own_display_fallbacks_for_library() {
             "src/library.rs",
             ".id(\"library-list\")",
             "Library list scroll id belongs in LibraryChromeDisplay",
-        ),
-        (
-            "src/library.rs",
-            ".id(\"artist-detail-scroll\")",
-            "Library artist detail scroll id belongs in LibraryChromeDisplay",
         ),
         (
             "src/library.rs",
@@ -11117,102 +11117,6 @@ fn global_search_routes_to_content_list() {
     );
 }
 
-/// ADR 0077 packet 006: an Index name candidate opens a search result — the
-/// "Tracks matching" page — never a detail page titled "Artist". This test
-/// replaces `index_artist_activation_is_scoped_feed_route_not_detail_page`,
-/// which named the retired scoped Index feed-results route.
-#[test]
-fn adr_0077_name_matches_index_row_opens_tracks_matching_not_artist_page() {
-    let app_source = read_source(&manifest_path("src/app.rs"));
-    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
-    let name_match_dispatch_source = read_source(&manifest_path("src/app/name_match_dispatch.rs"));
-    let workspace_nav_source = read_source(&manifest_path("src/view_models/workspace/nav.rs"));
-    let workspace_breadcrumb_source =
-        read_source(&manifest_path("src/view_models/workspace/breadcrumb.rs"));
-    let workspace_tests_source = read_source(&manifest_path("src/view_models/workspace/tests.rs"));
-    let library_app_source = read_source(&manifest_path("src/library/app_impl.rs"));
-    let index_detail_source = read_source(&manifest_path(
-        "src/view_models/search_results/index_detail.rs",
-    ));
-    let retired_artist_detail_route_name = concat!("IndexArtist", "Detail");
-    let retired_feed_scope_route_name = concat!("IndexArtist", "FeedScope");
-
-    for (path, source) in [
-        ("src/app.rs", app_source.as_str()),
-        (
-            "src/app/search_dispatch.rs",
-            search_dispatch_source.as_str(),
-        ),
-        (
-            "src/app/name_match_dispatch.rs",
-            name_match_dispatch_source.as_str(),
-        ),
-        (
-            "src/view_models/workspace/nav.rs",
-            workspace_nav_source.as_str(),
-        ),
-        (
-            "src/view_models/workspace/breadcrumb.rs",
-            workspace_breadcrumb_source.as_str(),
-        ),
-        (
-            "src/view_models/workspace/tests.rs",
-            workspace_tests_source.as_str(),
-        ),
-        ("src/library/app_impl.rs", library_app_source.as_str()),
-    ] {
-        assert!(
-            !source.contains(retired_artist_detail_route_name),
-            "ADR 0077 packet 006: {path} must not reintroduce a detail-page artist route for an Index name candidate"
-        );
-        assert!(
-            !source.contains(retired_feed_scope_route_name),
-            "ADR 0077 packet 006: {path} must not reintroduce the retired scoped feed-results route"
-        );
-    }
-
-    assert!(
-        workspace_nav_source.contains("IndexNameMatches(String)"),
-        "ADR 0077 packet 006: the navigation entry must be named for a name match, not an artist"
-    );
-    assert!(
-        search_dispatch_source
-            .contains("self.open_name_match_page(artist_name.to_string(), content_frame_id, cx);"),
-        "ADR 0077 packet 006: an Index name candidate must open the name-match track page"
-    );
-    assert!(
-        name_match_dispatch_source.contains("FrameNavigationEntry::IndexNameMatches(name.clone())"),
-        "ADR 0077 packet 006: opening a name match must push the IndexNameMatches entry"
-    );
-    assert!(
-        app_source.contains(
-            "FrameNavigationEntry::IndexNameMatches(_) => \"Tracks matching\".to_string(),"
-        ),
-        "ADR 0077 packet 006: the frame title for a name match must be \"Tracks matching\", never \"Artist\""
-    );
-    assert!(
-        !app_source.contains("FrameNavigationEntry::IndexNameMatches(_) => \"Artist\".to_string()"),
-        "ADR 0077 packet 006: a name match must never show the \"Artist\" frame title"
-    );
-    assert!(
-        app_source.contains("Some(FrameNavigationEntry::IndexNameMatches(_)) => {")
-            && app_source.contains("self.render_name_match_page_content(cx);"),
-        "ADR 0077 packet 006: the content list must render the name-match track page, not the old scoped feed-results view"
-    );
-    assert!(
-        workspace_tests_source.contains("display.segments[2].target")
-            && workspace_tests_source.contains("FrameNavigationEntry::IndexNameMatches")
-            && workspace_tests_source.contains("the immediate Index parent must stay selectable"),
-        "breadcrumb tests must keep the name-match parent selectable"
-    );
-    assert!(
-        !index_detail_source.contains("IndexDetailKind::Artist")
-            && !app_source.contains("ArtistDetailPageVm")
-            && !search_dispatch_source.contains("ArtistDetailPageVm"),
-        "Index name-match rows must not invent an Index artist detail kind or reuse Library artist detail VM"
-    );
-}
-
 #[test]
 fn nav_top_drives_content_list_body_switch() {
     let app_source = read_source(&manifest_path("src/app.rs"));
@@ -11222,9 +11126,8 @@ fn nav_top_drives_content_list_body_switch() {
         "FrameNavigationEntry::Search(_)",
         "FrameNavigationEntry::Release(",
         "FrameNavigationEntry::Track(",
-        "FrameNavigationEntry::ArtistDetail(_)",
+        "FrameNavigationEntry::ArtistName(_)",
         "FrameNavigationEntry::PlaylistDetail(_)",
-        "FrameNavigationEntry::IndexNameMatches(_)",
         "FrameNavigationEntry::Settings",
         // ADR 0084 Decision 2 replaces `SourceList` with `Destination(_)`.
         "FrameNavigationEntry::Destination(",
@@ -15005,7 +14908,9 @@ fn adr_0062_mixed_entity_row_contract_is_kind_backed() {
 
     for required in [
         "pub(crate) enum ContentListRowKind",
-        "Release(FeedResultDisplay)",
+        // ADR 0084 packet 017: the release variant is boxed, because the
+        // track row became much smaller than the feed row.
+        "Release(Box<FeedResultDisplay>)",
         "Track(TrackResultDisplay)",
         "pub(crate) struct ContentListEntityBadgeDisplay",
         "pub(crate) struct ContentListLibraryBadgeDisplay",
@@ -18383,7 +18288,7 @@ fn adr_0075_library_observation_callers_and_consumers_are_guarded() {
     let hydration_callback = source_between(
         &app,
         "fn hydrate_album_identity_on_view(",
-        "pub(crate) fn select_artist(",
+        "pub(crate) fn hydrate_detail_from_nav(",
     );
     assert!(hydration_callback.contains("apply_library_hydration_result("));
     assert!(hydration_callback.contains("retain_library_query_failure("));
@@ -20380,6 +20285,31 @@ The stored contract is {MUSICINDEX_CONTRACT_FIXTURE}. Delete the old copy."
     );
 }
 
+/// R17-19 (ADR 0084 packet 017): the stored contract declares the two query
+/// parameters that the name level sends: `artist_key` on
+/// `GET /v1/feeds/by-name` and `from` on `GET /v1/artist-names`.
+#[test]
+fn adr_0084_name_level_r17_19_contract_declares_the_name_level_parameters() {
+    let contract = load_musicindex_contract();
+    for (path, parameter) in [
+        ("/v1/feeds/by-name", "artist_key"),
+        ("/v1/artist-names", "from"),
+    ] {
+        let declared = contract["paths"][path]["get"]["parameters"]
+            .as_array()
+            .is_some_and(|parameters| {
+                parameters
+                    .iter()
+                    .any(|entry| entry["name"].as_str() == Some(parameter))
+            });
+        assert!(
+            declared,
+            "ADR 0075 section 6: {MUSICINDEX_CONTRACT_FIXTURE} must declare `{parameter}` on GET \
+{path} (ADR 0084 packet 017). Replace the stored contract in the same change as the decode."
+        );
+    }
+}
+
 /// R51-02: a sample struct with a field the schema does not declare gives
 /// one failure that names ADR 0075.
 #[test]
@@ -21622,11 +21552,10 @@ fn adr_0084_scrollbars_r14_01_music_columns_use_the_shared_helper() {
         &["src/ui/shells/search_results_inspector.rs"],
         &["src/ui/composites/release_detail_surface.rs"],
         &["src/ui/shells/track_page.rs"],
-        &["src/ui/shells/library/feed_list.rs"],
         &["src/ui/shells/library/singles_group.rs"],
         &["src/ui/shells/playlist.rs"],
         &["src/ui/shells/publisher.rs"],
-        &["src/ui/shells/name_match_page.rs"],
+        &["src/ui/shells/name_level_page.rs"],
     ];
 
     let mut violations = Vec::new();
@@ -22313,4 +22242,96 @@ nothing, and `LibraryApp` owns the spring-load timer. Give the pointer to \
 `LibraryApp::spring_load_pointer` and attach no drop handler. Fix:\n{}",
         violations.join("\n")
     );
+}
+
+/// The violations of the one count function of the name level (ADR 0084
+/// Decision 7, packet 017). `library` is the source of
+/// `src/view_models/library.rs`. `dispatches` holds each dispatch file and
+/// its source.
+fn name_level_one_count_violations(library: &str, dispatches: &[(&str, &str)]) -> Vec<String> {
+    let mut violations = Vec::new();
+    let artists_list = source_between(
+        library,
+        "pub(crate) fn artists_list(",
+        "pub(crate) fn name_level_members_by_key(",
+    );
+    for required in [
+        "self.name_level_members_by_key()",
+        "self.name_feed_matches()",
+    ] {
+        if !artists_list.contains(required) {
+            violations.push(format!(
+                "src/view_models/library.rs: `artists_list` must call `{required}`"
+            ));
+        }
+    }
+    let members = source_between(
+        library,
+        "pub(crate) fn name_level_members(",
+        "pub(crate) fn name_feed_matches(",
+    );
+    if !members.contains("self.name_level_members_by_key()") {
+        violations.push(
+            "src/view_models/library.rs: `name_level_members` must read `name_level_members_by_key`"
+                .to_string(),
+        );
+    }
+    for (file, source) in dispatches {
+        if !source.contains("name_level_members(") {
+            violations.push(format!("{file}: the page must call `name_level_members(`"));
+        }
+        if !source.contains("name_feed_matches(") && !source.contains("matched_name_keys(") {
+            violations.push(format!(
+                "{file}: the page must call `name_feed_matches(` or `matched_name_keys(`"
+            ));
+        }
+    }
+    violations
+}
+
+/// Situational, ADR 0084 Decision 7 (packet 017): the Artists rows, the
+/// name level page and the feed page section "Matched by name" count one
+/// set. The "3 vs 6" defect of 2026-10-18 earns this guard: the Artists
+/// name row counted 3 releases, and its page showed 6. Delete this guard
+/// when ADR 0084 Decision 7 is superseded.
+#[test]
+fn adr_0084_name_level_r17_one_count_function() {
+    const FIX: &str = "ADR 0084 §7 One Artist Page With Two Levels: a file counts or lists the name level apart from `name_level_members` and `name_feed_matches`.\nThe Artists rows, the name level page and the feed page section count one set. Call `LibraryViewModel::name_level_members` and `LibraryViewModel::name_feed_matches` in each.";
+    let library = read_source(&manifest_path("src/view_models/library.rs"));
+    let name_level = read_source(&manifest_path("src/app/name_level_dispatch.rs"));
+    let publisher = read_source(&manifest_path("src/app/publisher_dispatch.rs"));
+    let dispatches = [
+        ("src/app/name_level_dispatch.rs", name_level.as_str()),
+        ("src/app/publisher_dispatch.rs", publisher.as_str()),
+    ];
+    let mut violations = name_level_one_count_violations(&library, &dispatches);
+
+    let retired = [
+        concat!("fn select", "_artist("),
+        concat!("LibraryArtist", "DetailVm"),
+        concat!("FrameNavigationEntry::", "ArtistDetail"),
+        concat!("IndexName", "Matches"),
+        concat!("FetchName", "MatchTracks"),
+    ];
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for name in retired {
+            if source.contains(name) {
+                violations.push(format!("{file}: `{name}` belongs to a replaced page"));
+            }
+        }
+    }
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+
+    // R17-20: a copy of `artists_list` that counts its members with no call
+    // to the one grouping fails, and so does a copy with no match call.
+    let no_grouping = library.replacen(
+        "self.name_level_members_by_key()",
+        "self.local_grouping()",
+        1,
+    );
+    assert!(!name_level_one_count_violations(&no_grouping, &dispatches).is_empty());
+    let no_match = library.replacen("self.name_feed_matches()", "NameFeedMatches::default()", 1);
+    assert!(!name_level_one_count_violations(&no_match, &dispatches).is_empty());
 }

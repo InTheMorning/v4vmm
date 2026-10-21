@@ -46,7 +46,6 @@ use crate::view_models::singles_group::SinglesGroupKey;
 use crate::view_models::workspace::{
     ContentViewMode, DiscoverView, FrameNavigationEntry, NavigationPathStart, ReleaseKey, TrackKey,
 };
-use crate::views::ArtistView;
 use download_queue::DownloadQueue;
 
 // ---------------------------------------------------------------------------
@@ -56,7 +55,6 @@ use download_queue::DownloadQueue;
 #[derive(Clone, Debug)]
 pub(crate) enum LibraryDetail {
     None,
-    Artist(Box<LibraryArtistDetail>),
     Album(AlbumNode),
     Track(Box<InspectorFrame>),
     Playlist(PlaylistDetail),
@@ -67,13 +65,6 @@ pub(crate) enum LibraryDetail {
     /// page reads the current tree at each render, so a download or a
     /// removal updates it in place.
     SinglesGroup(SinglesGroupKey),
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct LibraryArtistDetail {
-    pub(crate) name: String,
-    pub(crate) view: ArtistView,
-    pub(crate) tracks: Vec<TrackRow>,
 }
 
 #[derive(Clone, Debug)]
@@ -113,11 +104,6 @@ pub(crate) enum LibraryAppEvent {
     /// of a track page (ADR 0083 Decision 5).
     OpenAlbumPage {
         feed_id: i64,
-    },
-    /// Opens the Library artist page of a name, from the artist name link
-    /// of an album page (ADR 0083 task 005).
-    OpenArtistPage {
-        name: String,
     },
     /// Opens a Library page in the one Music navigation stack (ADR 0084
     /// Decision 9). The Library keeps no navigation state: the top app

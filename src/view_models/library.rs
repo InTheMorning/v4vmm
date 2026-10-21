@@ -33,8 +33,10 @@ use crate::db::{self, TrackRow};
 use crate::feed_service;
 use crate::metadata::MusicBrainzLookupResult;
 use crate::view_models::album_page::AlbumNameLinkVm;
-use crate::view_models::artist_detail::{ArtistDetailFactVm, ArtistDetailPageVm};
-use crate::view_models::artist_identity::ArtistIdentity;
+use crate::view_models::artist_identity::{
+    name_feed_matches, name_label, ArtistIdentity, ArtistNameKey, NameFeedEntry, NameFeedMatch,
+    NameFeedMatches, ARTIST_NAME_ROW_MARK, ARTIST_ROW_SEPARATOR, UNKNOWN_ARTIST_TEXT,
+};
 use crate::view_models::artists_everything::{self, ArtistOrderKey, LibraryArtistRow};
 use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
 use crate::view_models::detail_selection::LibraryReleaseFacts;
@@ -56,6 +58,7 @@ use crate::view_models::list_selection::RowCheckState;
 use crate::view_models::list_selection::{
     ListSelection, RowSelectionVm, SelectionMode, SelectionRow,
 };
+use crate::view_models::name_level_page::NameLevelLibraryRelease;
 use crate::view_models::named_feeds::{FeedImages, NamedFeed};
 use crate::view_models::pagination::pending_skeleton_count;
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
@@ -714,7 +717,6 @@ pub(crate) struct LibraryChromeDisplay {
     pub(crate) playback_availability:
         Result<(), crate::application::capability::ExecutionUnavailable>,
     pub(crate) search_button_id: &'static str,
-    pub(crate) artist_detail_scroll_id: &'static str,
     pub(crate) playlist_detail_scroll_id: &'static str,
     pub(crate) track_detail_scroll_id: &'static str,
     pub(crate) search_placeholder: &'static str,
@@ -737,7 +739,6 @@ impl LibraryChromeDisplay {
     const VALUE: Self = Self {
         playback_availability: Ok(()),
         search_button_id: "lib-search-btn",
-        artist_detail_scroll_id: "artist-detail-scroll",
         playlist_detail_scroll_id: "playlist-detail-scroll",
         track_detail_scroll_id: "track-detail-scroll",
         search_placeholder: "Search your library...",
@@ -1200,8 +1201,9 @@ impl ContentListRowActionDisplay {
 /// `docs/adr/0062-content-list-tri-state-and-recency-rows.md`.
 #[derive(Clone, Debug)]
 pub(crate) enum ContentListRowKind {
-    /// Release/feed search-result display.
-    Release(FeedResultDisplay),
+    /// Release/feed search-result display. Boxed: the feed display carries
+    /// its optional remote feed view and is much larger than a track row.
+    Release(Box<FeedResultDisplay>),
     /// Track search-result display.
     Track(TrackResultDisplay),
 }
@@ -1348,7 +1350,7 @@ impl ContentListRowDisplay {
     /// Projects a release/feed display into the mixed content-list row contract.
     #[must_use]
     pub(crate) fn from_release_result(display: FeedResultDisplay) -> Self {
-        Self::from_kind(ContentListRowKind::Release(display))
+        Self::from_kind(ContentListRowKind::Release(Box::new(display)))
     }
 
     /// Projects a track display into the mixed content-list row contract.
@@ -1822,8 +1824,9 @@ pub(crate) struct SidebarCollapseButtonVm {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum DestinationListRowTarget {
     Release(ReleaseKey),
-    /// The name level, by artist text (ADR 0084 Decision 7).
-    Artist(String),
+    /// The name level page of a Library name row or a `MusicIndex` name
+    /// row, by its name key (ADR 0084 Decision 7, packet 017).
+    ArtistName(ArtistNameKey),
     /// The feed level, by feed GUID (ADR 0085 Decisions 2, 6 and 7). The
     /// row opens the feed page; it names no "publisher" word.
     Publisher(String),
@@ -1831,10 +1834,6 @@ pub(crate) enum DestinationListRowTarget {
     /// (ADR 0084 packet 016 decision D14). The row opens the feed page
     /// with the `MusicIndex` context.
     IndexPublisher(String),
-    /// A `MusicIndex` name row, by its name text (packet 016 decision D14).
-    /// The row opens the `MusicIndex` name match page until packet 017
-    /// replaces it.
-    IndexName(String),
 }
 
 /// One row of the Releases or Artists destination list (ADR 0084 Decision
@@ -1918,10 +1917,9 @@ pub(crate) fn releases_selection_rows(
                     ReleasesRowId::Release(key.clone()),
                     vec![key],
                 )],
-                DestinationListRowTarget::Artist(_)
+                DestinationListRowTarget::ArtistName(_)
                 | DestinationListRowTarget::Publisher(_)
-                | DestinationListRowTarget::IndexPublisher(_)
-                | DestinationListRowTarget::IndexName(_) => Vec::new(),
+                | DestinationListRowTarget::IndexPublisher(_) => Vec::new(),
             },
             ReleasesListEntryVm::SinglesGroup(group) => {
                 let mut group_rows = vec![SelectionRow::new(
@@ -1934,10 +1932,9 @@ pub(crate) fn releases_selection_rows(
                             ReleasesRowId::Release(key.clone()),
                             vec![key.clone()],
                         )),
-                        DestinationListRowTarget::Artist(_)
+                        DestinationListRowTarget::ArtistName(_)
                         | DestinationListRowTarget::Publisher(_)
-                        | DestinationListRowTarget::IndexPublisher(_)
-                        | DestinationListRowTarget::IndexName(_) => None,
+                        | DestinationListRowTarget::IndexPublisher(_) => None,
                     }
                 }));
                 group_rows
@@ -2067,101 +2064,136 @@ fn library_release_row(
     Some(row)
 }
 
-/// One row of the Artists destination list, for one artist identity (ADR
-/// 0084 Decision 7, ADR 0085 Decisions 2 and 6). `members` is each
-/// `(artist, album)` pair of the Library tree that resolves to `identity`.
-/// A feed row's label is the feed title, from the named feed of one of
-/// its members; with no stored title, it is the feed GUID. The element id
-/// of a feed row comes from its feed GUID (ADR 0085 Decision 2), so a
-/// feed row and a name row with the same label stay two rows.
-/// The mark of an Artists list row that groups releases by their artist
-/// text (operator decision of 2026-10-18). It tells a name row from a feed
-/// row with the same label. It names the source of the group, not a
-/// confirmation level (ADR 0085 Decision 2).
-pub(crate) const ARTIST_NAME_ROW_MARK: &str = "by name";
-/// The separator between the parts of an Artists list row text.
-pub(crate) const ARTIST_ROW_SEPARATOR: &str = " \u{b7} ";
-
-/// The art of an Artists row in the logo frame (ADR 0084 Decision 12): the
-/// newest four images of its member albums. The date of an album is the
-/// latest `pub_date` of its tracks, and an album with no date comes last.
-/// Packet 024 adds the image that an artist feed gives.
-/// The art of one Artists row (ADR 0084 Decision 12). `provided` is the
-/// channel image of the artist feed. A name row gives `None`.
-fn artist_row_art(
+/// The art of an Artists row in the logo frame (ADR 0084 Decision 12).
+/// `provided` is the channel image of the artist feed. A name row gives
+/// `None`. `covers` are the images of the member releases, newest first.
+fn artist_row_art<'a>(
     provided: Option<&str>,
-    members: &[(&ArtistNode, &AlbumNode)],
+    covers: impl IntoIterator<Item = &'a str>,
 ) -> CollectionArtVm {
-    let mut albums: Vec<&AlbumNode> = members.iter().map(|(_, album)| *album).collect();
+    CollectionArtVm::resolve(provided, covers, CollectionKind::Artist)
+}
+
+/// The images of `albums`, newest first. The date of an album is the
+/// latest `pub_date` of its tracks, and an album with no date comes last.
+fn newest_album_images<'a>(albums: &[&'a AlbumNode]) -> Vec<&'a str> {
+    let mut albums = albums.to_vec();
     albums.sort_by_key(|album| {
         std::cmp::Reverse(album.tracks.iter().filter_map(|track| track.pub_date).max())
     });
-    CollectionArtVm::resolve(
-        provided,
-        albums
-            .iter()
-            .filter_map(|album| album.image_href.as_deref()),
-        CollectionKind::Artist,
-    )
+    albums
+        .iter()
+        .filter_map(|album| album.image_href.as_deref())
+        .collect()
 }
 
-/// The row of one Library artist identity, with its order position (ADR
-/// 0084 packet 016 decision D6). In the scope "Everything", the count text
-/// is "n in Library" (decision D12). In the scope "Library", it stays "n
+/// The count text of an Artists row. In the scope "Everything", it is "n in
+/// Library" (packet 016 decision D12). In the scope "Library", it is "n
 /// release(s)".
-fn artist_list_row(
-    identity: ArtistIdentity,
-    members: &[(&ArtistNode, &AlbumNode)],
+fn artist_row_count_text(count: usize, scope: MusicListScope) -> String {
+    match scope {
+        MusicListScope::Library => format!("{count} release{}", plural(count)),
+        MusicListScope::Everything => format!("{count} in Library"),
+    }
+}
+
+/// The row of one name level identity of the Library, with its order
+/// position (ADR 0084 Decision 7, packet 016 decision D6). `members` comes
+/// from [`LibraryViewModel::name_level_members`], so the row count is the
+/// "In Library" fact of the name level page. The label follows the label
+/// rule of [`name_label`].
+fn artist_name_row(
+    key: &str,
+    members: &[NameLevelLibraryRelease],
+    scope: MusicListScope,
+) -> LibraryArtistRow {
+    let label = name_label(members.iter().map(|member| member.artist_text.as_str()))
+        .unwrap_or_else(|| key.to_owned());
+    let secondary_text = artist_row_count_text(members.len(), scope);
+    LibraryArtistRow {
+        order: ArtistOrderKey::name(key.to_owned()),
+        row: DestinationListRowVm {
+            element_id: format!("music-artist-row-name:{}", release_row_slug_text(key)),
+            label: label.clone(),
+            secondary_text: format!("{secondary_text}{ARTIST_ROW_SEPARATOR}{ARTIST_NAME_ROW_MARK}"),
+            a11y_label: format!("Artist: {label}, {ARTIST_NAME_ROW_MARK}"),
+            thumbnail_href: None,
+            art: Some(artist_row_art(None, newest_name_level_images(members))),
+            open: DestinationListRowTarget::ArtistName(ArtistNameKey::new(key, label)),
+            // ADR 0084 Decision 10 Exclusions: the Artists list has no
+            // selection model, so its row never shows a checkbox.
+            selection: RowSelectionVm::none(),
+        },
+    }
+}
+
+/// The images of `members`, newest first. A release with no date comes
+/// last.
+fn newest_name_level_images(members: &[NameLevelLibraryRelease]) -> Vec<&str> {
+    let mut members: Vec<&NameLevelLibraryRelease> = members.iter().collect();
+    members.sort_by_key(|member| std::cmp::Reverse(member.newest_date));
+    members
+        .into_iter()
+        .filter_map(|member| member.image_url.as_deref())
+        .collect()
+}
+
+/// The facts of one Library release of a name level identity (ADR 0084
+/// Decision 7). `artist_text` is the name of the [`ArtistNode`] that holds
+/// the album: its `display_artist`.
+fn name_level_library_release(artist_text: &str, album: &AlbumNode) -> NameLevelLibraryRelease {
+    NameLevelLibraryRelease {
+        release_key: album.release_key(),
+        feed_guid: album.feed_guid.clone(),
+        title: album.name.clone(),
+        image_url: album.image_href.clone(),
+        artist_text: artist_text.to_owned(),
+        kind: album.release_kind(),
+        newest_date: album.tracks.iter().filter_map(|track| track.pub_date).max(),
+        in_library: true,
+    }
+}
+
+/// The row of one artist feed of the Library, with its order position
+/// (ADR 0085 Decisions 2 and 6, packet 016 decision D6). `members` is each
+/// album of the feed. `matched_count` is the count of the Library releases
+/// of the names that match this feed (ADR 0084 Decision 7, "Matched by
+/// name"). The label is the feed title, from the named feed of one of its
+/// members. With no stored title, it is the feed GUID. The element id comes
+/// from the feed GUID, so a feed row and a name row with the same label
+/// stay two rows.
+fn artist_feed_row(
+    feed_guid: String,
+    members: &[&AlbumNode],
+    matched_count: usize,
     feed_images: &FeedImages<'_>,
     scope: MusicListScope,
 ) -> LibraryArtistRow {
-    let secondary_text = match scope {
-        MusicListScope::Library => format!("{} release{}", members.len(), plural(members.len())),
-        MusicListScope::Everything => format!("{} in Library", members.len()),
-    };
-    match identity {
-        ArtistIdentity::Name(name) => LibraryArtistRow {
-            order: ArtistOrderKey::name(name_sort_key(&name)),
-            row: DestinationListRowVm {
-                element_id: format!("music-artist-row-name:{}", release_row_slug_text(&name)),
-                label: name.clone(),
-                secondary_text: format!(
-                    "{secondary_text}{ARTIST_ROW_SEPARATOR}{ARTIST_NAME_ROW_MARK}"
-                ),
-                a11y_label: format!("Artist: {name}, {ARTIST_NAME_ROW_MARK}"),
-                thumbnail_href: None,
-                art: Some(artist_row_art(None, members)),
-                open: DestinationListRowTarget::Artist(name),
-                // ADR 0084 Decision 10 Exclusions: the Artists list has no
-                // selection model, so its row never shows a checkbox.
-                selection: RowSelectionVm::none(),
-            },
+    let title = members
+        .iter()
+        .flat_map(|album| album.named_feeds.iter())
+        .find_map(|feed| {
+            (feed.feed_guid == feed_guid)
+                .then(|| feed.title.clone())
+                .flatten()
+        })
+        .unwrap_or_else(|| feed_guid.clone());
+    let art = Some(artist_row_art(
+        feed_images.get(&feed_guid),
+        newest_album_images(members),
+    ));
+    LibraryArtistRow {
+        order: ArtistOrderKey::feed(name_sort_key(&title), &feed_guid),
+        row: DestinationListRowVm {
+            element_id: format!("music-artist-row-publisher:{feed_guid}"),
+            label: title.clone(),
+            secondary_text: artist_row_count_text(members.len() + matched_count, scope),
+            a11y_label: format!("Artist: {title}"),
+            thumbnail_href: None,
+            art,
+            open: DestinationListRowTarget::Publisher(feed_guid),
+            selection: RowSelectionVm::none(),
         },
-        ArtistIdentity::Publisher(feed_guid) => {
-            let title = members
-                .iter()
-                .flat_map(|(_, album)| album.named_feeds.iter())
-                .find_map(|feed| {
-                    (feed.feed_guid == feed_guid)
-                        .then(|| feed.title.clone())
-                        .flatten()
-                })
-                .unwrap_or_else(|| feed_guid.clone());
-            let art = Some(artist_row_art(feed_images.get(&feed_guid), members));
-            LibraryArtistRow {
-                order: ArtistOrderKey::feed(name_sort_key(&title), &feed_guid),
-                row: DestinationListRowVm {
-                    element_id: format!("music-artist-row-publisher:{feed_guid}"),
-                    label: title.clone(),
-                    secondary_text,
-                    a11y_label: format!("Artist: {title}"),
-                    thumbnail_href: None,
-                    art,
-                    open: DestinationListRowTarget::Publisher(feed_guid),
-                    selection: RowSelectionVm::none(),
-                },
-            }
-        }
     }
 }
 
@@ -2556,7 +2588,9 @@ impl ContentListPageVm {
         fallback_label: &str,
     ) -> Option<IndexDetailDisplay> {
         let row = self.cached_rows.iter().find_map(|row| match &row.kind {
-            ContentListRowKind::Release(release) if row.id == activation_id => Some(release),
+            ContentListRowKind::Release(release) if row.id == activation_id => {
+                Some(release.as_ref())
+            }
             ContentListRowKind::Release(_) | ContentListRowKind::Track(_) => None,
         })?;
         Some(IndexDetailDisplay::feed_or_fallback(
@@ -3215,10 +3249,9 @@ impl LibraryViewModel {
                     })
                 }
                 DestinationListRowTarget::Release(_)
-                | DestinationListRowTarget::Artist(_)
+                | DestinationListRowTarget::ArtistName(_)
                 | DestinationListRowTarget::Publisher(_)
-                | DestinationListRowTarget::IndexPublisher(_)
-                | DestinationListRowTarget::IndexName(_) => None,
+                | DestinationListRowTarget::IndexPublisher(_) => None,
             })
             .collect();
         entries.extend(groups.iter().map(|group| {
@@ -3711,8 +3744,13 @@ impl LibraryViewModel {
     /// confirmed or an unverified artist feed (ADR 0085 Decision 2): a
     /// feed with only an agreed role other than `artist`, for example a
     /// label, never resolves to it, so it gets no row. An album whose
-    /// artist feed has no row falls to the name row of its artist text,
+    /// artist feed has no row falls to the name level of its artist text,
     /// the same resolve. No row shows a level word.
+    ///
+    /// [`Self::name_level_members_by_key`] gives the members of each name,
+    /// and [`Self::name_feed_matches`] gives its match. A name that matches
+    /// exactly one feed has no row: its releases count in the row of that
+    /// feed (ADR 0084 Decision 7, amendment of 2026-10-20).
     ///
     /// The rows come in the order of the Stophammer sort key, in each
     /// scope (ADR 0084 packet 016 decision D6). In the scope
@@ -3724,29 +3762,153 @@ impl LibraryViewModel {
         scope: MusicListScope,
         page: &IndexNameListPage<ArtistNameRow>,
     ) -> Vec<DestinationListRowVm> {
-        let mut by_identity: BTreeMap<ArtistIdentity, Vec<(&ArtistNode, &AlbumNode)>> =
-            BTreeMap::new();
+        let matches = self.name_feed_matches();
+        let mut feed_members: BTreeMap<String, Vec<&AlbumNode>> = BTreeMap::new();
         for artist in &self.snapshot.tree.artists {
             for album in &artist.albums {
-                by_identity
-                    .entry(album.artist_identity(&artist.name))
-                    .or_default()
-                    .push((artist, album));
+                if let ArtistIdentity::Publisher(feed_guid) = album.artist_identity(&artist.name) {
+                    feed_members.entry(feed_guid).or_default().push(album);
+                }
+            }
+        }
+
+        let mut matched_counts: BTreeMap<String, usize> = BTreeMap::new();
+        let mut rows: Vec<LibraryArtistRow> = Vec::new();
+        for (key, members) in self.name_level_members_by_key() {
+            match matches.get(&key) {
+                NameFeedMatch::MatchedFeed(feed_guid) => {
+                    *matched_counts.entry(feed_guid).or_default() += members.len();
+                }
+                NameFeedMatch::Ambiguous | NameFeedMatch::NoFeed => {
+                    rows.push(artist_name_row(&key, &members, scope));
+                }
             }
         }
 
         let feed_images = self.snapshot.tree.feed_images();
-        let mut rows: Vec<LibraryArtistRow> = by_identity
-            .into_iter()
-            .map(|(identity, members)| artist_list_row(identity, &members, &feed_images, scope))
-            .collect();
+        rows.extend(feed_members.into_iter().map(|(feed_guid, members)| {
+            let matched_count = matched_counts.get(&feed_guid).copied().unwrap_or(0);
+            artist_feed_row(feed_guid, &members, matched_count, &feed_images, scope)
+        }));
         match scope {
             MusicListScope::Library => {
                 rows.sort_by(|left, right| left.order.cmp(&right.order));
                 rows.into_iter().map(|entry| entry.row).collect()
             }
-            MusicListScope::Everything => artists_everything::everything_rows(rows, page),
+            MusicListScope::Everything => artists_everything::everything_rows(rows, page, &matches),
         }
+    }
+
+    /// The Library releases of each name level identity, by name key (ADR
+    /// 0084 Decision 7). This is the one grouping of the name level: the
+    /// Artists rows, the name level page and the feed page section
+    /// "Matched by name" all read it. It reads the tree at each call, so a
+    /// download or a removal changes each of them in place.
+    #[must_use]
+    pub(crate) fn name_level_members_by_key(
+        &self,
+    ) -> BTreeMap<String, Vec<NameLevelLibraryRelease>> {
+        let mut by_key: BTreeMap<String, Vec<NameLevelLibraryRelease>> = BTreeMap::new();
+        for artist in &self.snapshot.tree.artists {
+            for album in &artist.albums {
+                if let ArtistIdentity::Name(key) = album.artist_identity(&artist.name) {
+                    by_key
+                        .entry(key)
+                        .or_default()
+                        .push(name_level_library_release(&artist.name, album));
+                }
+            }
+        }
+        by_key
+    }
+
+    /// The Library releases of the name `key` (ADR 0084 Decision 7). The
+    /// count of this list is the count of the Artists name row and the "In
+    /// Library" fact of the name level page.
+    #[must_use]
+    pub(crate) fn name_level_members(&self, key: &str) -> Vec<NameLevelLibraryRelease> {
+        self.name_level_members_by_key()
+            .remove(key)
+            .unwrap_or_default()
+    }
+
+    /// The match of each name key to the artist feeds of the Library (ADR
+    /// 0084 Decision 7, packet 017 decision D14). The feeds are the feed
+    /// identities of the tree, so a label feed never matches (ADR 0085
+    /// Decision 2). The key set of a feed holds the key of its title and
+    /// the key of the artist text of each of its Library releases.
+    #[must_use]
+    pub(crate) fn name_feed_matches(&self) -> NameFeedMatches {
+        let mut feeds: BTreeMap<String, NameFeedEntry> = BTreeMap::new();
+        for artist in &self.snapshot.tree.artists {
+            for album in &artist.albums {
+                let ArtistIdentity::Publisher(feed_guid) = album.artist_identity(&artist.name)
+                else {
+                    continue;
+                };
+                let entry = feeds
+                    .entry(feed_guid.clone())
+                    .or_insert_with(|| NameFeedEntry {
+                        feed_guid: feed_guid.clone(),
+                        ..NameFeedEntry::default()
+                    });
+                if entry.title.is_none() {
+                    entry.title = album
+                        .named_feeds
+                        .iter()
+                        .find(|feed| feed.feed_guid == feed_guid)
+                        .and_then(|feed| feed.title.clone());
+                    if let Some(title) = &entry.title {
+                        entry.keys.insert(name_sort_key(title));
+                    }
+                }
+                entry.keys.insert(name_sort_key(&artist.name));
+            }
+        }
+        name_feed_matches(feeds.into_values())
+    }
+
+    /// The name keys that match exactly the feed `feed_guid`, in key
+    /// order (ADR 0084 Decision 7, "Matched by name"). The label of each
+    /// key follows the label rule of its Library releases.
+    #[must_use]
+    pub(crate) fn matched_name_keys(&self, feed_guid: &str) -> Vec<ArtistNameKey> {
+        let keys = self.name_feed_matches().matched_keys(feed_guid);
+        if keys.is_empty() {
+            return Vec::new();
+        }
+        let members = self.name_level_members_by_key();
+        keys.into_iter()
+            .map(|key| {
+                let label = members
+                    .get(&key)
+                    .and_then(|releases| {
+                        name_label(releases.iter().map(|release| release.artist_text.as_str()))
+                    })
+                    .unwrap_or_else(|| key.clone());
+                ArtistNameKey::new(key, label)
+            })
+            .collect()
+    }
+
+    /// The feed GUID of each Library release whose identity is not one of
+    /// the names `keys` (ADR 0085 Decision 6, packet 017 decision D9). A
+    /// `MusicIndex` row of such a release is absent from a name level list.
+    #[must_use]
+    pub(crate) fn other_identity_feed_guids(&self, keys: &[ArtistNameKey]) -> BTreeSet<String> {
+        let mut guids = BTreeSet::new();
+        for artist in &self.snapshot.tree.artists {
+            for album in &artist.albums {
+                let is_member = matches!(
+                    album.artist_identity(&artist.name),
+                    ArtistIdentity::Name(key) if keys.iter().any(|name| name.key == key)
+                );
+                if let (false, Some(feed_guid)) = (is_member, &album.feed_guid) {
+                    guids.insert(feed_guid.clone());
+                }
+            }
+        }
+        guids
     }
 
     /// The status row at the end of the Artists list (ADR 0084 packet 016
@@ -4750,7 +4912,7 @@ impl<'a> LibraryTrackRowVm<'a> {
             .album_artist_name
             .clone()
             .or_else(|| self.track.artist_name.clone())
-            .unwrap_or_else(|| "Unknown Artist".to_string())
+            .unwrap_or_else(|| UNKNOWN_ARTIST_TEXT.to_string())
     }
 
     /// Album grouping label: `album_title -> feed_title -> "Unknown Album"`.
@@ -4825,180 +4987,6 @@ impl<'a> LibraryTrackRowVm<'a> {
     #[must_use]
     fn track_ref(&self) -> TrackRef {
         TrackRef::LocalTrackId(self.track.id)
-    }
-}
-
-/// Display-ready projection of a feed-row inside the library artist
-/// detail. The screen looks up the actual thumbnail image by `thumb_url`
-/// and wires the click handler by `feed_id`; the VM only carries plain
-/// data.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ArtistFeedSummaryVm {
-    pub(crate) feed_id: i64,
-    pub(crate) feed_name: String,
-    pub(crate) thumb_url: Option<String>,
-    pub(crate) track_count: usize,
-}
-
-/// Display contract for a feed summary row in an artist detail panel.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ArtistFeedSummaryDisplay {
-    pub(crate) element_id: String,
-    pub(crate) title: String,
-    pub(crate) thumb_url: Option<String>,
-    pub(crate) track_count_label: String,
-}
-
-impl ArtistFeedSummaryVm {
-    #[must_use]
-    pub(crate) fn display(&self) -> ArtistFeedSummaryDisplay {
-        ArtistFeedSummaryDisplay {
-            element_id: format!("artist-feed-{}", self.feed_name),
-            title: self.feed_name.clone(),
-            thumb_url: self.thumb_url.clone(),
-            track_count_label: format!("{} track{}", self.track_count, plural(self.track_count)),
-        }
-    }
-}
-
-/// Display-ready projection of a library artist detail panel.
-///
-/// Borrow-only — constructed fresh each render and dropped before the
-/// element tree is painted. The VM groups tracks by feed and applies the
-/// "Untitled Feed" / "Unknown" fallbacks the legacy renderer used.
-pub(crate) struct LibraryArtistDetailVm<'a> {
-    name: &'a str,
-    tracks: &'a [TrackRow],
-}
-
-impl<'a> LibraryArtistDetailVm<'a> {
-    #[must_use]
-    pub(crate) fn new(name: &'a str, tracks: &'a [TrackRow]) -> Self {
-        Self { name, tracks }
-    }
-
-    /// Artist name with the legacy `"Unknown"` fallback applied when
-    /// empty.
-    #[must_use]
-    pub(crate) fn artist_name_or_unknown(&self) -> String {
-        if self.name.is_empty() {
-            "Unknown".to_string()
-        } else {
-            self.name.to_string()
-        }
-    }
-
-    /// Number of distinct feeds (== albums) under this artist.
-    #[must_use]
-    pub(crate) fn album_count(&self) -> usize {
-        let mut feeds = std::collections::BTreeSet::new();
-        for t in self.tracks {
-            feeds.insert(t.feed_id);
-        }
-        feeds.len()
-    }
-
-    /// Total track count.
-    #[must_use]
-    pub(crate) fn track_count(&self) -> usize {
-        self.tracks.len()
-    }
-
-    /// Number of tracks that have been downloaded to disk.
-    #[must_use]
-    pub(crate) fn downloaded_count(&self) -> usize {
-        self.tracks
-            .iter()
-            .filter(|t| t.local_path.is_some())
-            .count()
-    }
-
-    /// Detail-grid rows in display order: `Albums`, `Tracks` (with
-    /// pluralised count), and `Downloaded` (only when at least one track
-    /// is downloaded).
-    #[must_use]
-    pub(crate) fn detail_rows(&self) -> Vec<(String, String)> {
-        let mut rows = vec![
-            ("Albums".to_string(), self.album_count().to_string()),
-            (
-                "Tracks".to_string(),
-                format!("{} track{}", self.track_count(), plural(self.track_count())),
-            ),
-        ];
-        let downloaded = self.downloaded_count();
-        if downloaded > 0 {
-            rows.push(("Downloaded".to_string(), downloaded.to_string()));
-        }
-        rows
-    }
-
-    /// Page projection for the Library name grouping. The subtitle names
-    /// the grouping itself: it has no publisher relationship, no role and
-    /// no page type (ADR 0077 Decision 6, "Album without a publisher"
-    /// refinement).
-    #[must_use]
-    pub(crate) fn page(&self) -> ArtistDetailPageVm {
-        ArtistDetailPageVm::new(
-            self.artist_name_or_unknown(),
-            Some("Grouped by name"),
-            self.detail_rows()
-                .into_iter()
-                .map(|(key, value)| ArtistDetailFactVm::new(key, value, 6))
-                .collect(),
-            !self.feed_summaries().is_empty(),
-        )
-    }
-
-    /// The image URL of each release row, in row order, each one time. The
-    /// Library loads these images before it draws the page, so a row shows
-    /// its cover, not the monogram (operator check of 2026-10-18).
-    #[must_use]
-    pub(crate) fn thumbnail_urls(&self) -> Vec<String> {
-        let mut urls: Vec<String> = Vec::new();
-        for url in self
-            .feed_summaries()
-            .into_iter()
-            .filter_map(|row| row.thumb_url)
-        {
-            if !urls.contains(&url) {
-                urls.push(url);
-            }
-        }
-        urls
-    }
-
-    /// One [`ArtistFeedSummaryVm`] per distinct feed, ordered by
-    /// `feed_id` (matches `BTreeMap` iteration of the legacy renderer).
-    #[must_use]
-    pub(crate) fn feed_summaries(&self) -> Vec<ArtistFeedSummaryVm> {
-        let mut feed_map: BTreeMap<i64, (Option<String>, Vec<&TrackRow>)> = BTreeMap::new();
-        for track in self.tracks {
-            feed_map
-                .entry(track.feed_id)
-                .or_insert_with(|| (track.feed_title.clone(), Vec::new()))
-                .1
-                .push(track);
-        }
-        feed_map
-            .into_iter()
-            .map(|(feed_id, (feed_title, tracks))| {
-                let feed_name = feed_title.unwrap_or_else(|| "Untitled Feed".to_string());
-                // The first track can have no image while another track of
-                // the release has one. Read each track, as the Library tree
-                // does for `AlbumNode::image_href`: the album image first,
-                // then a track image.
-                let thumb_url = tracks
-                    .iter()
-                    .find_map(|t| t.album_image_href.clone())
-                    .or_else(|| tracks.iter().find_map(|t| t.track_image_href.clone()));
-                ArtistFeedSummaryVm {
-                    feed_id,
-                    feed_name,
-                    thumb_url,
-                    track_count: tracks.len(),
-                }
-            })
-            .collect()
     }
 }
 
@@ -5905,6 +5893,8 @@ impl PlaylistDetailVm<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::view_models::name_level_page::NameLevelIndexState;
+    use crate::view_models::publisher_page::{MatchedByNameFacts, PublisherPageVm};
 
     fn row() -> TrackRow {
         TrackRow {
@@ -6892,210 +6882,6 @@ mod tests {
         ));
         let vm = LibraryTrackRowVm::new(&r, None);
         assert_eq!(vm.primary_action_vm(TrackRowWork::Idle).label, "Download");
-    }
-
-    fn track_for_feed(feed_id: i64, feed_title: Option<&str>) -> TrackRow {
-        let mut r = row();
-        r.feed_id = feed_id;
-        r.feed_title = feed_title.map(str::to_string);
-        r
-    }
-
-    #[test]
-    fn artist_detail_vm_falls_back_to_unknown_for_empty_name() {
-        let vm = LibraryArtistDetailVm::new("", &[]);
-        assert_eq!(vm.artist_name_or_unknown(), "Unknown");
-        let vm = LibraryArtistDetailVm::new("Aphex", &[]);
-        assert_eq!(vm.artist_name_or_unknown(), "Aphex");
-    }
-
-    #[test]
-    fn artist_detail_vm_counts_distinct_feeds_as_albums() {
-        let tracks = vec![
-            track_for_feed(1, Some("A")),
-            track_for_feed(1, Some("A")),
-            track_for_feed(2, Some("B")),
-        ];
-        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
-        assert_eq!(vm.album_count(), 2);
-        assert_eq!(vm.track_count(), 3);
-    }
-
-    #[test]
-    fn artist_detail_vm_omits_downloaded_row_when_zero() {
-        let tracks = vec![track_for_feed(1, Some("A"))];
-        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
-        let rows = vm.detail_rows();
-        assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0], ("Albums".into(), "1".into()));
-        assert_eq!(rows[1], ("Tracks".into(), "1 track".into()));
-    }
-
-    #[test]
-    fn artist_detail_vm_pluralises_track_count_above_one() {
-        let tracks = [track_for_feed(1, Some("A")), track_for_feed(1, Some("A"))];
-        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
-        let rows = vm.detail_rows();
-        assert_eq!(rows[1], ("Tracks".into(), "2 tracks".into()));
-    }
-
-    /// R1-06: the Library artist rows come from local tracks only. No source
-    /// subject, alias, area or active-years row exists (ADR 0079).
-    #[test]
-    fn adr_0077_remove_artist_storage_library_artist_rows_have_no_source_subject() {
-        let mut downloaded = track_for_feed(1, Some("A"));
-        downloaded.local_path = Some(crate::library_path::LibraryRelativePath::for_test("x"));
-        let tracks = [downloaded, track_for_feed(2, Some("B"))];
-        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
-
-        assert_eq!(
-            vm.detail_rows(),
-            vec![
-                ("Albums".to_string(), "2".to_string()),
-                ("Tracks".to_string(), "2 tracks".to_string()),
-                ("Downloaded".to_string(), "1".to_string()),
-            ]
-        );
-        let page = vm.page();
-        assert_eq!(page.detail_rows.len(), 3);
-        assert_eq!(page.subtitle.as_deref(), Some("Grouped by name"));
-    }
-
-    #[test]
-    fn artist_detail_vm_includes_downloaded_row_when_any_local_path_present() {
-        let mut t1 = track_for_feed(1, Some("A"));
-        t1.local_path = Some(crate::library_path::LibraryRelativePath::for_test("x"));
-        let t2 = track_for_feed(1, Some("A"));
-        let tracks = [t1, t2];
-        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
-        let rows = vm.detail_rows();
-        assert_eq!(rows.len(), 3);
-        assert_eq!(rows[2], ("Downloaded".into(), "1".into()));
-    }
-
-    #[test]
-    fn artist_detail_page_projects_library_header_rows_and_feed_policy() {
-        let tracks = [track_for_feed(1, Some("A"))];
-        let vm = LibraryArtistDetailVm::new("", &tracks);
-        let page = vm.page();
-
-        assert_eq!(page.title, "Unknown");
-        assert_eq!(page.subtitle.as_deref(), Some("Grouped by name"));
-        assert!(page.shows_feed_section);
-        assert_eq!(page.detail_rows[0].key, "Albums");
-        assert_eq!(page.detail_rows[0].value, "1");
-        assert_eq!(page.detail_rows[0].max_lines, 6);
-    }
-
-    /// R5-04 (ADR 0077 Decision 6, "Album without a publisher"
-    /// refinement): the Library name-grouped artist page shows the
-    /// "Grouped by name" label. The grouping has no publisher
-    /// relationship, no role and no page type.
-    #[test]
-    fn adr_0077_feed_owner_library_name_grouping_shows_grouped_by_name() {
-        let tracks = [track_for_feed(1, Some("A"))];
-        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
-
-        assert_eq!(vm.page().subtitle.as_deref(), Some("Grouped by name"));
-    }
-
-    #[test]
-    fn artist_detail_vm_feed_summaries_apply_untitled_fallback_and_track_counts() {
-        let mut t1 = track_for_feed(1, None);
-        t1.album_image_href = Some("img-1".into());
-        let t2 = track_for_feed(1, None);
-        let t3 = track_for_feed(2, Some("Real"));
-        let tracks = [t1, t2, t3];
-        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
-        let summaries = vm.feed_summaries();
-        assert_eq!(summaries.len(), 2);
-        assert_eq!(summaries[0].feed_id, 1);
-        assert_eq!(summaries[0].feed_name, "Untitled Feed");
-        assert_eq!(summaries[0].thumb_url.as_deref(), Some("img-1"));
-        assert_eq!(summaries[0].track_count, 2);
-        assert_eq!(summaries[1].feed_id, 2);
-        assert_eq!(summaries[1].feed_name, "Real");
-        assert_eq!(summaries[1].track_count, 1);
-    }
-
-    #[test]
-    fn artist_feed_summary_display_projects_row_id_and_track_count() {
-        let mut t1 = track_for_feed(1, Some("Real"));
-        let t2 = track_for_feed(1, Some("Real"));
-        let tracks = [t1.clone(), t2];
-        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
-        let summaries = vm.feed_summaries();
-
-        let display = summaries[0].display();
-
-        assert_eq!(display.element_id, "artist-feed-Real");
-        assert_eq!(display.title, "Real");
-        assert_eq!(display.track_count_label, "2 tracks");
-
-        t1.feed_id = 2;
-        t1.feed_title = Some("Single".into());
-        t1.album_image_href = Some("single-img".into());
-        let tracks = [t1];
-        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
-        let display = vm.feed_summaries()[0].display();
-        assert_eq!(display.title, "Single");
-        assert_eq!(display.thumb_url.as_deref(), Some("single-img"));
-        assert_eq!(display.track_count_label, "1 track");
-    }
-
-    /// The operator found on 2026-10-18 that "The Heycitizen Experience"
-    /// showed no cover on the artist page, because its first track has no
-    /// image. The cover comes from any track of the release.
-    #[test]
-    fn artist_detail_vm_thumb_url_reads_each_track_of_the_release() {
-        let first = track_for_feed(1, Some("A"));
-        let mut second = track_for_feed(1, Some("A"));
-        second.track_image_href = Some("track-img".into());
-        let mut third = track_for_feed(1, Some("A"));
-        third.album_image_href = Some("album-img".into());
-        let tracks = [first.clone(), second.clone()];
-        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
-        assert_eq!(
-            vm.feed_summaries()[0].thumb_url.as_deref(),
-            Some("track-img")
-        );
-
-        let tracks = [first, second, third];
-        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
-        assert_eq!(
-            vm.feed_summaries()[0].thumb_url.as_deref(),
-            Some("album-img")
-        );
-    }
-
-    /// The operator found on 2026-10-18 that a release row showed "FD",
-    /// because the Library loaded only the header image of the artist page.
-    /// The page now gives the image URL of each release row.
-    #[test]
-    fn artist_detail_vm_thumbnail_urls_give_each_release_row_one_time() {
-        let mut a1 = track_for_feed(1, Some("A"));
-        a1.album_image_href = Some("cover-a".into());
-        let mut a2 = track_for_feed(1, Some("A"));
-        a2.album_image_href = Some("cover-a".into());
-        let mut b = track_for_feed(2, Some("B"));
-        b.track_image_href = Some("cover-b".into());
-        let c = track_for_feed(3, Some("C"));
-        let tracks = [a1, a2, b, c];
-        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
-        assert_eq!(
-            vm.thumbnail_urls(),
-            vec!["cover-a".to_string(), "cover-b".to_string()]
-        );
-    }
-
-    #[test]
-    fn artist_detail_vm_thumb_url_falls_back_to_track_image_href() {
-        let mut t = track_for_feed(1, Some("A"));
-        t.track_image_href = Some("track-img".into());
-        let tracks = [t];
-        let vm = LibraryArtistDetailVm::new("Artist", &tracks);
-        let summaries = vm.feed_summaries();
-        assert_eq!(summaries[0].thumb_url.as_deref(), Some("track-img"));
     }
 
     fn playlist(name: &str) -> db::Playlist {
@@ -8628,7 +8414,7 @@ mod tests {
         );
         assert_eq!(
             group.open,
-            SinglesGroupKey(ArtistIdentity::Name("Haleen".into()))
+            SinglesGroupKey(ArtistIdentity::Name("haleen".into()))
         );
 
         let mut tree = singles_tree();
@@ -8657,7 +8443,7 @@ mod tests {
     fn adr_0084_singles_group_r15_06_expanded_group_gives_its_singles() {
         let mut vm = LibraryViewModel::new();
         vm.replace_tree(singles_tree());
-        let key = SinglesGroupKey(ArtistIdentity::Name("Haleen".into()));
+        let key = SinglesGroupKey(ArtistIdentity::Name("haleen".into()));
 
         let expanded = BTreeSet::from([key.clone()]);
         let entries = vm.releases_list(
@@ -8707,7 +8493,7 @@ mod tests {
     fn adr_0084_selection_right_and_left_open_and_close_a_group() {
         let mut vm = LibraryViewModel::new();
         vm.replace_tree(singles_tree());
-        let group_key = SinglesGroupKey(ArtistIdentity::Name("Haleen".into()));
+        let group_key = SinglesGroupKey(ArtistIdentity::Name("haleen".into()));
         let group_row = ReleasesRowId::Group(group_key.clone());
         let single_row = ReleasesRowId::Release(ReleaseKey::FeedGuid("guid-2".into()));
 
@@ -8752,7 +8538,7 @@ mod tests {
     fn adr_0084_selection_r9_13_r9_14_single_row_checkbox_and_group_mixed_state() {
         let mut vm = LibraryViewModel::new();
         vm.replace_tree(singles_tree());
-        let group_key = SinglesGroupKey(ArtistIdentity::Name("Haleen".into()));
+        let group_key = SinglesGroupKey(ArtistIdentity::Name("haleen".into()));
         let expanded = BTreeSet::from([group_key]);
         let newest_key = ReleaseKey::FeedGuid("guid-2".into());
 
@@ -8916,7 +8702,7 @@ mod tests {
         );
         assert_eq!(
             rows[0].open,
-            DestinationListRowTarget::Artist("Aphex Twin".to_string())
+            DestinationListRowTarget::ArtistName(ArtistNameKey::new("aphex twin", "Aphex Twin"))
         );
         assert_eq!(rows[0].secondary_text, "2 releases \u{b7} by name");
         assert_eq!(rows[1].secondary_text, "1 release \u{b7} by name");
@@ -9235,6 +9021,451 @@ mod tests {
         }
     }
 
+    /// The Haleen tree of packet 017 R17-03: one `ArtistNode` "Haleen"
+    /// with 3 albums that name no feed and 3 albums with a confirmed artist
+    /// feed titled "Haleen". The feed album 3 and the name album 6 are
+    /// singles.
+    fn haleen_tree() -> LibraryTree {
+        let feed_album = |name: &str, id: i64, tracks: usize| {
+            let mut album = with_named_feed(
+                minimal_album(name, id),
+                "haleen-feed",
+                "Haleen",
+                Some("artist"),
+                Some("both"),
+            );
+            album.tracks = (0..tracks).map(|_| TrackRow::default()).collect();
+            album
+        };
+        let name_album = |name: &str, id: i64, tracks: usize, date: i64| {
+            let mut album = minimal_album(name, id);
+            album.image_href = Some(format!("{name}.jpg"));
+            album.tracks = (0..tracks)
+                .map(|_| TrackRow {
+                    pub_date: Some(date),
+                    ..TrackRow::default()
+                })
+                .collect();
+            album
+        };
+        LibraryTree {
+            artists: vec![ArtistNode {
+                name: "Haleen".to_owned(),
+                albums: vec![
+                    feed_album("Feed One", 1, 9),
+                    feed_album("Feed Two", 2, 8),
+                    feed_album("Feed Single", 3, 1),
+                    name_album("Name One", 4, 9, 40),
+                    name_album("Name Two", 5, 9, 50),
+                    name_album("Name Single", 6, 1, 60),
+                ],
+            }],
+        }
+    }
+
+    /// The feed page facts of the Haleen feed, for the 3 feed albums of
+    /// [`haleen_tree`].
+    fn haleen_feed_facts() -> crate::view_models::publisher_page::PublisherPageFacts {
+        use crate::api::{AlbumNamesAs, RoleAgreement};
+        use crate::view_models::publisher_page::{PublisherPageAlbumFact, PublisherPageFacts};
+        let album = |id: i64, title: &str, tracks: i64| PublisherPageAlbumFact {
+            feed_guid: Some(format!("album-guid-{id}")),
+            title: Some(title.to_owned()),
+            album_names_as: Some(AlbumNamesAs::Publisher),
+            role_agreement: Some(RoleAgreement::Both),
+            role: Some("artist".to_owned()),
+            in_library: true,
+            track_count: Some(tracks),
+            ..PublisherPageAlbumFact::default()
+        };
+        PublisherPageFacts {
+            publisher_feed_guid: "haleen-feed".to_owned(),
+            feed_title: Some("Haleen".to_owned()),
+            albums: vec![
+                album(1, "Feed One", 9),
+                album(2, "Feed Two", 8),
+                album(3, "Feed Single", 1),
+            ],
+            ..PublisherPageFacts::default()
+        }
+    }
+
+    /// The facts of the section "Matched by name" of the feed `feed_guid`,
+    /// from the tree of `vm`, with the `MusicIndex` part `index`.
+    fn matched_by_name_facts(
+        vm: &LibraryViewModel,
+        feed_guid: &str,
+        index: NameLevelIndexState,
+    ) -> MatchedByNameFacts {
+        let keys = vm.matched_name_keys(feed_guid);
+        MatchedByNameFacts {
+            library: keys
+                .iter()
+                .flat_map(|key| vm.name_level_members(&key.key))
+                .collect(),
+            index,
+            other_identity_feed_guids: vm.other_identity_feed_guids(&keys),
+            keys,
+        }
+    }
+
+    /// R17-03: the Haleen tree gives 3 name level members, the match
+    /// `MatchedFeed`, no "Haleen · by name" row, and the feed row "6
+    /// releases". The "3 vs 6" defect of 2026-10-18 goes.
+    #[test]
+    fn adr_0084_name_level_r17_03_haleen_tree() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(haleen_tree());
+
+        assert_eq!(vm.name_level_members("haleen").len(), 3);
+        assert_eq!(
+            vm.name_feed_matches().get("haleen"),
+            NameFeedMatch::MatchedFeed("haleen-feed".to_owned())
+        );
+        let rows = vm.artists_list(MusicListScope::Library, &IndexNameListPage::default());
+        let texts: Vec<(&str, &str)> = rows
+            .iter()
+            .map(|row| (row.label.as_str(), row.secondary_text.as_str()))
+            .collect();
+        assert_eq!(texts, [("Haleen", "6 releases")]);
+        assert_eq!(
+            rows[0].open,
+            DestinationListRowTarget::Publisher("haleen-feed".to_owned())
+        );
+    }
+
+    /// R17-04 and R17-23: four names, one of them `Ambiguous`. The count of
+    /// each name row equals the "In Library" fact of its page. No name row
+    /// has a `MatchedFeed` key. An `Ambiguous` name keeps its row, and
+    /// neither of its feed rows counts its releases.
+    #[test]
+    fn adr_0084_name_level_r17_04_row_count_equals_the_page_fact() {
+        use crate::view_models::artist_identity::ArtistNameKey;
+        use crate::view_models::name_level_page::{NameLevelPageFacts, NameLevelPageVm};
+
+        let feed_album = |name: &str, id: i64, guid: &str, title: &str| {
+            with_named_feed(
+                minimal_album(name, id),
+                guid,
+                title,
+                Some("artist"),
+                Some("both"),
+            )
+        };
+        let mut tree = haleen_tree();
+        tree.artists.extend([
+            ArtistNode {
+                name: "Alpha".to_owned(),
+                albums: vec![
+                    minimal_album("Alpha One", 10),
+                    minimal_album("Alpha Two", 11),
+                ],
+            },
+            ArtistNode {
+                name: "beta ".to_owned(),
+                albums: vec![minimal_album("Beta One", 12)],
+            },
+            ArtistNode {
+                name: "Shared".to_owned(),
+                albums: vec![
+                    minimal_album("Shared Name Only", 13),
+                    feed_album("Other Feed Album", 14, "other-feed", "Other"),
+                ],
+            },
+            ArtistNode {
+                name: "Act A".to_owned(),
+                albums: vec![feed_album("Shared Feed Album", 15, "shared-feed", "Shared")],
+            },
+        ]);
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(tree);
+        let matches = vm.name_feed_matches();
+        assert_eq!(matches.get("shared"), NameFeedMatch::Ambiguous);
+
+        let rows = vm.artists_list(MusicListScope::Library, &IndexNameListPage::default());
+        let mut name_rows = 0;
+        for row in &rows {
+            let DestinationListRowTarget::ArtistName(key) = &row.open else {
+                continue;
+            };
+            name_rows += 1;
+            assert!(!matches!(
+                matches.get(&key.key),
+                NameFeedMatch::MatchedFeed(_)
+            ));
+            let page = NameLevelPageVm::new(NameLevelPageFacts {
+                key: key.clone(),
+                library: vm.name_level_members(&key.key),
+                index: NameLevelIndexState::NotRequested,
+                other_identity_feed_guids: BTreeSet::new(),
+                matched_feed: None,
+            });
+            let in_library = page
+                .header_facts()
+                .into_iter()
+                .find(|fact| fact.label == "In Library")
+                .map(|fact| fact.value)
+                .expect("the page gives the In Library fact");
+            let count = row.secondary_text.split(' ').next().unwrap_or_default();
+            assert_eq!(count, in_library, "{row:?}");
+        }
+        assert_eq!(name_rows, 3, "Alpha, beta and Shared keep a row");
+        let text = |label: &str| {
+            rows.iter()
+                .find(|row| row.label == label)
+                .map(|row| row.secondary_text.clone())
+                .unwrap_or_default()
+        };
+        assert_eq!(text("Shared"), "1 release \u{b7} by name");
+        assert_eq!(text("Other"), "1 release");
+        assert_eq!(text("Haleen"), "6 releases");
+        for feed_guid in ["shared-feed", "other-feed"] {
+            assert!(
+                vm.matched_name_keys(feed_guid)
+                    .iter()
+                    .all(|key| key.key != "shared"),
+                "an Ambiguous name is no matched key of {feed_guid}"
+            );
+        }
+        let beta = rows
+            .iter()
+            .find(|row| row.label == "beta ")
+            .expect("the label is the raw text");
+        assert_eq!(
+            beta.open,
+            DestinationListRowTarget::ArtistName(ArtistNameKey::new("beta", "beta "))
+        );
+    }
+
+    /// R17-18: a tree change that adds a Library album of the name gives
+    /// "In Library" n + 1 and one more row on the next page, with no new
+    /// request.
+    #[test]
+    fn adr_0084_name_level_r17_18_tree_change_updates_the_page() {
+        use crate::view_models::artist_identity::ArtistNameKey;
+        use crate::view_models::name_level_page::{NameLevelPageFacts, NameLevelPageVm};
+
+        let page = |vm: &LibraryViewModel| {
+            NameLevelPageVm::new(NameLevelPageFacts {
+                key: ArtistNameKey::from_text("Alpha"),
+                library: vm.name_level_members("alpha"),
+                index: NameLevelIndexState::NotRequested,
+                other_identity_feed_guids: BTreeSet::new(),
+                matched_feed: None,
+            })
+        };
+        let rows_of = |page: &NameLevelPageVm| {
+            page.sections()
+                .iter()
+                .map(|section| section.rows.len())
+                .sum::<usize>()
+        };
+        let mut tree = LibraryTree {
+            artists: vec![ArtistNode {
+                name: "Alpha".to_owned(),
+                albums: vec![minimal_album("One", 1)],
+            }],
+        };
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(tree.clone());
+        assert_eq!(rows_of(&page(&vm)), 1);
+
+        tree.artists[0].albums.push(minimal_album("Two", 2));
+        vm.replace_tree(tree);
+        let after = page(&vm);
+        assert_eq!(rows_of(&after), 2);
+        assert!(after
+            .header_facts()
+            .iter()
+            .any(|fact| fact.label == "In Library" && fact.value == "2"));
+    }
+
+    /// R17-25: the feed page section of the Haleen tree. The 3 feed albums
+    /// are in "Albums and EPs" and "Singles". "Matched by name" comes last
+    /// with the 3 name-only albums, the note, the detail line, "In Library"
+    /// and an open action.
+    #[test]
+    fn adr_0084_name_level_r17_25_feed_page_section() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(haleen_tree());
+        let page = PublisherPageVm::new(haleen_feed_facts()).with_matched_by_name(
+            matched_by_name_facts(&vm, "haleen-feed", NameLevelIndexState::NotRequested),
+        );
+
+        let sections = page.sections();
+        let headings: Vec<&str> = sections
+            .iter()
+            .map(|section| section.heading.as_str())
+            .collect();
+        assert_eq!(headings, ["Albums and EPs", "Singles", "Matched by name"]);
+        assert_eq!(sections[0].rows.len() + sections[1].rows.len(), 3);
+        let matched = &sections[2];
+        assert_eq!(matched.note, Some(PublisherPageVm::MATCHED_BY_NAME_NOTE));
+        let titles: Vec<&str> = matched.rows.iter().map(|row| row.title.text()).collect();
+        assert_eq!(
+            titles,
+            ["Name Single", "Name Two", "Name One"],
+            "newest first"
+        );
+        for row in &matched.rows {
+            assert_eq!(
+                row.detail_line.as_deref(),
+                Some("names \"Haleen\", no feed")
+            );
+            assert!(row.in_library);
+            assert!(row.open.is_some());
+        }
+        assert!(sections[0].note.is_none() && sections[0].status.is_none());
+    }
+
+    /// R17-26: the `MusicIndex` part of the section. A row of a matched key
+    /// with a new feed GUID is in the section. A row whose feed GUID is in
+    /// another section is absent. `Loading` and `Failed` give the status,
+    /// and the Library rows stay. With no Library row and `Loaded` with no
+    /// row, the section is absent.
+    #[test]
+    fn adr_0084_name_level_r17_26_feed_page_section_index_part() {
+        use crate::view_models::name_level_page::{NameLevelIndexRelease, ReleaseListStatus};
+
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(haleen_tree());
+        let index_row = |guid: &str| NameLevelIndexRelease {
+            feed_guid: guid.to_owned(),
+            title: Some(guid.to_owned()),
+            release_artist: Some("Haleen".to_owned()),
+            episode_count: Some(1),
+            ..NameLevelIndexRelease::default()
+        };
+        let section_of = |index: NameLevelIndexState| {
+            PublisherPageVm::new(haleen_feed_facts())
+                .with_matched_by_name(matched_by_name_facts(&vm, "haleen-feed", index))
+                .sections()
+                .into_iter()
+                .find(|section| section.heading == "Matched by name")
+        };
+
+        let loaded = section_of(NameLevelIndexState::Loaded {
+            releases: vec![index_row("new-guid"), index_row("album-guid-1")],
+            more_available: false,
+        })
+        .expect("the section shows");
+        let guids: Vec<Option<&str>> = loaded
+            .rows
+            .iter()
+            .map(|row| row.feed_guid.as_deref())
+            .collect();
+        assert!(guids.contains(&Some("new-guid")));
+        assert!(
+            !guids.contains(&Some("album-guid-1")),
+            "the release shows one time"
+        );
+        assert_eq!(loaded.rows.len(), 4);
+
+        let loading = section_of(NameLevelIndexState::Loading).expect("the section shows");
+        assert_eq!(
+            loading.status,
+            Some(ReleaseListStatus::Loading(
+                crate::view_models::name_level_page::NameLevelPageVm::LOADING_TEXT
+            ))
+        );
+        assert_eq!(loading.rows.len(), 3);
+        let failed = section_of(NameLevelIndexState::Failed {
+            detail: "timeout".to_owned(),
+        })
+        .expect("the section shows");
+        assert!(matches!(
+            failed.status,
+            Some(ReleaseListStatus::Failed { .. })
+        ));
+        assert_eq!(failed.rows.len(), 3, "the Library rows stay");
+
+        let no_library =
+            PublisherPageVm::new(haleen_feed_facts()).with_matched_by_name(MatchedByNameFacts {
+                keys: vec![crate::view_models::artist_identity::ArtistNameKey::from_text("Haleen")],
+                index: NameLevelIndexState::Loaded {
+                    releases: Vec::new(),
+                    more_available: false,
+                },
+                ..MatchedByNameFacts::default()
+            });
+        assert!(no_library
+            .sections()
+            .iter()
+            .all(|section| section.heading != "Matched by name"));
+    }
+
+    /// R17-27: the Artists feed row count is the count of the feed members
+    /// plus the members of each matched key. It equals the Library rows of
+    /// the feed sections plus the Library rows of "Matched by name".
+    #[test]
+    fn adr_0084_name_level_r17_27_feed_row_count_equals_the_page_rows() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(haleen_tree());
+        let matched: usize = vm
+            .matched_name_keys("haleen-feed")
+            .iter()
+            .map(|key| vm.name_level_members(&key.key).len())
+            .sum();
+        assert_eq!(matched, 3);
+        let page_rows: usize = PublisherPageVm::new(haleen_feed_facts())
+            .with_matched_by_name(matched_by_name_facts(
+                &vm,
+                "haleen-feed",
+                NameLevelIndexState::NotRequested,
+            ))
+            .sections()
+            .iter()
+            .flat_map(|section| section.rows.iter())
+            .filter(|row| row.in_library)
+            .count();
+        let row = vm.artists_list(MusicListScope::Library, &IndexNameListPage::default());
+        assert_eq!(row[0].secondary_text, format!("{} releases", 3 + matched));
+        assert_eq!(page_rows, 3 + matched);
+    }
+
+    /// R16-21 (added by packet 017, because packet 016 came first): in
+    /// "Everything", a Library name row and a `MusicIndex` name row whose
+    /// key gives `MatchedFeed` give no row. The Library feed row count
+    /// includes the matched Library releases. A `NoFeed` `MusicIndex` name
+    /// row stays.
+    #[test]
+    fn adr_0084_scopes_r16_21_matched_name_rows_in_everything() {
+        use crate::view_models::index_name_list::IndexNameListBatch;
+
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(haleen_tree());
+        let rows: Vec<ArtistNameRow> = serde_json::from_value(serde_json::json!([
+            {"kind": "name", "name": "Haleen", "sort_name": "haleen", "key": "haleen",
+             "release_count": 1},
+            {"kind": "name", "name": "Nobody Else", "sort_name": "nobody else",
+             "key": "nobody else", "release_count": 2}
+        ]))
+        .unwrap();
+        let mut page = IndexNameListPage::default();
+        let intent = page.begin_load(false).unwrap();
+        page.finish_load(
+            IndexNameListBatch {
+                rows,
+                cursor: None,
+                has_more: false,
+            },
+            intent.generation,
+        );
+
+        let everything = vm.artists_list(MusicListScope::Everything, &page);
+        let texts: Vec<(&str, &str)> = everything
+            .iter()
+            .map(|row| (row.label.as_str(), row.secondary_text.as_str()))
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                ("Haleen", "6 in Library"),
+                ("Nobody Else", "Not in Library \u{b7} by name"),
+            ]
+        );
+    }
+
     /// R16-10 (ADR 0084 packet 016): in "Everything", a Library row gives
     /// "n in Library" and keeps its label and its target, and a `MusicIndex`
     /// row of the same feed GUID or the same name key gives no second row.
@@ -9386,7 +9617,6 @@ mod tests {
     fn library_chrome_display_projects_shell_labels() {
         let display = LibraryViewModel::chrome_display();
         assert_eq!(display.search_button_id, "lib-search-btn");
-        assert_eq!(display.artist_detail_scroll_id, "artist-detail-scroll");
         assert_eq!(display.playlist_detail_scroll_id, "playlist-detail-scroll");
         assert_eq!(display.track_detail_scroll_id, "track-detail-scroll");
         assert_eq!(display.search_placeholder, "Search your library...");

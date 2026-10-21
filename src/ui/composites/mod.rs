@@ -40,6 +40,7 @@ pub mod musicbrainz_panel;
 pub(crate) mod page_scroll_content;
 pub mod playlist_popover;
 pub mod release_detail_surface;
+pub(crate) mod release_section_list;
 pub mod segmented_control;
 pub mod selectable_text;
 pub(crate) mod selectable_tile;

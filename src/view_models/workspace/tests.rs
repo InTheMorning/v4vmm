@@ -8,6 +8,7 @@ use super::{
     WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout, WorkspaceLayoutConfig,
     WorkspaceModelError,
 };
+use crate::view_models::artist_identity::ArtistNameKey;
 
 fn frame(id: u64, kind: WorkspaceFrameKind) -> WorkspaceFrameState {
     WorkspaceFrameState::with_default_title(WorkspaceFrameId::new(id), kind)
@@ -495,9 +496,9 @@ fn adr_0077_publisher_navigation_breadcrumb_shows_view_model_title() {
 fn breadcrumb_display_projects_index_search_drilldown_path() {
     let mut nav = FrameNavigationState::new(discover());
     nav.push(FrameNavigationEntry::Search("survival guide".to_string()));
-    nav.push(FrameNavigationEntry::IndexNameMatches(
-        "Survival Guide".to_string(),
-    ));
+    nav.push(FrameNavigationEntry::ArtistName(ArtistNameKey::from_text(
+        "Survival Guide",
+    )));
     nav.push(FrameNavigationEntry::Release(
         ReleaseKey::from_index_feed_guid("feed-guid"),
     ));
@@ -515,7 +516,7 @@ fn breadcrumb_display_projects_index_search_drilldown_path() {
         [
             "Discover",
             "Search: survival guide",
-            "\"Survival Guide\"",
+            "Survival Guide \u{b7} by name",
             // ADR 0084 Decision 4: the entry itself carries no title, so its
             // fallback label is "Release". The top app supplies the real
             // title through its own `label_for` closure at the call site.
@@ -524,9 +525,9 @@ fn breadcrumb_display_projects_index_search_drilldown_path() {
     );
     assert_eq!(
         display.segments[2].target,
-        Some(FrameNavigationEntry::IndexNameMatches(
-            "Survival Guide".to_string()
-        )),
+        Some(FrameNavigationEntry::ArtistName(ArtistNameKey::from_text(
+            "Survival Guide"
+        ))),
         "the immediate Index parent must stay selectable in the breadcrumb"
     );
     assert_eq!(
@@ -539,7 +540,7 @@ fn breadcrumb_display_projects_index_search_drilldown_path() {
         vec![
             discover(),
             FrameNavigationEntry::Search("survival guide".to_string()),
-            FrameNavigationEntry::IndexNameMatches("Survival Guide".to_string()),
+            FrameNavigationEntry::ArtistName(ArtistNameKey::from_text("Survival Guide")),
             FrameNavigationEntry::Release(ReleaseKey::from_index_feed_guid("feed-guid")),
         ],
         "breadcrumb labelers need the same full path rendered by frame chrome"
@@ -1278,7 +1279,7 @@ fn open_search_results_in_content_list_replaces_search_ancestor_nav() {
     layout
         .push_nav(
             content_list_id,
-            FrameNavigationEntry::ArtistDetail("HeyCitizen".to_string()),
+            FrameNavigationEntry::ArtistName(ArtistNameKey::from_text("HeyCitizen")),
         )
         .expect("should push selected result detail");
     layout
@@ -1300,7 +1301,9 @@ fn open_search_results_in_content_list_replaces_search_ancestor_nav() {
     );
     assert_eq!(
         back_page(nav),
-        Some(FrameNavigationEntry::ArtistDetail("HeyCitizen".to_string())),
+        Some(FrameNavigationEntry::ArtistName(ArtistNameKey::from_text(
+            "HeyCitizen"
+        ))),
         "ADR 0084 Decision 9: Back returns to the selected detail of the earlier search"
     );
 }
@@ -1362,7 +1365,7 @@ fn adr_0084_nav_push_of_path_page_cuts_path_and_back_restores() {
 fn adr_0084_nav_list_row_opens_under_the_destination() {
     let artists = FrameNavigationEntry::Destination(MusicDestination::Artists);
     let heycitizen = FrameNavigationEntry::PublisherDetail("heycitizen-guid".to_string());
-    let haleen = FrameNavigationEntry::ArtistDetail("Haleen".to_string());
+    let haleen = FrameNavigationEntry::ArtistName(ArtistNameKey::from_text("Haleen"));
     let mut nav = FrameNavigationState::new(artists.clone());
 
     nav.open_list_row(heycitizen.clone());
@@ -1400,14 +1403,16 @@ fn adr_0084_nav_start_path_holds_destination_and_page() {
 
     nav.start_path(
         discover(),
-        Some(FrameNavigationEntry::ArtistDetail("Haleen".to_string())),
+        Some(FrameNavigationEntry::ArtistName(ArtistNameKey::from_text(
+            "Haleen",
+        ))),
     );
 
     assert_eq!(
         nav.path_entries(),
         vec![
             discover(),
-            FrameNavigationEntry::ArtistDetail("Haleen".to_string()),
+            FrameNavigationEntry::ArtistName(ArtistNameKey::from_text("Haleen")),
         ],
         "a sidebar click must start a new path"
     );
@@ -1578,7 +1583,9 @@ fn adr_0084_release_path_holds_one_release_opened_from_both_origins() {
     let index_open = FrameNavigationEntry::Release(ReleaseKey::from_index_feed_guid("feed-guid"));
 
     nav.push(library_open);
-    nav.push(FrameNavigationEntry::ArtistDetail("Haleen".to_string()));
+    nav.push(FrameNavigationEntry::ArtistName(ArtistNameKey::from_text(
+        "Haleen",
+    )));
     nav.push(index_open);
 
     assert_eq!(
@@ -1874,7 +1881,7 @@ fn adr_0084_columns_list_roots_open_no_detail_page() {
     for page in [
         FrameNavigationEntry::PlaylistDetail(1),
         FrameNavigationEntry::Release(ReleaseKey::FeedGuid("feed".to_string())),
-        FrameNavigationEntry::IndexNameMatches("Haleen".to_string()),
+        FrameNavigationEntry::ArtistName(ArtistNameKey::from_text("Haleen")),
     ] {
         assert!(page.opens_detail_page(), "{page:?} must open a page");
     }
@@ -1969,9 +1976,33 @@ fn adr_0084_singles_group_r15_10_group_entry_opens_a_detail_page() {
     use crate::view_models::singles_group::SinglesGroupKey;
 
     let entry = FrameNavigationEntry::SinglesGroup(SinglesGroupKey(ArtistIdentity::Name(
-        "Haleen".to_string(),
+        "haleen".to_string(),
     )));
 
     assert!(entry.opens_detail_page());
     assert_eq!(entry.display_label(), "Singles");
+}
+
+/// R17-13 (ADR 0084 Decision 7, packet 017): two labels of one name key
+/// are one page, so a path that opens both holds one breadcrumb item. R17-08:
+/// the entry label is "<label> · by name".
+#[test]
+fn adr_0084_name_level_r17_13_one_breadcrumb_item_for_one_key() {
+    let mut nav =
+        FrameNavigationState::new(FrameNavigationEntry::Destination(MusicDestination::Artists));
+    let first = FrameNavigationEntry::ArtistName(ArtistNameKey::new("haleen", "Haleen"));
+    nav.push(first.clone());
+    nav.push(track(7));
+    nav.push(FrameNavigationEntry::ArtistName(ArtistNameKey::new(
+        "haleen", "HALEEN",
+    )));
+    assert_eq!(
+        nav.path_entries(),
+        vec![
+            FrameNavigationEntry::Destination(MusicDestination::Artists),
+            first.clone(),
+        ]
+    );
+    assert_eq!(first.display_label(), "Haleen \u{b7} by name");
+    assert!(first.opens_detail_page());
 }

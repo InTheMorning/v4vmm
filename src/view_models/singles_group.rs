@@ -657,7 +657,7 @@ mod tests {
         assert_eq!(groups.len(), 1);
         assert_eq!(
             groups[0].identity,
-            ArtistIdentity::Name("Haleen".to_owned())
+            ArtistIdentity::Name("haleen".to_owned())
         );
         assert_eq!(groups[0].display_artist, "Haleen");
         assert_eq!(groups[0].count(), 2);
@@ -666,9 +666,9 @@ mod tests {
         assert!(singles_groups(&tree).is_empty());
     }
 
-    /// R15-03: names that differ only in case, a publisher identity and a
-    /// name identity with the same text, and an album or an EP make no
-    /// group.
+    /// R15-03: a publisher identity and a name identity with the same
+    /// text, and an album or an EP make no group. R17-02 (packet 017
+    /// decision D3): names that differ only in case make one group.
     #[test]
     fn adr_0084_singles_group_r15_03_different_identities_and_kinds_do_not_group() {
         let case_tree = LibraryTree {
@@ -677,7 +677,7 @@ mod tests {
                 artist("haleen", vec![single("B", 2, Some(2), true)]),
             ],
         };
-        assert!(singles_groups(&case_tree).is_empty());
+        assert_eq!(singles_groups(&case_tree).len(), 1);
 
         let level_tree = LibraryTree {
             artists: vec![artist(
@@ -769,7 +769,7 @@ mod tests {
     /// action is available and has its accessibility label.
     #[test]
     fn adr_0084_singles_group_r15_07_page_main_action_follows_the_library_state() {
-        let key = SinglesGroupKey(ArtistIdentity::Name("Haleen".to_owned()));
+        let key = SinglesGroupKey(ArtistIdentity::Name("haleen".to_owned()));
 
         let page = SinglesGroupPageVm::from_tree(&haleen_tree(3, 2), &key, &BusyItems::default());
         let action = page.main_action.expect("a group has a main action");
@@ -818,7 +818,7 @@ mod tests {
     /// the subtitle. A key with no group gives the empty state.
     #[test]
     fn adr_0084_singles_group_r15_07_page_identity_note_and_empty_state() {
-        let name_key = SinglesGroupKey(ArtistIdentity::Name("Haleen".to_owned()));
+        let name_key = SinglesGroupKey(ArtistIdentity::Name("haleen".to_owned()));
         let page =
             SinglesGroupPageVm::from_tree(&haleen_tree(2, 1), &name_key, &BusyItems::default());
         assert_eq!(page.identity_note, Some(NAME_LEVEL_NOTE));
@@ -856,7 +856,7 @@ mod tests {
     /// empty state gives no art.
     #[test]
     fn adr_0084_logo_frame_r11_05_group_row_and_page_give_the_newest_four() {
-        let key = SinglesGroupKey(ArtistIdentity::Name("Haleen".to_owned()));
+        let key = SinglesGroupKey(ArtistIdentity::Name("haleen".to_owned()));
         let tree = haleen_tree(5, 5);
         let newest_four =
             CollectionArtVm::Mosaic(["5.jpg", "4.jpg", "3.jpg", "2.jpg"].map(str::to_owned));
@@ -984,7 +984,7 @@ mod tests {
     /// makes its row busy, and only that row.
     #[test]
     fn adr_0084_singles_group_page_row_exposes_date_text_and_track() {
-        let key = SinglesGroupKey(ArtistIdentity::Name("Haleen".to_owned()));
+        let key = SinglesGroupKey(ArtistIdentity::Name("haleen".to_owned()));
         let tree = LibraryTree {
             artists: vec![artist(
                 "Haleen",
@@ -1071,7 +1071,7 @@ mod tests {
         assert_eq!(
             links[1].target,
             AlbumNameLinkTarget::SinglesGroup(SinglesGroupKey(ArtistIdentity::Name(
-                "Haleen".to_owned()
+                "haleen".to_owned()
             )))
         );
 

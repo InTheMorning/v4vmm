@@ -52,7 +52,7 @@
 //!
 //! ## Reference implementation
 //!
-//! See `library::LibraryArtistDetailVm` for the pattern: a borrow-only
+//! See `library::PlaylistDetailVm` for the pattern: a borrow-only
 //! struct with pure projection methods (`detail_rows`, `page`) and a
 //! sibling `#[cfg(test)] mod tests` that pins each display invariant.
 //! Copy that shape for a new view model.
@@ -66,7 +66,6 @@ pub(crate) mod releases_everything;
 pub mod startup;
 
 pub mod album_page;
-pub mod artist_detail;
 pub mod artist_identity;
 pub(crate) mod artists_everything;
 pub(crate) mod detail_selection;
@@ -81,7 +80,7 @@ pub(crate) mod list_selection;
 pub(crate) mod live_status;
 pub mod metadata;
 pub mod musicbrainz_panel;
-pub(crate) mod name_match_page;
+pub(crate) mod name_level_page;
 pub(crate) mod named_feeds;
 pub mod paged_playlist_detail;
 pub(crate) mod pagination;

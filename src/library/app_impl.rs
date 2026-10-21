@@ -7,10 +7,7 @@ use std::time::Instant;
 use super::download_queue::{DownloadOutcome, JobIdentity};
 use super::downloads::index_release_job_by_guid;
 use super::PlaylistActorState;
-use super::{
-    InspectorFrame, LazyPanel, LibraryApp, LibraryArtistDetail, LibraryDetail, PlaylistDetail,
-    ThumbnailState,
-};
+use super::{InspectorFrame, LazyPanel, LibraryApp, LibraryDetail, PlaylistDetail, ThumbnailState};
 use crate::app::keyboard::primary_modifier_held;
 use crate::application::commands::download::{SubscribeThenAppendToPlaylist, SubscribeTrack};
 use crate::application::commands::feed::{
@@ -78,6 +75,7 @@ use crate::ui::shells::tag_update_confirmation::{
 use crate::ui::style::color;
 use crate::ui::style::spacing;
 use crate::ui::tokens::Motion;
+use crate::view_models::artist_identity::{ArtistNameDestination, ArtistNameKey, NameFeedMatches};
 use crate::view_models::detail_selection::DetailSelection;
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::index_name_list::{IndexNameListPage, MusicListScope};
@@ -86,10 +84,10 @@ use crate::view_models::library::{
     BroadcastRouteRepairCompletion, BroadcastRouteRepairCompletionStatus, ContentListRowActionKind,
     ContentListSelectionTarget, DestinationListRowTarget, FeedCheckRouteRepairOutcome,
     FeedUpdateActionDisplay, FeedUpdateActionKind, FeedUpdateDisplay, FeedUpdatePhase,
-    InspectorPanelKind, LibraryArtistDetailVm, LibraryTrackActionVm, LibraryTrackInspectorState,
-    LibraryTrackRowVm, LibraryViewModel, MbTrackStatus, PlaylistAppendIntent,
-    PlaylistAppendOutcome, PlaylistDetailActionsDisplay, ReleasesDisclosureStep,
-    ReleasesListEntryVm, ReleasesRowId, RemovalConfirmation, TrackSubscribeOutcome,
+    InspectorPanelKind, LibraryTrackActionVm, LibraryTrackInspectorState, LibraryTrackRowVm,
+    LibraryViewModel, MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome,
+    PlaylistDetailActionsDisplay, ReleasesDisclosureStep, ReleasesListEntryVm, ReleasesRowId,
+    RemovalConfirmation, TrackSubscribeOutcome,
 };
 use crate::view_models::library::{
     releases_selection_rows, spring_load_navigation, SpringLoadGeneration,
@@ -98,9 +96,11 @@ use crate::view_models::library_removal::{
     SelectionRemovalConfirmationState, SelectionRemovalPendingItem, SelectionRemovalReport,
 };
 use crate::view_models::list_selection::{FocusStep, ListSelection, SelectionMode, SelectionRow};
+use crate::view_models::name_level_page::NameLevelLibraryRelease;
 use crate::view_models::playlist_option_displays;
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::release_page::TrackRowMenuAction;
+use crate::view_models::search_results::ArtistSearchFacts;
 use crate::view_models::selection_action_bar::{SelectionActionBarVm, SelectionActionKind};
 use crate::view_models::singles_group::{SinglesGroupKey, SinglesGroupPageVm};
 use crate::view_models::track_detail::TrackNameLinkTarget;
@@ -507,8 +507,10 @@ impl LibraryApp {
     ) {
         let entry = match target {
             DestinationListRowTarget::Release(key) => FrameNavigationEntry::Release(key.clone()),
-            DestinationListRowTarget::Artist(name) => {
-                FrameNavigationEntry::ArtistDetail(name.clone())
+            // ADR 0084 Decision 7: a name row opens the name level page.
+            // A row whose name matches one feed has no row.
+            DestinationListRowTarget::ArtistName(key) => {
+                FrameNavigationEntry::ArtistName(key.clone())
             }
             // ADR 0085 Decisions 2 and 6: a feed row opens the feed page.
             // With no recorded context for this GUID, the restore falls
@@ -524,11 +526,6 @@ impl LibraryApp {
                     publisher_feed_guid: feed_guid.clone(),
                 });
                 return;
-            }
-            // Packet 016 decision D14: a MusicIndex name row opens the
-            // MusicIndex name match page until packet 017 replaces it.
-            DestinationListRowTarget::IndexName(name) => {
-                FrameNavigationEntry::IndexNameMatches(name.clone())
             }
         };
         self.open_page(entry, NavigationPathStart::ListRow, cx);
@@ -631,8 +628,24 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) {
         match target {
+            // ADR 0084 Decision 7: the artist name opens the feed page of
+            // the one feed that the name matches, else the name level page,
+            // in the current path.
             crate::view_models::album_page::AlbumNameLinkTarget::Artist(name) => {
-                cx.emit(super::LibraryAppEvent::OpenArtistPage { name: name.clone() });
+                match self
+                    .vm
+                    .name_feed_matches()
+                    .destination(ArtistNameKey::from_text(name))
+                {
+                    ArtistNameDestination::FeedPage(feed_guid) => {
+                        self.open_publisher_page(&feed_guid, cx);
+                    }
+                    ArtistNameDestination::NameLevel(key) => self.open_page(
+                        FrameNavigationEntry::ArtistName(key),
+                        NavigationPathStart::CurrentPath,
+                        cx,
+                    ),
+                }
             }
             crate::view_models::album_page::AlbumNameLinkTarget::Publisher(publisher_feed_guid) => {
                 self.open_publisher_page(publisher_feed_guid, cx);
@@ -684,6 +697,39 @@ impl LibraryApp {
     /// Decision 6).
     pub(crate) fn singles_group_page(&self, key: &SinglesGroupKey) -> SinglesGroupPageVm {
         self.vm.singles_group_page(key)
+    }
+
+    /// The match of each name key to the artist feeds of the Library (ADR
+    /// 0084 Decision 7), from the current tree.
+    pub(crate) fn name_feed_matches(&self) -> NameFeedMatches {
+        self.vm.name_feed_matches()
+    }
+
+    /// The Library releases of the name `key` (ADR 0084 Decision 7), from
+    /// the current tree.
+    pub(crate) fn name_level_members(&self, key: &str) -> Vec<NameLevelLibraryRelease> {
+        self.vm.name_level_members(key)
+    }
+
+    /// The name keys that match exactly the feed `feed_guid` (ADR 0084
+    /// Decision 7, "Matched by name"), from the current tree.
+    pub(crate) fn matched_name_keys(&self, feed_guid: &str) -> Vec<ArtistNameKey> {
+        self.vm.matched_name_keys(feed_guid)
+    }
+
+    /// The feed GUID of each Library release whose identity is not one of
+    /// the names `keys`, from the current tree.
+    pub(crate) fn other_identity_feed_guids(&self, keys: &[ArtistNameKey]) -> BTreeSet<String> {
+        self.vm.other_identity_feed_guids(keys)
+    }
+
+    /// The Library facts that the artist rows of a search read (ADR 0084
+    /// Decision 7, packet 017 decisions D6 and D7).
+    pub(crate) fn artist_search_facts(&self) -> ArtistSearchFacts {
+        ArtistSearchFacts {
+            matches: self.vm.name_feed_matches(),
+            name_level_keys: self.vm.name_level_members_by_key().into_keys().collect(),
+        }
     }
 
     pub(crate) fn open_publisher_page(
@@ -1392,7 +1438,6 @@ impl LibraryApp {
         let playlist_id = match &self.detail {
             LibraryDetail::Playlist(detail) => Some(detail.playlist.id),
             LibraryDetail::None
-            | LibraryDetail::Artist(_)
             | LibraryDetail::Album(_)
             | LibraryDetail::Track(_)
             | LibraryDetail::Discover(_)
@@ -2142,19 +2187,6 @@ impl LibraryApp {
         }
     }
 
-    pub(crate) fn select_album_by_name(&mut self, name: &str, cx: &mut Context<Self>) {
-        let tree_artists = self.vm.tree().artists.clone();
-        for artist_node in &tree_artists {
-            for album in &artist_node.albums {
-                if album.name == name {
-                    self.select_album(album, cx);
-                    cx.notify();
-                    return;
-                }
-            }
-        }
-    }
-
     pub(crate) fn find_album_by_feed_id(&self, feed_id: i64) -> Option<&AlbumNode> {
         for artist_node in &self.vm.tree().artists {
             for album in &artist_node.albums {
@@ -2234,30 +2266,9 @@ impl LibraryApp {
         );
     }
 
-    pub(crate) fn select_artist(&mut self, name: &str, _cx: &mut Context<Self>) {
-        // Find all tracks matching this artist name
-        let mut tracks = Vec::new();
-        for artist_node in &self.vm.tree().artists {
-            if artist_node.name == name {
-                for album in &artist_node.albums {
-                    tracks.extend(album.tracks.clone());
-                }
-                break;
-            }
-        }
-        let view = crate::views::ArtistView::from_local_rows(name, &tracks);
-        self.vm.clear_library_selection();
-        self.detail = LibraryDetail::Artist(Box::new(LibraryArtistDetail {
-            name: name.to_string(),
-            view,
-            tracks,
-        }));
-    }
-
     /// Synchronize LibraryApp detail state to match a navigation entry.
     ///
     /// Maps the nav entry to the appropriate Library detail state:
-    /// - `ArtistDetail(name)` → call `select_artist`
     /// - `PlaylistDetail(id)` → call `select_playlist` (ADR 0084 Decision 9)
     /// - `Search(_)` / `SourceList` / others → clear detail to root state
     ///
@@ -2273,9 +2284,6 @@ impl LibraryApp {
         // and sets `Normal`.
         self.reset_detail_selection(entry);
         match entry {
-            FrameNavigationEntry::ArtistDetail(name) => {
-                self.select_artist(name, cx);
-            }
             FrameNavigationEntry::PlaylistDetail(playlist_id) => {
                 self.select_playlist(*playlist_id, cx);
             }
@@ -2297,8 +2305,10 @@ impl LibraryApp {
                 self.vm.clear_library_selection();
                 self.detail = LibraryDetail::SinglesGroup(key.clone());
             }
+            // ADR 0084 Decision 7: the top app renders the name level page,
+            // as it renders the feed page.
             FrameNavigationEntry::Search(_)
-            | FrameNavigationEntry::IndexNameMatches(_)
+            | FrameNavigationEntry::ArtistName(_)
             | FrameNavigationEntry::Settings => {
                 // Reset detail to default/unset state for root navigation
                 self.clear_detail();
@@ -2916,7 +2926,6 @@ impl LibraryApp {
         match &mut self.detail {
             LibraryDetail::Track(frame) => Some(frame),
             LibraryDetail::None
-            | LibraryDetail::Artist(_)
             | LibraryDetail::Album(_)
             | LibraryDetail::Playlist(_)
             | LibraryDetail::Discover(_)
@@ -4725,14 +4734,6 @@ impl LibraryApp {
         let mut urls: Vec<String> = Vec::new();
         if let LibraryDetail::Album(album) = &self.detail {
             urls.extend(album_thumbnail_urls(album));
-        }
-        if let LibraryDetail::Artist(artist) = &self.detail {
-            if let Some(url) = artist.view.image_url.clone() {
-                urls.push(url);
-            }
-            // Each release row needs its cover too, not only the header
-            // image (operator check of 2026-10-18).
-            urls.extend(LibraryArtistDetailVm::new(&artist.name, &artist.tracks).thumbnail_urls());
         }
         // ADR 0084 task 015, operator decision of 2026-10-17: a group page
         // row is the Library track row of a release page. It reads its art

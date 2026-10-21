@@ -50,6 +50,7 @@ impl ApplicationCommand for FetchReleaseNamePage {
             .fetch_feeds_by_name(
                 NAME_LIST_PAGE_LIMIT,
                 self.cursor.as_deref(),
+                None,
                 &INDEX_RELEASE_NAME_LIST,
             )
             .map_err(|error| CommandError::Query(format!("{error:#}")))?;
@@ -93,6 +94,7 @@ impl ApplicationCommand for FetchArtistNamePage {
             .fetch_artist_names(
                 NAME_LIST_PAGE_LIMIT,
                 self.cursor.as_deref(),
+                None,
                 &INDEX_ARTIST_NAME_LIST,
             )
             .map_err(|error| CommandError::Query(format!("{error:#}")))?;

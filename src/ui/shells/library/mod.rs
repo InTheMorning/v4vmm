@@ -20,7 +20,6 @@ pub mod destination_list_scroll;
 pub mod destination_lists;
 pub mod detail;
 pub mod feed_detail;
-pub mod feed_list;
 pub mod index_list_status;
 pub mod playlist_detail;
 pub mod sidebar;

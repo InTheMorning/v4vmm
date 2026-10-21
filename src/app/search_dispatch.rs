@@ -3,7 +3,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{AnyElement, Context, Image, Window};
+use gpui::{AnyElement, App, Context, Image, Window};
 
 use crate::application::capability::Dependency;
 use crate::application::capability_recovery::{RecoveryAction, RecoveryIntent};
@@ -29,6 +29,7 @@ use crate::ui::shells::release_page::{
 use crate::ui::shells::search_results_inspector::render_index_detail_display;
 use crate::ui::shells::track_page::{render_track_page, TrackPageDispatch, TrackPageImages};
 use crate::view_models::album_page::AlbumNameLinkTarget;
+use crate::view_models::artist_identity::{ArtistNameDestination, ArtistNameKey};
 use crate::view_models::detail_selection::{index_release_track_rows, DetailPageRows};
 use crate::view_models::library::{
     display_description_text, keyed_description_state, toggle_keyed_description_state,
@@ -41,7 +42,8 @@ use crate::view_models::release_page::{
     ReleaseTrackRowVm,
 };
 use crate::view_models::search_results::{
-    IndexDetailDisplay, IndexDetailKind, SearchResultsInspectorPageVm, SearchResultsTab,
+    artist_result_destination, IndexDetailDisplay, IndexDetailKind, SearchResultsInspectorPageVm,
+    SearchResultsTab,
 };
 use crate::view_models::track_detail::{TrackNameLinkTarget, TrackPageAction};
 use crate::view_models::track_page::{
@@ -167,9 +169,7 @@ fn index_track_feed_read(
 /// packet 047, Required Change 3). `target` is the row's activation target:
 /// `<feed_guid>:<track_guid>` for a scoped hit, or a bare `<track_guid>`
 /// for an unscoped one. `None` on `TopApp` means no fetch is tracked: the
-/// operator has not opened a track row, or opened one whose full detail
-/// already came from the name-match page's own fetch
-/// (`name_match_page_track_row` covers that case).
+/// operator has not opened a track row.
 #[derive(Clone, Debug)]
 pub(super) enum IndexTrackDetailState {
     Loading {
@@ -245,7 +245,7 @@ impl TopApp {
             .open_search_results_in_content_list(query.clone())
         {
             Ok(_) => {
-                self.search_results_detail = Some(self.search_results_detail_for_query(&query));
+                self.search_results_detail = Some(self.search_results_detail_for_query(&query, cx));
                 self.start_index_search_for_query(&query, cx);
                 cx.notify();
             }
@@ -256,7 +256,14 @@ impl TopApp {
         }
     }
 
-    fn search_results_detail_for_query(&self, query: &str) -> SearchResultsInspectorPageVm {
+    fn search_results_detail_for_query(
+        &self,
+        query: &str,
+        cx: &App,
+    ) -> SearchResultsInspectorPageVm {
+        // ADR 0084 Decision 7, packet 017: the artist rows read the match
+        // of each name from the current Library tree.
+        let artist_facts = self.library.read(cx).artist_search_facts();
         let local_tracks = {
             let conn = self.conn.lock().expect("lock db");
             self.application_services
@@ -265,7 +272,7 @@ impl TopApp {
                 .unwrap_or_default()
         };
 
-        SearchResultsInspectorPageVm::from_local_library_tracks(query, &local_tracks)
+        SearchResultsInspectorPageVm::from_local_library_tracks(query, &local_tracks, &artist_facts)
     }
 
     pub(super) fn start_index_search_for_query(&mut self, query: &str, cx: &mut Context<Self>) {
@@ -303,8 +310,11 @@ impl TopApp {
             }
         }
 
-        let command =
-            FetchIndexSearchResults::new(self.musicindex_endpoint.clone(), query.to_owned());
+        let command = FetchIndexSearchResults::new(
+            self.musicindex_endpoint.clone(),
+            query.to_owned(),
+            self.library.read(cx).name_feed_matches(),
+        );
         self.dispatch_index_search(query, command, None, cx);
     }
 
@@ -325,13 +335,17 @@ impl TopApp {
             );
             return;
         }
-        self.search_results_detail = Some(self.search_results_detail_for_query(query));
+        self.search_results_detail = Some(self.search_results_detail_for_query(query, cx));
         if let Some(detail) = &mut self.search_results_detail {
             detail.mark_index_loading();
         }
         let id = intent.id;
         let command = self.retry_command(
-            FetchIndexSearchResults::new(self.musicindex_endpoint.clone(), query.to_owned()),
+            FetchIndexSearchResults::new(
+                self.musicindex_endpoint.clone(),
+                query.to_owned(),
+                self.library.read(cx).name_feed_matches(),
+            ),
             intent,
         );
         self.dispatch_index_search(query, command, Some(id), cx);
@@ -370,7 +384,7 @@ impl TopApp {
 
                 if this.search_results_detail.is_none() {
                     this.search_results_detail =
-                        Some(this.search_results_detail_for_query(&success_query));
+                        Some(this.search_results_detail_for_query(&success_query, cx));
                 }
 
                 if let Some(detail) = this
@@ -409,7 +423,7 @@ impl TopApp {
 
                 if this.search_results_detail.is_none() {
                     this.search_results_detail =
-                        Some(this.search_results_detail_for_query(&error_query));
+                        Some(this.search_results_detail_for_query(&error_query, cx));
                 }
 
                 if let Some(detail) = this
@@ -449,6 +463,7 @@ impl TopApp {
     pub(super) fn sync_search_results_detail_with_nav(
         &mut self,
         content_list_id: WorkspaceFrameId,
+        cx: &App,
     ) {
         let search_query = self
             .workspace_layout
@@ -462,7 +477,7 @@ impl TopApp {
                 .as_ref()
                 .is_none_or(|detail| detail.query() != query);
             if needs_refresh {
-                self.search_results_detail = Some(self.search_results_detail_for_query(&query));
+                self.search_results_detail = Some(self.search_results_detail_for_query(&query, cx));
             }
         } else {
             self.search_results_detail = None;
@@ -522,22 +537,28 @@ impl TopApp {
                     cx.notify();
                 }
             }
+            // ADR 0084 Decision 7, packet 017 decision D6: a name row opens
+            // the name level page of its name, or the feed page of the one
+            // feed that the name matches. A feed row opens its feed page.
             SearchResultsTab::Artists => {
-                if let Some(artist_name) = result_id.strip_prefix("index-artist:") {
-                    self.handle_index_artist_result_selected(artist_name, content_frame_id, cx);
-                    return;
+                let matches = self.library.read(cx).name_feed_matches();
+                match artist_result_destination(result_id, &matches) {
+                    Some(ArtistNameDestination::FeedPage(feed_guid)) => {
+                        self.open_publisher_page(feed_guid, PublisherPageContext::Library, cx);
+                    }
+                    Some(ArtistNameDestination::NameLevel(key)) => {
+                        self.open_artist_name(key, NavigationPathStart::CurrentPath, cx);
+                    }
+                    None => {
+                        self.settings_status = format!("Unexpected artist id format: {result_id}");
+                        cx.notify();
+                        return;
+                    }
                 }
-
-                let Some(artist_name) = result_id.strip_prefix("library-artist:") else {
-                    self.settings_status = format!("Unexpected artist id format: {result_id}");
-                    cx.notify();
-                    return;
-                };
-                self.open_library_artist_in_frame(artist_name, content_frame_id, cx);
             }
         }
 
-        self.sync_search_results_detail_with_nav(content_frame_id);
+        self.sync_search_results_detail_with_nav(content_frame_id, cx);
     }
 
     pub(super) fn open_index_feed_detail_from_music(
@@ -558,19 +579,6 @@ impl TopApp {
             label,
             cx,
         );
-    }
-
-    /// ADR 0077 packet 006: an Index name candidate opens the name-match
-    /// track page, a search result, never an artist detail page.
-    fn handle_index_artist_result_selected(
-        &mut self,
-        artist_name: &str,
-        content_frame_id: WorkspaceFrameId,
-        cx: &mut Context<Self>,
-    ) {
-        self.open_name_match_page(artist_name.to_string(), content_frame_id, cx);
-        self.sync_search_results_detail_with_nav(content_frame_id);
-        cx.notify();
     }
 
     fn handle_index_feed_result_selected(
@@ -615,7 +623,7 @@ impl TopApp {
         {
             self.settings_status = format!("Failed to navigate to release: {error}");
         }
-        self.sync_search_results_detail_with_nav(content_frame_id);
+        self.sync_search_results_detail_with_nav(content_frame_id, cx);
         self.apply_release_page_source(key, cx);
         cx.notify();
     }
@@ -743,10 +751,6 @@ impl TopApp {
             .search_results_detail
             .as_ref()
             .and_then(|detail| detail.index_track_label(&activation_id))
-            .or_else(|| {
-                self.name_match_page_track_row(&activation_id)
-                    .map(|row| row.label)
-            })
             .unwrap_or_else(|| track_guid.to_string());
         let key = TrackKey::from_index_track_target(feed_guid, track_guid);
         self.open_track_in_frame(content_frame_id, &key, label, cx);
@@ -775,7 +779,7 @@ impl TopApp {
         {
             self.settings_status = format!("Failed to navigate to track: {error}");
         }
-        self.sync_search_results_detail_with_nav(content_frame_id);
+        self.sync_search_results_detail_with_nav(content_frame_id, cx);
         self.apply_track_page_source(key, cx);
         cx.notify();
     }
@@ -783,8 +787,7 @@ impl TopApp {
     /// Resolves and stores the data source of an open track page, then
     /// mounts it (ADR 0084 Decision 4). The Library source asks the
     /// Library to mount the track. The Index source clears the Library
-    /// detail and starts its own fetch, unless the name-match page already
-    /// cached this track.
+    /// detail and starts its own fetch.
     fn apply_track_page_source(&mut self, key: &TrackKey, cx: &mut Context<Self>) {
         let library_track_id = self.library_track_id_for_key(key);
         let source = resolve_track_page_source(key, library_track_id);
@@ -803,14 +806,10 @@ impl TopApp {
             TrackPageSource::Index { target } => {
                 self.library
                     .update(cx, |library, _cx| library.clear_detail());
-                let activation_id = format!("index-track:{target}");
-                let already_cached = self.name_match_page_track_row(&activation_id).is_some();
-                if !already_cached
-                    && !index_track_detail_result_is_current(
-                        self.index_track_detail_state.as_ref(),
-                        target,
-                    )
-                {
+                if !index_track_detail_result_is_current(
+                    self.index_track_detail_state.as_ref(),
+                    target,
+                ) {
                     let (feed_guid, track_guid) = split_index_track_target(target);
                     self.fetch_index_track_detail_page(
                         target.clone(),
@@ -941,20 +940,12 @@ impl TopApp {
     }
 
     /// The feed GUID of the open Index track page with the activation
-    /// target `target`: the feed GUID of the target, of the name-match row
-    /// or of the loaded track. `None` before the track names one.
+    /// target `target`: the feed GUID of the target or of the loaded track.
+    /// `None` before the track names one.
     fn index_track_page_feed_guid(&self, target: &str) -> Option<String> {
         let (feed_guid, _) = split_index_track_target(target);
         if let Some(feed_guid) = feed_guid {
             return Some(feed_guid.to_owned());
-        }
-        let activation_id = format!("index-track:{target}");
-        if let Some(feed_guid) = self
-            .name_match_page_track_row(&activation_id)
-            .and_then(|row| row.remote_track)
-            .and_then(|track| track.feed_guid)
-        {
-            return Some(feed_guid);
         }
         match self.index_track_detail_state.as_ref()? {
             IndexTrackDetailState::Loaded {
@@ -1115,15 +1106,9 @@ impl TopApp {
     }
 
     /// Selects the Index track detail display state to render (ADR 0075
-    /// packet 047). A track reached from the name-match page shows that
-    /// page's own cached detail, at no extra request; any other track
-    /// shows the operator's own fetch, once it matches the mounted
+    /// packet 047): the operator's own fetch, once it matches the mounted
     /// activation target, or a loading placeholder before it does.
     pub(super) fn index_track_detail_display(&self, id: &str, label: &str) -> IndexDetailDisplay {
-        let activation_id = format!("index-track:{id}");
-        if let Some(row) = self.name_match_page_track_row(&activation_id) {
-            return IndexDetailDisplay::track_or_fallback(Some(&row), id, label);
-        }
         match self.index_track_detail_state.as_ref() {
             Some(IndexTrackDetailState::Loaded { target, track }) if target == id => {
                 IndexDetailDisplay::loaded_track((**track).clone(), id)
@@ -1144,35 +1129,6 @@ impl TopApp {
             return;
         };
         self.open_library_release_in_frame(feed_id, content_frame_id, cx);
-    }
-
-    /// Opens the Library artist page of `name` in the content frame. The
-    /// artist name link of an album page uses it (ADR 0083 task 005).
-    pub(super) fn open_library_artist_page(&mut self, name: &str, cx: &mut Context<Self>) {
-        let Some(content_frame_id) = self.content_list_frame_id() else {
-            self.settings_status = "ContentList frame not found".to_string();
-            cx.notify();
-            return;
-        };
-        self.open_library_artist_in_frame(name, content_frame_id, cx);
-    }
-
-    fn open_library_artist_in_frame(
-        &mut self,
-        name: &str,
-        content_frame_id: WorkspaceFrameId,
-        cx: &mut Context<Self>,
-    ) {
-        self.library.update(cx, |library, cx| {
-            library.select_artist(name, cx);
-        });
-        if let Err(e) = self.workspace_layout.push_nav(
-            content_frame_id,
-            FrameNavigationEntry::ArtistDetail(name.to_string()),
-        ) {
-            self.settings_status = format!("Failed to navigate to artist: {e}");
-        }
-        cx.notify();
     }
 
     pub(super) fn render_index_feed_or_fallback_detail(
@@ -1539,19 +1495,18 @@ impl TopApp {
         None
     }
 
-    /// Opens the page of a name link under an Index album title. The Index
-    /// has no artist page, so an artist name opens the tracks that match it.
+    /// Opens the page of a name link under an Index album title. An artist
+    /// name opens the feed page of the one Library feed that the name
+    /// matches, else the name level page, in the current path (ADR 0084
+    /// Decision 7).
     fn open_index_album_name_link(&mut self, target: &AlbumNameLinkTarget, cx: &mut Context<Self>) {
         match target {
             AlbumNameLinkTarget::Artist(name) => {
-                let Some(content_frame_id) = self.content_list_frame_id() else {
-                    self.settings_status = "ContentList frame not found".to_string();
-                    cx.notify();
-                    return;
-                };
-                self.open_name_match_page(name.clone(), content_frame_id, cx);
-                self.sync_search_results_detail_with_nav(content_frame_id);
-                cx.notify();
+                self.open_artist_name(
+                    ArtistNameKey::from_text(name),
+                    NavigationPathStart::CurrentPath,
+                    cx,
+                );
             }
             AlbumNameLinkTarget::Publisher(publisher_feed_guid) => {
                 self.open_publisher_page(
@@ -1711,7 +1666,7 @@ impl TopApp {
         }
 
         if let Some(content_frame_id) = self.content_list_frame_id() {
-            self.sync_search_results_detail_with_nav(content_frame_id);
+            self.sync_search_results_detail_with_nav(content_frame_id, cx);
         }
         cx.notify();
     }

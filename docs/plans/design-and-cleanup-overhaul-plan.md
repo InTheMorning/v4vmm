@@ -183,6 +183,7 @@ The operator asked on 2026-10-08 for a later phase that tunes how fast the app r
 14. 2026-10-20: `reload_playlists` reads the cover images of each playlist on the UI thread, beside the playlist list read (`playlist_cover_images` in `src/db.rs`, ADR 0084 packet 011). No measurement confirms a delay.
 15. 2026-10-20: the first show of the Artists list or the Playlists list starts one logo composition for each row at the same time. They run on the command runner (`FetchLogoMosaic` in `src/application/queries/images.rs`, ADR 0084 packet 011). The rows show the entity color until each image arrives.
 16. 2026-10-21: one render computes the merge of the Releases list in "Everything" more than one time: for the header action, for the rows and for the selection keys (`src/view_models/releases_everything.rs`, ADR 0084 packet 016). With many loaded pages, this can slow the render. No measurement confirms it.
+17. 2026-10-21: a search sends one `GET /v1/artist-names?from=<key>&limit=1` check for each MusicIndex candidate name, one after the other, before it shows the name rows (`src/application/queries/search.rs`, ADR 0084 packet 017 decision D15). Several candidates add their waits. No measurement confirms a delay.
 
 ## Visual Requirements Moved From Pending Checks - 2026-10-07
 
@@ -275,10 +276,7 @@ The operator walked §2 and §19 on the one track page on 2026-10-07. They left 
 ### Phase 4: Publisher And Artist Pages
 
 - **§12 Library Artist View Without Artist Storage — ADR 0077 Task 001.** Owner: [task 001](../tasks/adr-0077-task-001-remove-dead-artist-storage.md).
-  - Waits for ADR 0084 packet 017, the name level page. Stophammer 0.12.0 delivered request 8 item 4 on 2026-10-18.
-  - Precondition: migration 13 deletes the stored artist rows. Make the SQLite backup before the first run of the new build.
-  - V1: a Library artist view shows its tracks and albums, with no aliases, area, active years or source subjects.
-  - A missing track, an empty view, or an error report is wrong.
+  - Carried by [ADR 0084 packet 017](../tasks/adr-0084-task-017-name-level-artist-page.md) V1 and V3 from 2026-10-21. Retired: the track list of V1 (ADR 0084 Decision 7).
 - **§20 Publisher Page And Navigation — ADR 0077 Task 004.** Owner: [task 004](../tasks/archive/adr-0077-task-004-publisher-navigation-and-presentation.md).
   - Carried from 2026-10-18: [ADR 0082 packet 003](../tasks/archive/adr-0082-task-003-release-page-named-feeds.md) V2 and V7 carry V1, apart from its type, and V4 carries V2. [ADR 0084 packet 008](../tasks/archive/adr-0084-task-008-feed-page-and-artists.md) V5 carries the failure part of V3.
     Packet 008 V3 carries the "Not listed" mark of V4, V6 carries its derived count, and V8 carries V5.
@@ -288,9 +286,7 @@ The operator walked §2 and §19 on the one track page on 2026-10-07. They left 
 - **§21 Feed Owner Text And Name Grouping — ADR 0077 Task 005.** Owner: [task 005](../tasks/adr-0077-task-005-feed-owner-text-and-name-search.md).
   - Carried from 2026-10-18: ADR 0082 packet 003 V5 carries V1.
   - Retired on 2026-10-20: V2, the name search (ADR 0084 Decision 7, which replaces the Library artist page by name and the Index name match page). The deleted surface was removed in commit a32636e.
-  - V3 and V4 wait for ADR 0084 packet 017, the name level page, which is not yet written.
-  - V3: a Library artist page without a publisher relationship shows "Grouped by name".
-  - V4: normal and narrow widths show each element in its place, with no clipped text.
+  - Carried by ADR 0084 packet 017 V2 and V10 from 2026-10-21. Retired: the text "Grouped by name" of V3 (ADR 0085 Decision 2).
 - **§28 Confirmed And Unconfirmed Artists — ADR 0077 Task 007.** Owner: [task 007](../tasks/archive/adr-0077-task-007-confirmed-and-unconfirmed-artists.md).
   - Carried from 2026-10-18: ADR 0084 packet 008 V6 carries V1 to V3, and V8 carries V4.
 
@@ -334,9 +330,7 @@ The operator walked §2 and §19 on the one track page on 2026-10-07. They left 
 
 - **§23 Name Matches Are Search Results — ADR 0077 Task 006.** Owner: [task 006](../tasks/adr-0077-task-006-name-matches-are-search-results.md).
   - V1: a search for "Survival Guide" shows a row `Tracks matching "Survival Guide"`. The row does not look like an artist identity. In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
-  - V2 and V3 wait for ADR 0084 packet 017, which replaces the name match page (run decision of 2026-10-20).
-  - V2: the row opens a page titled "Tracks matching" that lists the tracks of that name. A track opens its detail, and the album opens its publisher page.
-  - V3: a name with no exact match shows the empty state text.
+  - Carried by ADR 0084 packet 017 V5, V6 and V10 from 2026-10-21. Retired: the "Tracks matching" page of V2 and the row text of V1 (ADR 0084 Decision 7), and the empty text of V3 (packet 017 decision D6, operator decision of 2026-10-20). V1 keeps its rule that the row does not look like an artist identity.
   - V4 (row only): normal and narrow widths show each element in its place, in Light and Dark themes, with no clipped text. In the final walk of the [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md#final-walk).
 
 ### Phase 5: Settings

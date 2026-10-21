@@ -13,6 +13,8 @@ The operator also accepted the read of Decision 6 for a primary named feed with 
 Amended 2026-10-18 a third time: the operator decided that "Unverified artist" needs a confirmed link, as Stophammer ADR 0071 counts `first_named_count`. Decisions 2 and 6 now state it.
 An album can name any feed, so a link that only the album states does not make the feed an artist.
 
+Built 2026-10-21: [ADR 0084 packet 017](../tasks/adr-0084-task-017-name-level-artist-page.md) builds the name level page with the level word "Name only". Its visual check is open.
+
 It supersedes [ADR 0082](0082-publisher-roles-belong-to-each-album-link.md) Decisions 1, 2, 3 and 6.
 ADR 0082 Decisions 4 and 5 stay.
 It amends [ADR 0084](0084-music-column-browser.md) Decision 7: the publisher level becomes the feed level, and Decisions 5 and 6 of this ADR replace the "Publisher" link of the release page.

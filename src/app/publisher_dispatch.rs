@@ -6,6 +6,12 @@
 //! module loads through the ADR 0040 runtime. This module selects which
 //! display state applies; `src/view_models/publisher_page.rs` decides its
 //! text.
+//!
+//! In the Library context, the page also lists the releases of each name
+//! that matches exactly this feed, in the section "Matched by name" (ADR
+//! 0084 Decision 7, packet 017). The Library rows of that section come from
+//! `LibraryApp::name_level_members` at each render. This module sends one
+//! `MusicIndex` name level request for each matched key.
 
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -16,18 +22,20 @@ use gpui::{AnyElement, App, Context, Image, Modifiers, Window};
 use crate::application::commands::feed::StorePublisherFeedImage;
 use crate::application::queries::feed::FetchIndexPublisherPage;
 use crate::application::queries::library::FetchLibraryPublisherPage;
+use crate::application::queries::search::FetchNameLevelReleases;
 use crate::application::{ApplicationCommand, CommandContext};
 use crate::presentation::collection_art::collection_art_image;
 use crate::presentation::present_command;
-use crate::ui::composites::ThumbnailSize;
-use crate::ui::shells::publisher::{
-    render_publisher_page, render_publisher_page_status, ClickReleaseCallback, PublisherPageRows,
-    ToggleReleaseCallback,
+use crate::ui::composites::release_section_list::{
+    ClickReleaseCallback, ReleaseSectionRows, ToggleReleaseCallback,
 };
+use crate::ui::composites::ThumbnailSize;
+use crate::ui::shells::publisher::{render_publisher_page, render_publisher_page_status};
 use crate::view_models::detail_selection::DetailRowKey;
+use crate::view_models::name_level_page::NameLevelIndexState;
 use crate::view_models::publisher_page::{
-    PublisherPageContext, PublisherPageFacts, PublisherPageLoadDisplay, PublisherPageVm,
-    TitleDisplay,
+    MatchedByNameFacts, PublisherPageContext, PublisherPageFacts, PublisherPageLoadDisplay,
+    PublisherPageSectionVm, PublisherPageVm, TitleDisplay,
 };
 use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart, ReleaseKey};
 
@@ -47,6 +55,10 @@ pub(super) enum PublisherPageState {
         // rank and track count (ADR 0085 Decision 7 design).
         facts: Box<PublisherPageFacts>,
         context: PublisherPageContext,
+        /// The `MusicIndex` part of each matched name key, by key (ADR
+        /// 0084 Decision 7, packet 017). Only the Library context sends
+        /// these requests.
+        matched_by_name: BTreeMap<String, NameLevelIndexState>,
     },
     Failed {
         publisher_feed_guid: String,
@@ -209,8 +221,14 @@ impl TopApp {
                     publisher_feed_guid: success_guid.clone(),
                     facts: Box::new(facts),
                     context,
+                    matched_by_name: BTreeMap::new(),
                 });
                 cx.notify();
+                // Packet 017 decision D14: the match reads the Library tree
+                // only, so the Index context sends no request.
+                if context == PublisherPageContext::Library {
+                    this.fetch_matched_by_name(&success_guid, cx);
+                }
                 if let Some(image_url) = feed_image_url {
                     this.store_publisher_feed_image(success_guid, image_url, cx);
                 }
@@ -226,6 +244,94 @@ impl TopApp {
                 cx.notify();
             },
         );
+    }
+
+    /// Sends one `MusicIndex` name level request for each name key that
+    /// matches exactly the feed `publisher_feed_guid`, in key order (ADR
+    /// 0084 Decision 7, packet 017). Each result changes the section
+    /// "Matched by name" in place.
+    fn fetch_matched_by_name(&mut self, publisher_feed_guid: &str, cx: &mut Context<Self>) {
+        let keys = self.library.read(cx).matched_name_keys(publisher_feed_guid);
+        for key in keys {
+            let Some(PublisherPageState::Loaded {
+                matched_by_name, ..
+            }) = self.publisher_page.as_mut()
+            else {
+                return;
+            };
+            matched_by_name.insert(key.key.clone(), NameLevelIndexState::Loading);
+            let command =
+                FetchNameLevelReleases::new(self.musicindex_endpoint.clone(), key.key.clone());
+            let success = (publisher_feed_guid.to_owned(), key.key.clone());
+            let failure = success.clone();
+            present_command(
+                &self.command_runner,
+                command,
+                CommandContext::next(),
+                cx,
+                move |this, index, cx| {
+                    if apply_matched_by_name_result(
+                        &mut this.publisher_page,
+                        &success.0,
+                        &success.1,
+                        index,
+                    ) {
+                        cx.notify();
+                    }
+                },
+                move |this, error, cx| {
+                    let failed = NameLevelIndexState::Failed {
+                        detail: format!("{error}"),
+                    };
+                    if apply_matched_by_name_result(
+                        &mut this.publisher_page,
+                        &failure.0,
+                        &failure.1,
+                        failed,
+                    ) {
+                        cx.notify();
+                    }
+                },
+            );
+        }
+        cx.notify();
+    }
+
+    /// The view model of the loaded feed page, with the section "Matched by
+    /// name" in the Library context (ADR 0084 Decision 7, packet 017). The
+    /// facts of the section come from the current Library tree, so a
+    /// download or a removal changes the section in place.
+    pub(super) fn publisher_page_vm(
+        &self,
+        cx: &App,
+    ) -> Option<(PublisherPageVm, PublisherPageContext)> {
+        let Some(PublisherPageState::Loaded {
+            publisher_feed_guid,
+            facts,
+            context,
+            matched_by_name,
+        }) = self.publisher_page.as_ref()
+        else {
+            return None;
+        };
+        let vm = PublisherPageVm::new(facts.as_ref().clone());
+        if *context != PublisherPageContext::Library {
+            return Some((vm, *context));
+        }
+        let library = self.library.read(cx);
+        let keys = library.matched_name_keys(publisher_feed_guid);
+        let section = MatchedByNameFacts {
+            library: keys
+                .iter()
+                .flat_map(|key| library.name_level_members(&key.key))
+                .collect(),
+            index: NameLevelIndexState::combine(
+                keys.iter().filter_map(|key| matched_by_name.get(&key.key)),
+            ),
+            other_identity_feed_guids: library.other_identity_feed_guids(&keys),
+            keys,
+        };
+        Some((vm.with_matched_by_name(section), *context))
     }
 
     /// Stores the channel image of a loaded feed page in the relationship
@@ -271,14 +377,28 @@ impl TopApp {
                 let display = PublisherPageLoadDisplay::loading(context, &publisher_feed_guid);
                 render_publisher_page_status(&display, cx)
             }
-            Some(PublisherPageState::Loaded { facts, context, .. }) => {
-                let vm = PublisherPageVm::new(*facts);
+            Some(PublisherPageState::Loaded { .. }) => {
+                let Some((vm, context)) = self.publisher_page_vm(cx) else {
+                    return render_publisher_page_status(&PublisherPageLoadDisplay::empty(), cx);
+                };
+                let sections = vm.sections();
                 // ADR 0077 packet 004, orchestrator fix 5: `image_url` on
                 // each album already comes from packet 003 (Index) and this
                 // packet's own Library query. Resolve it through the same
                 // thumbnail path other album rows use; add no new request.
                 let mut album_thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
-                for url in vm.album_image_urls() {
+                // Packet 017: the rows of the section "Matched by name"
+                // need their covers too.
+                let mut urls = vm.album_image_urls();
+                urls.extend(
+                    sections
+                        .iter()
+                        .flat_map(|section| section.rows.iter())
+                        .filter_map(|row| row.image_url.clone()),
+                );
+                urls.sort_unstable();
+                urls.dedup();
+                for url in urls {
                     let image = self.index_remote_detail_hero_image(&url, cx);
                     album_thumbs.insert(url, image);
                 }
@@ -302,7 +422,7 @@ impl TopApp {
                 // route, in the current frame, the same as a release row
                 // of a list does. ADR 0084 packet 018: in selection mode,
                 // a click changes the selection of the row instead.
-                let rows = self.publisher_page_rows(&vm, cx);
+                let rows = self.release_section_rows(sections, cx);
                 render_publisher_page(
                     &vm,
                     context,
@@ -321,15 +441,15 @@ impl TopApp {
         }
     }
 
-    /// The release rows of the mounted feed page, with the facts of the
-    /// detail selection on each row (ADR 0084 Decision 10, packet 018).
-    fn publisher_page_rows(
+    /// The release rows of the mounted feed page or name level page, with
+    /// the facts of the detail selection on each row (ADR 0084 Decision 10,
+    /// packet 018).
+    pub(super) fn release_section_rows(
         &self,
-        vm: &PublisherPageVm,
+        mut sections: Vec<PublisherPageSectionVm>,
         cx: &mut Context<Self>,
-    ) -> PublisherPageRows {
+    ) -> ReleaseSectionRows {
         let library = self.library.read(cx);
-        let mut sections = vm.sections();
         for row in sections
             .iter_mut()
             .flat_map(|section| section.rows.iter_mut())
@@ -362,7 +482,7 @@ impl TopApp {
                 let key = DetailRowKey::Release(key.clone());
                 entity.update(cx, |this, cx| this.toggle_detail_row(&key, cx));
             });
-        PublisherPageRows {
+        ReleaseSectionRows {
             sections,
             scroll,
             reveal,
@@ -393,6 +513,28 @@ impl TopApp {
             }
             PublisherPageState::Loading { .. } | PublisherPageState::Failed { .. } => None,
         }
+    }
+}
+
+/// Applies the `MusicIndex` result of the matched name `key` to the loaded
+/// feed page `publisher_feed_guid`. A result for another page is dropped,
+/// and this gives `false`.
+fn apply_matched_by_name_result(
+    current: &mut Option<PublisherPageState>,
+    publisher_feed_guid: &str,
+    key: &str,
+    index: NameLevelIndexState,
+) -> bool {
+    match current {
+        Some(PublisherPageState::Loaded {
+            publisher_feed_guid: loaded_guid,
+            matched_by_name,
+            ..
+        }) if loaded_guid == publisher_feed_guid => {
+            matched_by_name.insert(key.to_owned(), index);
+            true
+        }
+        _ => false,
     }
 }
 
@@ -453,6 +595,7 @@ mod tests {
             publisher_feed_guid: "guid-a".into(),
             facts: Box::new(PublisherPageFacts::default()),
             context: PublisherPageContext::Index,
+            matched_by_name: BTreeMap::new(),
         });
         assert!(publisher_page_result_is_current(loaded.as_ref(), "guid-a"));
 
@@ -473,6 +616,7 @@ mod tests {
             publisher_feed_guid: "guid-a".into(),
             facts: Box::new(PublisherPageFacts::default()),
             context: PublisherPageContext::Index,
+            matched_by_name: BTreeMap::new(),
         });
 
         assert_eq!(
@@ -494,6 +638,7 @@ mod tests {
             publisher_feed_guid: "guid-b".into(),
             facts: Box::new(PublisherPageFacts::default()),
             context: PublisherPageContext::Library,
+            matched_by_name: BTreeMap::new(),
         });
 
         assert_eq!(

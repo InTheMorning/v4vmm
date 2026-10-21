@@ -6,7 +6,6 @@ use crate::view_models::named_feeds::{sort_named_feeds, NamedFeed};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArtistRef {
-    LocalArtistName(String),
     /// A publisher feed GUID that identifies an artist or label page (ADR
     /// 0077 Decision 1). No code builds this value from name text or from
     /// `publisher_text`.
@@ -110,24 +109,6 @@ impl FeedMetadataFacts {
             && self.explicit.is_none()
             && self.description.is_none()
     }
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct ArtistView {
-    pub id: Option<ArtistRef>,
-    pub name: Option<String>,
-    pub sort_name: Option<String>,
-    pub image_url: Option<String>,
-    pub artwork: Option<ArtworkRef>,
-    pub identity: EntityIdentityLinks,
-    pub area: Option<String>,
-    pub begin_year: Option<i32>,
-    pub end_year: Option<i32>,
-    pub feed_count: Option<i32>,
-    pub track_count: Option<i32>,
-    pub url: Option<String>,
-    pub aliases: Vec<String>,
-    pub tags: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -421,38 +402,6 @@ fn nonempty_owned(value: Option<String>) -> Option<String> {
 /// hide a real fallback value.
 fn trimmed(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|value| !value.is_empty())
-}
-
-impl ArtistView {
-    pub fn from_local_rows(name: &str, rows: &[db::TrackRow]) -> Self {
-        // Count unique feed_ids
-        let mut feed_ids = std::collections::HashSet::new();
-        let mut image_url = None;
-
-        for row in rows {
-            feed_ids.insert(row.feed_id);
-            if image_url.is_none() {
-                image_url = row.album_image_href.clone();
-            }
-        }
-
-        Self {
-            id: Some(ArtistRef::LocalArtistName(name.into())),
-            name: Some(name.into()),
-            sort_name: None,
-            image_url: image_url.clone(),
-            artwork: artwork_from_url(&image_url),
-            identity: EntityIdentityLinks::from_image_url(image_url),
-            area: None,
-            begin_year: None,
-            end_year: None,
-            feed_count: Some(feed_ids.len() as i32),
-            track_count: Some(rows.len() as i32),
-            url: None,
-            aliases: Vec::new(),
-            tags: Vec::new(),
-        }
-    }
 }
 
 impl FeedView {
@@ -1535,28 +1484,5 @@ mod tests {
         assert_eq!(view.identity.source_ids.len(), 1);
         assert_eq!(view.contributors.len(), 1);
         assert_eq!(view.contributors[0].name.as_deref(), Some("Bob"));
-    }
-
-    #[test]
-    fn from_local_rows_artist_counts_feeds() {
-        let rows = vec![
-            db::TrackRow {
-                feed_id: 1,
-                ..Default::default()
-            },
-            db::TrackRow {
-                feed_id: 1,
-                ..Default::default()
-            },
-            db::TrackRow {
-                feed_id: 2,
-                ..Default::default()
-            },
-        ];
-
-        let view = ArtistView::from_local_rows("Mike", &rows);
-
-        assert_eq!(view.feed_count, Some(2));
-        assert_eq!(view.track_count, Some(3));
     }
 }

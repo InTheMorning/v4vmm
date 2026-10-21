@@ -640,15 +640,13 @@ fn track_fact_json(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
-
     use super::*;
     use crate::db::rss_check_runs::{self as runs, RssCheckTrigger};
     use crate::db::{LocalMetadataFactInput, LocalMetadataOwner, LocalMetadataValue};
+    use crate::local_identity;
     use crate::rss::check_apply::apply_checked_document;
     use crate::rss::check_apply::test_support::{document, first, second};
-    use crate::sources::{FetchMode, LocalSource, MetadataSource};
-    use crate::views::{FeedRef, TrackRef};
+    use crate::views::{FeedView, TrackView};
 
     const FEED_ID: i64 = 1;
     const TRACK_ID: i64 = 11;
@@ -737,6 +735,48 @@ mod tests {
 
     fn track_row(conn: &Connection, track_id: i64) -> TrackRow {
         db::track_row_by_id(conn, track_id).unwrap().unwrap()
+    }
+
+    /// A `TrackView` straight from storage, through the same live calls a
+    /// local track read makes: identity facts, then the stored value
+    /// projection under test.
+    fn local_track_view(conn: &Connection, row: TrackRow) -> TrackView {
+        let facts =
+            local_identity::facts_for_owner(conn, db::LocalIdentityOwner::Track(row.id)).unwrap();
+        let values = track_values(conn, &row).unwrap();
+        TrackView::from_local_with_facts(row, facts, values)
+    }
+
+    /// A `FeedView` straight from storage, through the same live calls a
+    /// local feed read makes: the feed row, its tracks, identity facts, and
+    /// the stored value projection under test.
+    fn local_feed_view(conn: &Connection, feed_id: i64) -> FeedView {
+        let feed_row: FeedRow = conn
+            .query_row(
+                "SELECT id, feed_url, feed_guid, title, language, description, album_image_href, is_subscribed FROM feeds WHERE id = ?1",
+                [feed_id],
+                |row| {
+                    Ok(FeedRow {
+                        id: row.get(0)?,
+                        feed_url: row.get(1)?,
+                        feed_guid: row.get(2)?,
+                        title: row.get(3)?,
+                        language: row.get(4)?,
+                        description: row.get(5)?,
+                        album_image_href: row.get(6)?,
+                        is_subscribed: row.get::<_, i64>(7)? != 0,
+                    })
+                },
+            )
+            .unwrap();
+        let tracks = db::feed_tracks(conn, feed_id).unwrap();
+        let track_views = tracks
+            .into_iter()
+            .map(|row| local_track_view(conn, row))
+            .collect();
+        let facts = local_identity::feed_facts(conn, feed_id).unwrap();
+        let values = feed_values(conn, feed_id).unwrap();
+        FeedView::from_local_with_facts(feed_row, track_views, facts, values)
     }
 
     /// R20-01: a hold gives the held value for its field. Another field of
@@ -868,13 +908,8 @@ mod tests {
         let second_run = runs::insert_run(&conn, 1, RssCheckTrigger::Button, later).unwrap();
         apply_checked_document(&conn, second_run, FEED_ID, &document(&second()), later).unwrap();
 
-        let source = LocalSource::new(Arc::new(Mutex::new(conn)));
-        let feed = source
-            .fetch_feed(&FeedRef::LocalFeedId(FEED_ID), FetchMode::WithTracks)
-            .unwrap();
-        let track = source
-            .fetch_track(&TrackRef::LocalTrackId(track_id))
-            .unwrap();
+        let feed = local_feed_view(&conn, FEED_ID);
+        let track = local_track_view(&conn, track_row(&conn, track_id));
 
         assert_eq!(feed.title.as_deref(), Some(second().title));
         assert_eq!(feed.description.as_deref(), Some("<p>New album notes</p>"));
@@ -1056,14 +1091,9 @@ mod tests {
         conn
     }
 
-    fn local_views(conn: Connection) -> (crate::views::FeedView, crate::views::TrackView) {
-        let source = LocalSource::new(Arc::new(Mutex::new(conn)));
-        let feed = source
-            .fetch_feed(&FeedRef::LocalFeedId(FEED_ID), FetchMode::WithTracks)
-            .unwrap();
-        let track = source
-            .fetch_track(&TrackRef::LocalTrackId(TRACK_ID))
-            .unwrap();
+    fn local_views(conn: &Connection) -> (FeedView, TrackView) {
+        let feed = local_feed_view(conn, FEED_ID);
+        let track = local_track_view(conn, track_row(conn, TRACK_ID));
         (feed, track)
     }
 
@@ -1075,7 +1105,7 @@ mod tests {
         persons_hold(&conn, HoldOwner::Feed(FEED_ID), &["Zed", "Amy"]);
         persons_hold(&conn, track_owner(), &["Zed", "Amy"]);
 
-        let (feed, track) = local_views(conn);
+        let (feed, track) = local_views(&conn);
 
         assert_eq!(credit_names(&feed.contributors), ["Zed", "Amy"]);
         assert_eq!(credit_names(&track.contributors), ["Zed", "Amy"]);
@@ -1087,7 +1117,7 @@ mod tests {
     #[test]
     fn adr_0076_credit_list_without_hold_shows_only_the_musicindex_list() {
         let conn = with_both_credit_lists();
-        let (feed, track) = local_views(conn);
+        let (feed, track) = local_views(&conn);
         assert_eq!(credit_names(&feed.contributors), ["Mia", "Noor"]);
         assert_eq!(credit_names(&track.contributors), ["Mia", "Noor"]);
 
@@ -1104,7 +1134,7 @@ mod tests {
             "embedded",
             &["Evidence Only"],
         );
-        let (feed, track) = local_views(conn);
+        let (feed, track) = local_views(&conn);
         assert!(feed.contributors.is_empty());
         assert_eq!(credit_names(&track.contributors), ["Zed", "Amy"]);
     }
@@ -1120,7 +1150,7 @@ mod tests {
         let values = track_values(&conn, &track_row(&conn, TRACK_ID)).unwrap();
         assert!(values.credits.is_empty());
         assert!(feed_credits(&conn, FEED_ID).unwrap().is_empty());
-        let (feed, track) = local_views(conn);
+        let (feed, track) = local_views(&conn);
 
         assert!(feed.contributors.is_empty());
         assert!(track.contributors.is_empty());
@@ -1204,7 +1234,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(names, ["Zed", "Amy", "Mia", "Noor"]);
 
-        let (feed, track) = local_views(conn);
+        let (feed, track) = local_views(&conn);
         let text = format!(
             "{:?} {:?} {:?} {:?}",
             values.credits, feed_list, feed.contributors, track.contributors
@@ -1242,10 +1272,7 @@ mod tests {
             [FEED_ID],
         )
         .unwrap();
-        let source = LocalSource::new(Arc::new(Mutex::new(conn)));
-        let view = source
-            .fetch_track(&TrackRef::LocalTrackId(TRACK_ID))
-            .unwrap();
+        let view = local_track_view(&conn, track_row(&conn, TRACK_ID));
         assert_eq!(view.album_artist.as_deref(), Some("Channel Artist"));
     }
 }

@@ -63,7 +63,7 @@ mod detail_selection;
 mod events;
 pub(crate) mod keyboard;
 mod menu;
-mod name_match_dispatch;
+mod name_level_dispatch;
 mod playback_bar;
 mod publisher_dispatch;
 mod queue_now_playing;
@@ -221,7 +221,7 @@ pub struct TopApp {
     publisher_page_routes: BTreeMap<String, PublisherPageContext>,
     /// The mounted name-match track page (ADR 0077 packet 006). `None` when
     /// the current frame is not a name-match page.
-    name_match_page: Option<name_match_dispatch::NameMatchPageState>,
+    name_level_page: Option<name_level_dispatch::NameLevelPageState>,
     /// The Index feed detail-on-open fetch, reached from an active search
     /// (ADR 0075 packet 047). `None` when no such fetch is tracked.
     index_feed_detail_state: Option<search_dispatch::IndexFeedDetailState>,
@@ -414,9 +414,6 @@ impl TopApp {
                 LibraryAppEvent::OpenAlbumPage { feed_id } => {
                     this.open_library_album_page(*feed_id, cx);
                 }
-                LibraryAppEvent::OpenArtistPage { name } => {
-                    this.open_library_artist_page(name, cx);
-                }
                 LibraryAppEvent::OpenPage { entry, start } => {
                     this.open_music_page(entry, *start, cx);
                 }
@@ -538,7 +535,7 @@ impl TopApp {
             database_tools_subscription: None,
             publisher_page: None,
             publisher_page_routes: BTreeMap::new(),
-            name_match_page: None,
+            name_level_page: None,
             index_feed_detail_state: None,
             index_track_detail_state: None,
             index_track_feed_state: None,
@@ -631,7 +628,7 @@ impl TopApp {
                 {
                     self.settings_status = format!("Error switching tabs: {error}");
                 }
-                self.sync_search_results_detail_with_nav(content_list_id);
+                self.sync_search_results_detail_with_nav(content_list_id, cx);
             }
             AppTab::Music => {
                 let restoring_from_settings = self
@@ -650,7 +647,7 @@ impl TopApp {
                     }
                 }
 
-                self.sync_search_results_detail_with_nav(content_list_id);
+                self.sync_search_results_detail_with_nav(content_list_id, cx);
                 let entry = self.workspace_layout.frame_nav(content_list_id).map_or(
                     FrameNavigationEntry::Destination(MusicDestination::Discover),
                     |nav| nav.current().clone(),
@@ -808,12 +805,12 @@ impl TopApp {
         entry: &FrameNavigationEntry,
         cx: &mut Context<Self>,
     ) {
-        self.sync_search_results_detail_with_nav(content_list_id);
+        self.sync_search_results_detail_with_nav(content_list_id, cx);
         self.library.update(cx, |library, cx| {
             library.hydrate_detail_from_nav(entry, cx);
         });
         self.restore_publisher_page_for_nav(entry, cx);
-        self.restore_name_match_page_for_nav(entry, cx);
+        self.restore_name_level_page_for_nav(entry, cx);
         self.restore_release_page_source_for_nav(entry, cx);
         self.restore_track_page_source_for_nav(entry, cx);
         if let FrameNavigationEntry::Search(query) = entry {
@@ -1069,10 +1066,11 @@ impl TopApp {
             // and "Release" for a feed of music, whatever its origin.
             FrameNavigationEntry::Track(_) => "Track".to_string(),
             FrameNavigationEntry::Release(_) => "Release".to_string(),
-            FrameNavigationEntry::ArtistDetail(_) => "Artist".to_string(),
-            // ADR 0077 packet 006: this frame title is fixed text, never
-            // "Artist". The entry names no artist.
-            FrameNavigationEntry::IndexNameMatches(_) => "Tracks matching".to_string(),
+            // ADR 0084 packet 017 decision D5: the frame title of the name
+            // level page.
+            FrameNavigationEntry::ArtistName(_) => {
+                crate::view_models::name_level_page::NameLevelPageVm::FRAME_TITLE.to_string()
+            }
             // ADR 0085 Decision 7: the default title, before the page's
             // own facts load. `render_workspace_screen_mount` overrides
             // this with the loaded frame title.
@@ -1468,12 +1466,10 @@ impl TopApp {
                     )
                 }
             }
-            // ADR 0077 packet 006: the name-match track page loads through
-            // its own fetch, independent of the Library tree and the
-            // search-results cache. It replaces the old scoped Index feed
-            // results rendering of this entry.
-            Some(FrameNavigationEntry::IndexNameMatches(_)) => {
-                let detail_content = self.render_name_match_page_content(cx);
+            // ADR 0084 Decision 7, packet 017: the name level page reads the
+            // Library tree at each render and its own MusicIndex request.
+            Some(FrameNavigationEntry::ArtistName(_)) => {
+                let detail_content = self.render_name_level_page_content(cx);
                 if fills_detail {
                     WorkspaceSlots::new().detail_slot(detail_content)
                 } else {

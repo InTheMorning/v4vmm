@@ -126,15 +126,12 @@ fn breadcrumb_entry_id(entry: &FrameNavigationEntry) -> String {
         FrameNavigationEntry::PlaylistDetail(id) => format!("playlist-{id}"),
         FrameNavigationEntry::Release(key) => release_key_id(key),
         FrameNavigationEntry::Track(key) => track_key_id(key),
-        FrameNavigationEntry::ArtistDetail(name) => format!("artist-{}", slug_id(name)),
+        FrameNavigationEntry::ArtistName(key) => format!("artist-name-{}", slug_id(&key.key)),
         FrameNavigationEntry::PublisherDetail(publisher_feed_guid) => {
             format!("publisher-{}", slug_id(publisher_feed_guid))
         }
         FrameNavigationEntry::SinglesGroup(key) => singles_group_id(key),
         FrameNavigationEntry::Search(query) => format!("search-{}", slug_id(query)),
-        FrameNavigationEntry::IndexNameMatches(name) => {
-            format!("index-name-matches-{}", slug_id(name))
-        }
         FrameNavigationEntry::Settings => "settings".to_string(),
         FrameNavigationEntry::QueueNowPlaying => "queue-now-playing".to_string(),
     }

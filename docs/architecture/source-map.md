@@ -35,6 +35,7 @@ When you need to look something up, consult this map first to find the right fil
 | Music track row: badges, the download slot, the duration and the row menu on hover, focus and right-click (ADR 0083 Decisions 5 and 6, task 006) | `src/ui/composites/track_row.rs`, `src/ui/composites/track_row_menu.rs`, `TrackRowColumn` in `src/ui/tokens.rs`, the row view models in `src/view_models/release_page.rs`. The playlist, Tracks and Needs attention rows (task 007): `ListRow::menu_cell` in `src/ui/composites/list_row.rs`, `src/ui/shells/playlist.rs`, `src/ui/shells/library/content_list_row_actions.rs`. The drag of a track to a playlist (task 008): `src/ui/composites/track_drag.rs`, the timer in `src/presentation/delayed_presenter.rs`, `SpringLoadVm` in `src/view_models/library.rs` |
 | Music track page for the Library and the Index: feed facts, page view model, commands, one shell, the two hosts (ADR 0084 Decision 4, packet 023) | `src/view_models/track_page.rs`, `src/ui/shells/track_page.rs`, `src/library/track_page.rs`, `src/ui/shells/library/track_detail.rs`, `run_index_track_page_command` in `src/app/search_dispatch.rs` |
 | Music scopes "Library" and "Everything" (ADR 0084 Decision 8, packet 016): the scope and the name list pages, the Artists merge and classification, the page loads, the status rows | `src/view_models/index_name_list.rs`, `src/view_models/artists_everything.rs`, `src/view_models/releases_everything.rs`, `src/library/music_scopes.rs`, `src/application/queries/name_lists.rs`, `src/ui/shells/library/index_list_status.rs`, the Discover views list in `src/ui/shells/library/views_list.rs` |
+| Music name level page and the "Matched by name" section (ADR 0084 Decision 7, packet 017) | `src/view_models/name_level_page.rs`, `src/app/name_level_dispatch.rs`, `src/ui/shells/name_level_page.rs`, `src/ui/composites/release_section_list.rs`, `NameFeedMatches` in `src/view_models/artist_identity.rs` |
 | Settings cached-file query and saved observation | `src/application/queries/library.rs`, `src/view_models/cached_files.rs`, `src/app.rs` |
 | Retained original actions, explicit checked Retry and scoped tool setup | `src/application/capability_recovery.rs`, `src/application/capability_recovery/setup.rs` (ADR 0066) |
 | Runtime/cache/optional-tool repair and focused Settings routing in the existing shell | `src/app/capabilities.rs`, existing search/playback/Show adapters |
@@ -66,7 +67,6 @@ When you need to look something up, consult this map first to find the right fil
 | Long-running playback owner (desktop/daemon) | `src/playback_owner.rs` |
 | MusicBrainz query client | `src/musicbrainz.rs` |
 | Track identity, local file binding | `src/track_identity.rs` |
-| Source enclosure selection | `src/sources.rs` |
 | ID3 frame field types | `src/tag_field.rs` |
 | GPUI library view (view code only) | `src/library.rs` |
 | GPUI discover/search view (view code only) | `src/search.rs` |

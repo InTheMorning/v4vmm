@@ -25,7 +25,10 @@ pub(crate) use empty_state::EmptyStateDisplay;
 pub(crate) use failure::{SearchFailureAction, SearchFailureAvailability};
 pub(crate) use index_detail::{IndexDetailDisplay, IndexDetailKind, IndexSearchResultRows};
 pub(crate) use paged_tab::SearchResultsPagedTab;
-pub(crate) use results::{ArtistResultDisplay, FeedResultDisplay, TrackResultDisplay};
+pub(crate) use results::{
+    artist_feed_result_display, artist_result_destination, ArtistResultDisplay, ArtistSearchFacts,
+    FeedResultDisplay, TrackResultDisplay,
+};
 pub(crate) use tabs::{SearchResultItemId, SearchResultOrigin, SearchResultsTab};
 
 use self::empty_state::empty_state_for;
@@ -67,15 +70,25 @@ impl SearchResultsInspectorPageVm {
     }
 
     /// Creates a search-results page from local library track matches.
+    /// `artist_facts` gives the match of each artist name (ADR 0084
+    /// Decision 7, packet 017).
     #[must_use]
-    pub(crate) fn from_local_library_tracks(query: impl Into<String>, tracks: &[TrackRow]) -> Self {
-        Self::new(query).with_local_library_tracks(tracks)
+    pub(crate) fn from_local_library_tracks(
+        query: impl Into<String>,
+        tracks: &[TrackRow],
+        artist_facts: &ArtistSearchFacts,
+    ) -> Self {
+        Self::new(query).with_local_library_tracks(tracks, artist_facts)
     }
 
     /// Returns this page with local library result rows attached.
     #[must_use]
-    pub(crate) fn with_local_library_tracks(mut self, tracks: &[TrackRow]) -> Self {
-        let local_rows = local_library_result_rows(tracks);
+    pub(crate) fn with_local_library_tracks(
+        mut self,
+        tracks: &[TrackRow],
+        artist_facts: &ArtistSearchFacts,
+    ) -> Self {
+        let local_rows = local_library_result_rows(tracks, artist_facts);
         self.artists = SearchResultsPagedTab::ready_library(local_rows.artists);
         self.feeds = SearchResultsPagedTab::ready_library(local_rows.feeds);
         self.tracks = SearchResultsPagedTab::ready_library(local_rows.tracks);

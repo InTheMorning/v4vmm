@@ -81,6 +81,7 @@ impl DetailListKind {
             FrameNavigationEntry::Release(_) => Some(Self::Tracks),
             FrameNavigationEntry::SinglesGroup(_)
             | FrameNavigationEntry::PublisherDetail(_)
+            | FrameNavigationEntry::ArtistName(_)
             | FrameNavigationEntry::DiscoverView(DiscoverView::NewReleases) => Some(Self::Releases),
             FrameNavigationEntry::PlaylistDetail(_) => Some(Self::PlaylistEntries),
             _ => None,
@@ -970,7 +971,7 @@ mod tests {
             artist: None,
             not_listed: false,
             in_library: false,
-            role_line: None,
+            detail_line: None,
             open: Some(ReleaseRowOpenAction {
                 key: release_key(guid),
                 a11y_label: format!("Open the release {title}"),
@@ -1083,6 +1084,8 @@ mod tests {
             &[PublisherPageSectionVm {
                 heading: "Albums and EPs".to_owned(),
                 rows: vec![feed_row("r1", "Haleen")],
+                note: None,
+                status: None,
             }],
             |_| None,
         ));
@@ -1164,6 +1167,8 @@ mod tests {
             &[PublisherPageSectionVm {
                 heading: "Singles".to_owned(),
                 rows: vec![feed_row("r1", "Haleen")],
+                note: None,
+                status: None,
             }],
             |_| None,
         ));
@@ -1174,7 +1179,7 @@ mod tests {
         for entry in [
             release_entry(),
             FrameNavigationEntry::SinglesGroup(SinglesGroupKey(ArtistIdentity::Name(
-                "Haleen".to_owned(),
+                "haleen".to_owned(),
             ))),
             FrameNavigationEntry::PublisherDetail("feed-artist".to_owned()),
             // Packet 025 gave the playlist page its selection.
@@ -1266,6 +1271,8 @@ mod tests {
                 feed_row("index-only", "Rain"),
                 feed_row("library", "Haleen"),
             ],
+            note: None,
+            status: None,
         }];
         let rows = DetailPageRows::Releases(feed_page_release_rows(&sections, |key| {
             (key == &release_key("library")).then_some(library_facts(9, true))
@@ -1691,6 +1698,72 @@ mod tests {
         assert_eq!(
             ids(release.add_to_playlist_choices(&playlists)),
             [PLAYLIST_ID, 9]
+        );
+    }
+
+    /// R17-16 (ADR 0084 Decision 7, packet 017): the name level page has
+    /// the release selection, and its detail page rows give one row for
+    /// each release with a release key.
+    #[test]
+    fn adr_0084_name_level_r17_16_name_level_page_has_release_rows() {
+        use crate::view_models::artist_identity::ArtistNameKey;
+        use crate::view_models::name_level_page::{
+            NameLevelIndexRelease, NameLevelIndexState, NameLevelLibraryRelease,
+            NameLevelPageFacts, NameLevelPageVm,
+        };
+        use crate::view_models::release_kind::ReleaseKind;
+
+        let entry = FrameNavigationEntry::ArtistName(ArtistNameKey::from_text("Haleen"));
+        assert_eq!(
+            DetailListKind::for_entry(&entry),
+            Some(DetailListKind::Releases)
+        );
+
+        let vm = NameLevelPageVm::new(NameLevelPageFacts {
+            key: ArtistNameKey::from_text("Haleen"),
+            library: vec![
+                NameLevelLibraryRelease {
+                    release_key: Some(ReleaseKey::LibraryFeed(4)),
+                    feed_guid: None,
+                    title: "No GUID".to_owned(),
+                    image_url: None,
+                    artist_text: "Haleen".to_owned(),
+                    kind: ReleaseKind::Album,
+                    newest_date: Some(2),
+                    in_library: true,
+                },
+                NameLevelLibraryRelease {
+                    release_key: None,
+                    feed_guid: None,
+                    title: "No key".to_owned(),
+                    image_url: None,
+                    artist_text: "Haleen".to_owned(),
+                    kind: ReleaseKind::Single,
+                    newest_date: Some(1),
+                    in_library: true,
+                },
+            ],
+            index: NameLevelIndexState::Loaded {
+                releases: vec![NameLevelIndexRelease {
+                    feed_guid: "index-guid".to_owned(),
+                    title: Some("Index".to_owned()),
+                    episode_count: Some(1),
+                    ..NameLevelIndexRelease::default()
+                }],
+                more_available: false,
+            },
+            other_identity_feed_guids: std::collections::BTreeSet::new(),
+            matched_feed: None,
+        });
+        let rows = feed_page_release_rows(&vm.sections(), |_| None);
+        let keys: Vec<ReleaseKey> = rows.into_iter().map(|row| row.key).collect();
+        assert_eq!(
+            keys,
+            [
+                ReleaseKey::LibraryFeed(4),
+                ReleaseKey::from_index_feed_guid("index-guid")
+            ],
+            "a release with no release key gives no selection row"
         );
     }
 }

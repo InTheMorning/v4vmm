@@ -83,17 +83,6 @@ impl IndexDetailDisplay {
         display
     }
 
-    pub(super) fn track(row: &TrackResultDisplay, fallback_id: &str) -> Self {
-        let mut display = Self::new(
-            IndexDetailKind::Track,
-            fallback_id,
-            row.label.clone(),
-            row.secondary_text.clone(),
-        );
-        display.track.clone_from(&row.remote_track);
-        display
-    }
-
     pub(crate) fn feed_or_fallback(
         row: Option<&FeedResultDisplay>,
         fallback_id: &str,
@@ -109,24 +98,6 @@ impl IndexDetailDisplay {
                 )
             },
             |row| Self::feed(row, fallback_id),
-        )
-    }
-
-    pub(crate) fn track_or_fallback(
-        row: Option<&TrackResultDisplay>,
-        fallback_id: &str,
-        fallback_label: &str,
-    ) -> Self {
-        row.map_or_else(
-            || {
-                Self::new(
-                    IndexDetailKind::Track,
-                    fallback_id,
-                    fallback_label,
-                    "MusicIndex track",
-                )
-            },
-            |row| Self::track(row, fallback_id),
         )
     }
 

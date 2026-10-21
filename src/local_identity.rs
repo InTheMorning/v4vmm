@@ -54,7 +54,3 @@ pub(crate) fn facts_for_owner(
 pub(crate) fn feed_facts(conn: &Connection, feed_id: i64) -> Result<LocalIdentityFacts> {
     facts_for_owner(conn, LocalIdentityOwner::Feed(feed_id))
 }
-
-pub(crate) fn track_facts(conn: &Connection, track_id: i64) -> Result<LocalIdentityFacts> {
-    facts_for_owner(conn, LocalIdentityOwner::Track(track_id))
-}

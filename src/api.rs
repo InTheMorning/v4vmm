@@ -938,7 +938,8 @@ impl Client {
 
     /// Fetches one page of artist names in name order (`GET
     /// /v1/artist-names`, ADR 0084 packet 016). The profile gives the
-    /// `include` value.
+    /// `include` value. `from` starts the page at the first row whose sort
+    /// key is at or after it (ADR 0084 packet 017, the search name check).
     ///
     /// # Errors
     /// Returns an error when the request fails or the response does not
@@ -947,6 +948,7 @@ impl Client {
         &self,
         limit: i32,
         cursor: Option<&str>,
+        from: Option<&str>,
         profile: &RequestProfile,
     ) -> Result<ArtistNamesResponse> {
         debug_assert_eq!(
@@ -954,13 +956,18 @@ impl Client {
             RequestPathShape::ArtistNameList,
             "ADR 0084 packet 016: {profile:?} must name the artist name list path shape"
         );
-        let params = name_list_params(limit, cursor, profile);
+        let mut params = name_list_params(limit, cursor, profile);
+        if let Some(from) = from {
+            params.push(("from", from.to_string()));
+        }
         self.get_json(&["v1", "artist-names"], &params)
     }
 
     /// Fetches one page of music releases in name order (`GET
     /// /v1/feeds/by-name`, ADR 0084 packet 016). The profile gives the
     /// `include` value. The default medium of the endpoint is `music`.
+    /// `artist_key` keeps only the releases that the `name` row of that key
+    /// counts (Stophammer ADR 0071 section 4, ADR 0084 packet 017).
     ///
     /// # Errors
     /// Returns an error when the request fails or the response does not
@@ -969,6 +976,7 @@ impl Client {
         &self,
         limit: i32,
         cursor: Option<&str>,
+        artist_key: Option<&str>,
         profile: &RequestProfile,
     ) -> Result<FeedNamesResponse> {
         debug_assert_eq!(
@@ -976,7 +984,10 @@ impl Client {
             RequestPathShape::FeedNameList,
             "ADR 0084 packet 016: {profile:?} must name the release name list path shape"
         );
-        let params = name_list_params(limit, cursor, profile);
+        let mut params = name_list_params(limit, cursor, profile);
+        if let Some(artist_key) = artist_key {
+            params.insert(0, ("artist_key", artist_key.to_string()));
+        }
         self.get_json(&["v1", "feeds", "by-name"], &params)
     }
 
@@ -1081,38 +1092,6 @@ impl Client {
         ];
         if let Some(cursor) = cursor {
             params.push(("cursor", cursor.to_string()));
-        }
-        self.get_json(&["v1", "tracks"], &params)
-    }
-
-    /// Fetches tracks by artist name using a named ADR 0075 request profile
-    /// (ADR 0077 packet 006). The profile supplies the include list. An L0
-    /// profile sends no `include` query parameter. The wire format stays
-    /// the same as `fetch_tracks_by_artist`.
-    ///
-    /// # Errors
-    /// Returns the same errors as `fetch_tracks_by_artist`.
-    pub(crate) fn fetch_tracks_by_artist_with_profile(
-        &self,
-        artist: &str,
-        limit: Option<i32>,
-        cursor: Option<&str>,
-        profile: &RequestProfile,
-    ) -> Result<TrackListResponse> {
-        debug_assert_eq!(
-            profile.path_shape(),
-            RequestPathShape::TracksByArtistName,
-            "ADR 0077 packet 006: {profile:?} must name the tracks-by-artist-name path shape"
-        );
-        let mut params = vec![
-            ("artist", artist.to_string()),
-            ("limit", limit.unwrap_or(PAGE_LIMIT).to_string()),
-        ];
-        if let Some(cursor) = cursor {
-            params.push(("cursor", cursor.to_string()));
-        }
-        if let Some(include) = profile.include() {
-            params.push(("include", include.to_string()));
         }
         self.get_json(&["v1", "tracks"], &params)
     }
@@ -1387,13 +1366,15 @@ pub(crate) mod tests {
     fn adr_0075_request_profile_l0_profile_sends_no_include_parameter() {
         let client = Client::new();
         let mut params = Vec::new();
-        // The name-match request is the one L0 profile left (ADR 0075,
-        // amendment of 2026-10-07): `/v1/tracks` takes no include.
-        if let Some(include) = request_profiles::INDEX_NAME_MATCH_TRACKS.include() {
+        // The name level request is an L0 profile (ADR 0084 packet 017):
+        // `artist_key` needs no include.
+        if let Some(include) = request_profiles::INDEX_NAME_LEVEL_RELEASES.include() {
             params.push(("include", include.to_string()));
         }
-        let url = client.build_url(&["v1", "tracks"], &params).expect("url");
-        assert_eq!(url.path(), "/v1/tracks");
+        let url = client
+            .build_url(&["v1", "feeds", "by-name"], &params)
+            .expect("url");
+        assert_eq!(url.path(), "/v1/feeds/by-name");
         assert_eq!(
             url.query(),
             None,

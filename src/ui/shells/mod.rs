@@ -21,11 +21,10 @@
 
 #![warn(clippy::pedantic)]
 
-pub mod artist;
 pub mod entity;
 pub mod library;
 pub mod library_removal_confirmation;
-pub mod name_match_page;
+pub mod name_level_page;
 pub mod playlist;
 pub(crate) mod playlist_removal_confirmation;
 pub mod publisher;

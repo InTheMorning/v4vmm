@@ -10,10 +10,14 @@ use crate::application::application_query_service::ApplicationQueryService;
 use crate::application::command_bus::{ApplicationCommand, CommandOutcome, CommandResult};
 use crate::application::command_context::CommandContext;
 use crate::application::errors::command::CommandError;
-use crate::view_models::name_match_page::{NameMatchPageFacts, NameMatchPageVm};
+use crate::view_models::artist_identity::{NameFeedMatch, NameFeedMatches, UNKNOWN_ARTIST_TEXT};
+use crate::view_models::index_name_list::name_sort_key;
+use crate::view_models::name_level_page::{
+    NameLevelIndexRelease, NameLevelIndexState, NameLevelPageVm,
+};
 use crate::view_models::search_results::{
-    ArtistResultDisplay, FeedResultDisplay, IndexSearchResultRows, SearchResultItemId,
-    SearchResultOrigin, TrackResultDisplay,
+    artist_feed_result_display, ArtistResultDisplay, FeedResultDisplay, IndexSearchResultRows,
+    SearchResultItemId, SearchResultOrigin, TrackResultDisplay,
 };
 use crate::views::TrackView;
 use crate::{db, library_service};
@@ -25,18 +29,23 @@ pub const DEFAULT_LOCAL_LIBRARY_SEARCH_LIMIT: usize = 50;
 pub(crate) struct FetchIndexSearchResults {
     endpoint: crate::config::MusicIndexEndpoint,
     query: String,
+    matches: NameFeedMatches,
 }
 
 impl FetchIndexSearchResults {
-    /// Creates an Index search query command.
+    /// Creates an Index search query command. `matches` is the match of
+    /// each name to the artist feeds of the Library, read when the search
+    /// starts (ADR 0084 Decision 7, packet 017 decision D14).
     #[must_use]
     pub(crate) fn new(
         endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         query: impl Into<String>,
+        matches: NameFeedMatches,
     ) -> Self {
         Self {
             endpoint: endpoint.into(),
             query: query.into(),
+            matches,
         }
     }
 }
@@ -48,65 +57,126 @@ impl ApplicationCommand for FetchIndexSearchResults {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
-        let rows = fetch_index_search_result_rows(&self.endpoint, &self.query)
+        let rows = fetch_index_search_result_rows(&self.endpoint, &self.query, &self.matches)
             .map_err(|error| query_error(&error))?;
         Ok(CommandOutcome::without_events(rows))
     }
 }
 
-/// Fetches the Index name-match track page (ADR 0077 packet 006, Accepted
-/// Refinement "Index artist page by name"). The one request is
-/// `GET /v1/tracks?artist=<name>`, through the `INDEX_NAME_MATCH_TRACKS`
-/// request profile.
+/// Fetches the `MusicIndex` releases of one name (ADR 0084 Decision 7,
+/// packet 017). Each request is `GET /v1/feeds/by-name` with
+/// `artist_key=<key>` and `limit=200`, through the
+/// `INDEX_NAME_LEVEL_RELEASES` request profile.
 #[derive(Clone, Debug)]
-pub(crate) struct FetchNameMatchTracks {
+pub(crate) struct FetchNameLevelReleases {
     endpoint: crate::config::MusicIndexEndpoint,
-    name: String,
+    key: String,
 }
 
-impl FetchNameMatchTracks {
-    /// Creates an Index name-match track page query command.
+impl FetchNameLevelReleases {
+    /// Creates the query command of the name key `key`.
     #[must_use]
     pub(crate) fn new(
         endpoint: impl Into<crate::config::MusicIndexEndpoint>,
-        name: impl Into<String>,
+        key: impl Into<String>,
     ) -> Self {
         Self {
             endpoint: endpoint.into(),
-            name: name.into(),
+            key: key.into(),
         }
     }
 }
 
-impl ApplicationCommand for FetchNameMatchTracks {
-    type Output = NameMatchPageFacts;
+impl ApplicationCommand for FetchNameLevelReleases {
+    type Output = NameLevelIndexState;
 
     fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
         let client = crate::api::Client::new_with_base_url(self.endpoint);
-        fetch_name_match_tracks(&client, &self.name)
+        fetch_name_level_releases(&client, &self.key)
             .map_err(|error| query_error(&error))
             .map(CommandOutcome::without_events)
     }
 }
 
-/// Sends the one request of the name-match track page: `/v1/tracks` with
-/// `artist=<name>`, through the `INDEX_NAME_MATCH_TRACKS` request profile
-/// (Required Change 3, R6-03). This function sends no other route.
-fn fetch_name_match_tracks(client: &crate::api::Client, name: &str) -> Result<NameMatchPageFacts> {
-    let response = client.fetch_tracks_by_artist_with_profile(
-        name,
-        Some(crate::api::PAGE_LIMIT),
-        None,
-        &crate::application::request_profiles::INDEX_NAME_MATCH_TRACKS,
-    )?;
-    Ok(NameMatchPageFacts {
-        name: name.to_string(),
-        tracks: response.data,
-        has_more: response.pagination.has_more,
+/// The row count of one name level request (packet 017 decision D10). It
+/// is the `limit` maximum of `/v1/feeds/by-name`.
+pub(crate) const NAME_LEVEL_PAGE_LIMIT: i32 = 200;
+/// The request count of one name level list at most (packet 017 decision
+/// D10).
+pub(crate) const NAME_LEVEL_MAX_REQUESTS: usize = 5;
+
+/// Sends the requests of one name level list (packet 017 "The `MusicIndex`
+/// request"). It follows `pagination.cursor` while `has_more` is true, for
+/// [`NAME_LEVEL_MAX_REQUESTS`] requests at most. After the last request
+/// with `has_more` true, it sets `more_available`. The key of "Unknown
+/// Artist" sends no request. A row with no feed GUID is dropped. The
+/// response is untrusted input, and this function sends no other request
+/// for a row.
+fn fetch_name_level_releases(
+    client: &crate::api::Client,
+    key: &str,
+) -> Result<NameLevelIndexState> {
+    if key == crate::view_models::index_name_list::name_sort_key(UNKNOWN_ARTIST_TEXT) {
+        return Ok(NameLevelIndexState::NotRequested);
+    }
+    let mut releases = Vec::new();
+    let mut cursor: Option<String> = None;
+    let mut more_available = false;
+    for request in 0..NAME_LEVEL_MAX_REQUESTS {
+        let response = client.fetch_feeds_by_name(
+            NAME_LEVEL_PAGE_LIMIT,
+            cursor.as_deref(),
+            Some(key),
+            &crate::application::request_profiles::INDEX_NAME_LEVEL_RELEASES,
+        )?;
+        releases.extend(response.data.into_iter().filter_map(|feed| {
+            let feed_guid = non_empty_string(feed.feed_guid)?;
+            Some(NameLevelIndexRelease {
+                feed_guid,
+                title: feed.title,
+                image_url: non_empty_string(feed.image_url),
+                release_artist: feed.release_artist,
+                episode_count: feed.episode_count,
+                newest_item_at: feed.newest_item_at,
+            })
+        }));
+        let next = response
+            .pagination
+            .cursor
+            .filter(|_| response.pagination.has_more);
+        match next {
+            Some(next) if request + 1 < NAME_LEVEL_MAX_REQUESTS => cursor = Some(next),
+            Some(_) => more_available = true,
+            None => break,
+        }
+    }
+    Ok(NameLevelIndexState::Loaded {
+        releases,
+        more_available,
     })
+}
+
+/// Whether `MusicIndex` holds a `name` row with the key `key` (packet 017
+/// decision D15). It sends one `GET /v1/artist-names?from=<key>&limit=1`
+/// through the `INDEX_ARTIST_NAME_CHECK` request profile. The row shows
+/// when the first row has the kind `name` and the same key. A failed check
+/// shows the row, and the page then shows its failure report.
+fn index_name_row_exists(client: &crate::api::Client, key: &str) -> bool {
+    match client.fetch_artist_names(
+        1,
+        None,
+        Some(key),
+        &crate::application::request_profiles::INDEX_ARTIST_NAME_CHECK,
+    ) {
+        Ok(response) => response
+            .data
+            .first()
+            .is_some_and(|row| row.kind == crate::api::ArtistNameKind::Name && row.key == key),
+        Err(_) => true,
+    }
 }
 
 impl ApplicationQueryService {
@@ -149,6 +219,7 @@ fn query_error(error: &anyhow::Error) -> CommandError {
 fn fetch_index_search_result_rows(
     endpoint: &crate::config::MusicIndexEndpoint,
     query: &str,
+    matches: &NameFeedMatches,
 ) -> Result<IndexSearchResultRows> {
     let client = crate::api::Client::new_with_base_url(endpoint.clone());
     let mut rows = IndexSearchResultRows::default();
@@ -182,17 +253,46 @@ fn fetch_index_search_result_rows(
         }
     }
 
-    rows.artists = artists
-        .into_values()
-        .enumerate()
-        .map(|(index, artist)| {
-            (
-                index_item_id(INDEX_ARTIST_ID_BASE, index),
-                artist.into_display(),
-            )
-        })
-        .collect();
+    rows.artists = index_artist_rows(&client, artists, matches);
     Ok(rows)
+}
+
+/// The artist rows of the `MusicIndex` search results (ADR 0084 Decision 7,
+/// packet 017 decisions D6, D7 and D15). A name that matches exactly one
+/// Library artist feed gives the row of that feed, one time for each feed.
+/// Each other name gives its name row only when `MusicIndex` holds a `name`
+/// row with its key.
+fn index_artist_rows(
+    client: &crate::api::Client,
+    artists: BTreeMap<String, IndexArtistCandidate>,
+    matches: &NameFeedMatches,
+) -> Vec<(SearchResultItemId, ArtistResultDisplay)> {
+    let mut feeds_shown = BTreeSet::new();
+    let mut displays = Vec::new();
+    for (key, artist) in artists {
+        match matches.get(&key) {
+            NameFeedMatch::MatchedFeed(feed_guid) => {
+                if feeds_shown.insert(feed_guid.clone()) {
+                    let title = matches.feed_title(&feed_guid);
+                    displays.push(artist_feed_result_display(
+                        &feed_guid,
+                        &title,
+                        SearchResultOrigin::Index,
+                    ));
+                }
+            }
+            NameFeedMatch::Ambiguous | NameFeedMatch::NoFeed => {
+                if index_name_row_exists(client, &key) {
+                    displays.push(artist.into_display());
+                }
+            }
+        }
+    }
+    displays
+        .into_iter()
+        .enumerate()
+        .map(|(index, display)| (index_item_id(INDEX_ARTIST_ID_BASE, index), display))
+        .collect()
 }
 
 struct IndexFeedSearchRows {
@@ -208,53 +308,36 @@ struct IndexTrackSearchRows {
 #[derive(Clone, Debug)]
 struct IndexArtistCandidate {
     name: String,
-    feed_count: i32,
-    track_count: i32,
     thumbnail_href: Option<String>,
 }
 
 impl IndexArtistCandidate {
-    fn new(
-        name: impl Into<String>,
-        feed_count: i32,
-        track_count: i32,
-        thumbnail_href: Option<String>,
-    ) -> Self {
+    fn new(name: impl Into<String>, thumbnail_href: Option<String>) -> Self {
         Self {
             name: name.into(),
-            feed_count,
-            track_count,
             thumbnail_href,
         }
     }
 
     fn merge(&mut self, other: Self) {
-        self.feed_count = self.feed_count.saturating_add(other.feed_count);
-        self.track_count = self.track_count.saturating_add(other.track_count);
         if self.thumbnail_href.is_none() {
             self.thumbnail_href = other.thumbnail_href;
         }
     }
 
-    /// ADR 0077 packet 006, Accepted Refinement "Index artist page by
-    /// name": this row is a search result, never an artist. Its label and
-    /// its accessibility label are the same quoted text
-    /// `NameMatchPageVm` uses for the page this row opens (R6-01).
+    /// The name row of a `MusicIndex` name (ADR 0084 Decision 7, packet
+    /// 017 decision D7). Its label and its accessibility label are the
+    /// title of the name level page that the row opens. The row shows no
+    /// count, because a search hit count does not count the releases of
+    /// the name.
     fn into_display(self) -> ArtistResultDisplay {
-        let label = NameMatchPageVm::title_text_for_name(&self.name);
+        let label = NameLevelPageVm::title_text_for_name(&self.name);
         let mut display = ArtistResultDisplay::new(
             format!("index-artist:{}", self.name),
             label,
             SearchResultOrigin::Index,
         );
         display.a11y_label.clone_from(&display.label);
-        let secondary = count_parts([
-            positive_count_label(self.feed_count, "feed"),
-            positive_count_label(self.track_count, "track"),
-        ]);
-        if !secondary.is_empty() {
-            display = display.with_secondary_text(secondary);
-        }
         if let Some(thumbnail_href) = self.thumbnail_href {
             display = display.with_thumbnail_href(thumbnail_href);
         }
@@ -479,8 +562,6 @@ fn index_artist_candidate_from_feed(
     index_artist_name_matches_query(name, query).then(|| {
         IndexArtistCandidate::new(
             name,
-            1,
-            hit.episode_count.unwrap_or_default().max(0),
             non_empty_str(hit.feed_image_url.as_deref()).map(str::to_string),
         )
     })
@@ -498,7 +579,7 @@ fn index_artist_candidates_from_track(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .filter(|name| index_artist_name_matches_query(name, query))
-        .map(|name| IndexArtistCandidate::new(name, 0, 1, index_track_result_artwork_url(hit)))
+        .map(|name| IndexArtistCandidate::new(name, index_track_result_artwork_url(hit)))
         .collect()
 }
 
@@ -507,7 +588,7 @@ fn merge_index_artist_candidates(
     candidates: Vec<IndexArtistCandidate>,
 ) {
     for candidate in candidates {
-        let key = candidate.name.to_lowercase();
+        let key = name_sort_key(&candidate.name);
         if let Some(existing) = artists.get_mut(&key) {
             existing.merge(candidate);
         } else {
@@ -679,10 +760,6 @@ fn count_label(count: i32, singular: &str) -> String {
     } else {
         format!("{count} {singular}s")
     }
-}
-
-fn positive_count_label(count: i32, singular: &str) -> Option<String> {
-    (count > 0).then(|| count_label(count, singular))
 }
 
 fn count_parts<const N: usize>(parts: [Option<String>; N]) -> String {
@@ -902,10 +979,6 @@ mod tests {
             Some("https://example.test/track.jpg"),
             "R47-04: a track_image_url must win over feed_image_url"
         );
-        assert!(
-            display.remote_track.is_none(),
-            "the search must attach no fetched TrackView to the row"
-        );
 
         let feed_image_only = SearchResult {
             feed_image_url: Some("https://example.test/feed.jpg".to_string()),
@@ -986,8 +1059,10 @@ mod tests {
         let feed_candidate = index_artist_candidate_from_feed(&feed_hit, "survival")
             .expect("a matching release_artist should produce a candidate");
         assert_eq!(feed_candidate.name, "Survival Guide");
-        assert_eq!(feed_candidate.feed_count, 1);
-        assert_eq!(feed_candidate.track_count, 4);
+        assert_eq!(
+            feed_candidate.thumbnail_href.as_deref(),
+            Some("https://example.test/feed.jpg")
+        );
 
         let track_hit = SearchResult {
             entity_type: "track".to_string(),
@@ -1282,53 +1357,265 @@ including publisher (ADR 0077 Decision 5). Got: {requests:?}"
             "ADR 0075, amendment of 2026-10-07: the scoped track detail request asks for every track collection"
         );
     }
+}
 
-    /// R6-01 (ADR 0077 packet 006): an Index name candidate exposes the
-    /// label `Tracks matching "<name>"` and an equal accessibility label.
-    #[test]
-    fn adr_0077_name_matches_candidate_label_is_the_quoted_name_and_equals_its_a11y_label() {
-        let display = IndexArtistCandidate::new("Survival Guide", 2, 5, None).into_display();
+/// ADR 0084 packet 017: the `MusicIndex` requests of the name level page and
+/// of the search name check, against a local recorded-response server.
+#[cfg(test)]
+mod adr_0084_name_level_query_tests {
+    use super::*;
+    use crate::view_models::artist_identity::{name_feed_matches, NameFeedEntry};
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
-        assert_eq!(display.label, "Tracks matching \"Survival Guide\"");
-        assert_eq!(display.a11y_label, display.label);
+    type Responder = Arc<dyn Fn(&str) -> (u16, String) + Send + Sync>;
+
+    /// A local HTTP server that answers `expected` requests through
+    /// `respond`, and records each request path.
+    fn serve(expected: usize, respond: Responder) -> (String, Arc<Mutex<Vec<String>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let received = Arc::clone(&requests);
+        std::thread::spawn(move || {
+            for _ in 0..expected {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    return;
+                };
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut bytes = Vec::new();
+                let mut buffer = [0; 4096];
+                while !bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                    match stream.read(&mut buffer) {
+                        Ok(0) | Err(_) => break,
+                        Ok(read) => bytes.extend_from_slice(&buffer[..read]),
+                    }
+                }
+                let request = String::from_utf8_lossy(&bytes);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or_default()
+                    .to_owned();
+                received.lock().unwrap().push(path.clone());
+                let (status, body) = respond(&path);
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+        (format!("http://{address}"), requests)
     }
 
-    /// R6-01: the row keeps its secondary count text and its thumbnail.
-    #[test]
-    fn adr_0077_name_matches_candidate_keeps_its_secondary_text_and_thumbnail() {
-        let display = IndexArtistCandidate::new(
-            "Survival Guide",
-            2,
-            5,
-            Some("https://example.test/art.jpg".to_string()),
-        )
-        .into_display();
+    /// The rows of `GET /v1/feeds/by-name?artist_key=sir%20seat%20sitter`
+    /// of 2026-10-20 at 23:20 UTC: the titles, the track counts, the
+    /// release artist and the null `publisher_feed_guid` are recorded. The
+    /// packet did not record the feed GUIDs, so each row has a placeholder
+    /// GUID.
+    fn sir_seat_sitter_rows() -> serde_json::Value {
+        serde_json::json!({
+            "data": [
+                {"feed_guid": "gay-and-long-guid", "title": "Gay and Long",
+                 "release_artist": "Sir Seat Sitter", "episode_count": 1,
+                 "publisher_feed_guid": null},
+                {"feed_guid": "gone-guid", "title": "Gone",
+                 "release_artist": "Sir Seat Sitter", "episode_count": 1,
+                 "publisher_feed_guid": null},
+                {"feed_guid": "that-duck-guid", "title": "That Duck",
+                 "release_artist": "Sir Seat Sitter", "episode_count": 1,
+                 "publisher_feed_guid": null},
+                {"feed_guid": "waitin-guid", "title": "Waitin' on Alex",
+                 "release_artist": "Sir Seat Sitter", "episode_count": 17,
+                 "publisher_feed_guid": null}
+            ],
+            "pagination": {"has_more": false, "cursor": null}
+        })
+    }
 
-        assert_eq!(display.secondary_text, "2 feeds - 5 tracks");
+    /// R17-10: the command sends one request with `artist_key` and
+    /// `limit=200` and no `include`. The recorded response gives 4
+    /// releases: 3 singles and "Waitin' on Alex" with 17 tracks.
+    #[test]
+    fn adr_0084_name_level_r17_10_one_request_for_the_recorded_name() {
+        let body = sir_seat_sitter_rows().to_string();
+        let (endpoint, requests) = serve(1, Arc::new(move |_| (200, body.clone())));
+
+        let index = FetchNameLevelReleases::new(endpoint, "sir seat sitter")
+            .execute(&CommandContext::next())
+            .map(|outcome| outcome.into_parts().0)
+            .unwrap();
+
+        let NameLevelIndexState::Loaded {
+            releases,
+            more_available,
+        } = index
+        else {
+            panic!("the command gives the loaded releases");
+        };
+        assert!(!more_available);
+        let counts: Vec<(&str, Option<i32>)> = releases
+            .iter()
+            .map(|release| {
+                (
+                    release.title.as_deref().unwrap_or_default(),
+                    release.episode_count,
+                )
+            })
+            .collect();
         assert_eq!(
-            display.thumbnail_href.as_deref(),
-            Some("https://example.test/art.jpg")
+            counts,
+            [
+                ("Gay and Long", Some(1)),
+                ("Gone", Some(1)),
+                ("That Duck", Some(1)),
+                ("Waitin' on Alex", Some(17)),
+            ]
+        );
+        let requests = requests.lock().unwrap().clone();
+        assert_eq!(
+            requests,
+            ["/v1/feeds/by-name?artist_key=sir+seat+sitter&limit=200"],
+            "one request, with no include"
         );
     }
 
-    /// R6-03: the name-match track page sends exactly one request,
-    /// `/v1/tracks` with `artist=<name>`, through the
-    /// `INDEX_NAME_MATCH_TRACKS` request profile, and no other route.
+    /// R17-11: with `has_more` true on each response, the command sends 5
+    /// requests, follows the cursor and sets `more_available`. The key of
+    /// "Unknown Artist" sends no request.
     #[test]
-    fn adr_0077_name_matches_page_command_sends_one_tracks_by_artist_request() {
-        let fixture = Fixture::start();
-        let client = crate::api::Client::new_with_base_url(fixture.endpoint.clone());
-
-        let facts = fetch_name_match_tracks(&client, "DETOX").unwrap();
-
-        assert_eq!(facts.name, "DETOX");
-        assert_eq!(facts.tracks.len(), 1);
-        assert!(!facts.has_more);
-        let requests = fixture.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 1, "the page must send no other route");
-        assert!(
-            requests[0].starts_with("/v1/tracks?") && requests[0].contains("artist=DETOX"),
-            "R6-03: the page must request /v1/tracks with artist=<name>. Got: {requests:?}"
+    fn adr_0084_name_level_r17_11_five_requests_at_most() {
+        let (endpoint, requests) = serve(
+            5,
+            Arc::new(|path: &str| {
+                let page = requests_page(path);
+                (
+                    200,
+                    serde_json::json!({
+                        "data": [{"feed_guid": format!("guid-{page}"), "title": "T"}],
+                        "pagination": {"has_more": true, "cursor": format!("c{}", page + 1)}
+                    })
+                    .to_string(),
+                )
+            }),
         );
+
+        let index = FetchNameLevelReleases::new(endpoint.clone(), "haleen")
+            .execute(&CommandContext::next())
+            .map(|outcome| outcome.into_parts().0)
+            .unwrap();
+        let NameLevelIndexState::Loaded {
+            releases,
+            more_available,
+        } = index
+        else {
+            panic!("the command gives the loaded releases");
+        };
+        assert!(more_available);
+        assert_eq!(releases.len(), 5);
+        let requests = requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 5);
+        assert!(requests[1].contains("cursor=c1"), "{requests:?}");
+
+        let unknown = FetchNameLevelReleases::new(endpoint, "unknown artist")
+            .execute(&CommandContext::next())
+            .map(|outcome| outcome.into_parts().0)
+            .unwrap();
+        assert_eq!(unknown, NameLevelIndexState::NotRequested);
+        assert_eq!(
+            requests.len(),
+            5,
+            "the key of Unknown Artist sends no request"
+        );
+    }
+
+    fn requests_page(path: &str) -> usize {
+        path.split("cursor=c")
+            .nth(1)
+            .and_then(|rest| rest.split('&').next())
+            .and_then(|page| page.parse().ok())
+            .unwrap_or(0)
+    }
+
+    fn candidate(name: &str) -> (String, IndexArtistCandidate) {
+        (name_sort_key(name), IndexArtistCandidate::new(name, None))
+    }
+
+    /// R17-29, the `MusicIndex` part: a candidate sends one
+    /// `GET /v1/artist-names?from=<key>&limit=1`. A first row `name` with
+    /// the same key shows the row. A first row of another key or kind hides
+    /// it. A failed check shows it. A `MatchedFeed` candidate sends no
+    /// check, and two names that match one feed give one feed row (R17-28).
+    #[test]
+    fn adr_0084_name_level_r17_29_index_name_check() {
+        let (endpoint, requests) = serve(
+            4,
+            Arc::new(|path: &str| {
+                let row = |kind: &str, key: &str| {
+                    serde_json::json!({
+                        "data": [{"kind": kind, "name": key, "sort_name": key, "key": key}],
+                        "pagination": {"has_more": true}
+                    })
+                    .to_string()
+                };
+                if path.contains("from=shown") {
+                    (200, row("name", "shown"))
+                } else if path.contains("from=other+key") {
+                    (200, row("name", "other key 2"))
+                } else if path.contains("from=feed+only") {
+                    (200, row("publisher", "feed only"))
+                } else {
+                    (500, "{}".to_owned())
+                }
+            }),
+        );
+        let client = crate::api::Client::new_with_base_url(endpoint);
+        let matches = name_feed_matches([NameFeedEntry {
+            feed_guid: "haleen-guid".to_owned(),
+            title: Some("Haleen".to_owned()),
+            keys: ["haleen".to_owned(), "haleen music".to_owned()]
+                .into_iter()
+                .collect(),
+        }]);
+        let candidates: BTreeMap<String, IndexArtistCandidate> = [
+            candidate("Shown"),
+            candidate("Other Key"),
+            candidate("Feed Only"),
+            candidate("Failed Check"),
+            candidate("Haleen"),
+            candidate("Haleen Music"),
+        ]
+        .into_iter()
+        .collect();
+
+        let rows = index_artist_rows(&client, candidates, &matches);
+        let labels: Vec<(&str, &str)> = rows
+            .iter()
+            .map(|(_, row)| (row.id.as_str(), row.label.as_str()))
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                (
+                    "index-artist:Failed Check",
+                    "Releases that name Failed Check"
+                ),
+                ("artist-feed:haleen-guid", "Haleen"),
+                ("index-artist:Shown", "Releases that name Shown"),
+            ]
+        );
+        assert!(rows.iter().all(|(_, row)| row.secondary_text.is_empty()));
+        let requests = requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 4, "a MatchedFeed candidate sends no check");
+        assert!(requests
+            .iter()
+            .all(|path| path.starts_with("/v1/artist-names?") && path.contains("limit=1")));
+        assert!(!requests.iter().any(|path| path.contains("include")));
     }
 }

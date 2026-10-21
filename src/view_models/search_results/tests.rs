@@ -133,13 +133,12 @@ fn empty_state_tracks_active_tab_and_filter() {
 #[test]
 fn result_display_builders_project_accessible_labels() {
     let artist = ArtistResultDisplay::new("a1", "Alice", SearchResultOrigin::Index)
-        .with_secondary_text("3 feeds")
         .with_thumbnail_href("https://example.test/a.png");
     let feed = feed(7, "Morning Show");
     let track = track(9, "Theme");
 
     assert_eq!(artist.a11y_label, "Artist: Alice");
-    assert_eq!(artist.secondary_text, "3 feeds");
+    assert_eq!(artist.secondary_text, "");
     assert_eq!(
         artist.thumbnail_href.as_deref(),
         Some("https://example.test/a.png")
@@ -172,50 +171,6 @@ fn visible_thumbnail_hrefs_include_index_feed_rows() {
             "https://example.test/way-to-go.jpg".to_string(),
         ]
     );
-}
-
-#[test]
-fn track_result_display_can_carry_remote_track_view() {
-    let display = track(9, "Theme").with_remote_track(remote_track());
-    let remote = display
-        .remote_track
-        .as_ref()
-        .expect("remote Index track detail should stay attached to result row");
-
-    assert_eq!(remote.title.as_deref(), Some("Remote Track"));
-    assert_eq!(remote.feed_title.as_deref(), Some("Remote Release"));
-    assert_eq!(remote.track_number, Some(7));
-    assert_eq!(remote.duration_secs, Some(125));
-    assert_eq!(remote.pub_date, Some(1_712_275_200));
-    assert_eq!(remote.explicit, Some(true));
-    assert_eq!(
-        remote.transcript_url.as_deref(),
-        Some("https://example.test/transcript.srt")
-    );
-}
-
-#[test]
-fn index_detail_display_preserves_remote_track_view() {
-    let row = TrackResultDisplay::new(
-        "index-track:feed-guid:track-guid",
-        "Remote Track",
-        SearchResultOrigin::Index,
-    )
-    .with_secondary_text("Remote Artist")
-    .with_remote_track(remote_track());
-
-    let detail = super::IndexDetailDisplay::track(&row, "feed-guid:track-guid");
-    let track = detail
-        .track
-        .as_ref()
-        .expect("Index track detail should preserve rich remote track projection");
-
-    assert_eq!(detail.kind, IndexDetailKind::Track);
-    assert_eq!(detail.title, "Remote Track");
-    assert_eq!(detail.secondary_text, "Remote Artist");
-    assert_eq!(track.feed_title.as_deref(), Some("Remote Release"));
-    assert_eq!(track.track_number, Some(7));
-    assert_eq!(track.duration_secs, Some(125));
 }
 
 /// ADR 0075 packet 047, Required Change 3: the loading state names the
@@ -290,7 +245,11 @@ fn local_library_tracks_populate_ready_artist_feed_and_track_results() {
         ),
     ];
 
-    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks("heycitizen", &rows);
+    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        "heycitizen",
+        &rows,
+        &name_level_facts(&["heycitizen"]),
+    );
 
     assert!(
         vm.empty_state().is_none(),
@@ -305,8 +264,8 @@ fn local_library_tracks_populate_ready_artist_feed_and_track_results() {
     let RowSlot::Ready(artist) = vm.artists().window(ContentFilter::All).peek_row(0) else {
         panic!("local artist row should be preloaded");
     };
-    assert_eq!(artist.label, "HeyCitizen");
-    assert_eq!(artist.secondary_text, "2 albums - 2 tracks");
+    assert_eq!(artist.label, "Releases that name HeyCitizen");
+    assert_eq!(artist.secondary_text, "");
 
     vm.set_tab(SearchResultsTab::Tracks);
     let RowSlot::Ready(track) = vm.tracks().window(ContentFilter::All).peek_row(0) else {
@@ -350,7 +309,11 @@ fn index_rows_populate_index_and_all_but_not_library() {
         "Local Track",
         "Local Artist",
     )];
-    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks("mix", &local_rows);
+    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        "mix",
+        &local_rows,
+        &name_level_facts(&["local artist"]),
+    );
 
     vm.replace_index_results(IndexSearchResultRows {
         artists: vec![(101, artist(101, "Remote Artist"))],
@@ -372,7 +335,7 @@ fn index_rows_populate_index_and_all_but_not_library() {
     let RowSlot::Ready(local_artist) = vm.artists().window(ContentFilter::All).peek_row(0) else {
         panic!("local All artist row should stay cached after remote rows arrive");
     };
-    assert_eq!(local_artist.label, "Local Artist");
+    assert_eq!(local_artist.label, "Releases that name Local Artist");
 
     let RowSlot::Ready(remote_artist) = vm.artists().window(ContentFilter::All).peek_row(1) else {
         panic!("remote All artist row should be cached after replacement");
@@ -558,4 +521,115 @@ fn filter_chip_strip_uses_search_inspector_contract() {
         narrow.narrow_collapse_to_pulldown,
         "search inspector filters should collapse in narrow detail frames"
     );
+}
+
+/// The artist facts of a Library with a name level release for each of
+/// `keys`, and no artist feed.
+fn name_level_facts(keys: &[&str]) -> super::ArtistSearchFacts {
+    super::ArtistSearchFacts {
+        matches: crate::view_models::artist_identity::NameFeedMatches::default(),
+        name_level_keys: keys.iter().map(|key| (*key).to_owned()).collect(),
+    }
+}
+
+/// The artist rows of the Library search for `rows` with `facts`.
+fn library_artist_rows(
+    rows: &[crate::db::TrackRow],
+    facts: &super::ArtistSearchFacts,
+) -> Vec<super::ArtistResultDisplay> {
+    let vm = SearchResultsInspectorPageVm::from_local_library_tracks("q", rows, facts);
+    let window = vm.artists().window(ContentFilter::Library);
+    (0..window.total())
+        .filter_map(|index| match window.peek_row(index) {
+            RowSlot::Ready(row) => Some(row.as_ref().clone()),
+            RowSlot::Pending(_) => None,
+        })
+        .collect()
+}
+
+/// R17-15: a search artist row of a `NoFeed` name with Library members has
+/// the label "Releases that name Survival Guide", an equal accessibility
+/// label, and no secondary text.
+#[test]
+fn adr_0084_name_level_r17_15_library_name_row_text() {
+    let rows = [
+        local_track(10, 1, "Feed", "One", "Survival Guide"),
+        local_track(11, 1, "Feed", "Two", "survival  guide"),
+    ];
+    let artists = library_artist_rows(&rows, &name_level_facts(&["survival guide"]));
+    assert_eq!(artists.len(), 1, "two texts of one key give one row");
+    assert_eq!(artists[0].label, "Releases that name Survival Guide");
+    assert_eq!(artists[0].a11y_label, artists[0].label);
+    assert_eq!(artists[0].secondary_text, "");
+    assert_eq!(artists[0].id, "library-artist:Survival Guide");
+}
+
+/// R17-28: a `MatchedFeed` name gives no name row. It gives one feed row
+/// with the feed title, its accessibility label and the feed page target.
+/// Two names that match one feed give one feed row.
+#[test]
+fn adr_0084_name_level_r17_28_matched_name_gives_the_feed_row() {
+    use crate::view_models::artist_identity::{name_feed_matches, NameFeedEntry};
+
+    let matches = name_feed_matches([NameFeedEntry {
+        feed_guid: "haleen-guid".to_owned(),
+        title: Some("Haleen".to_owned()),
+        keys: ["haleen".to_owned(), "haleen music".to_owned()]
+            .into_iter()
+            .collect(),
+    }]);
+    let facts = super::ArtistSearchFacts {
+        matches,
+        name_level_keys: ["haleen".to_owned()].into_iter().collect(),
+    };
+    let rows = [
+        local_track(10, 1, "Feed", "One", "Haleen"),
+        local_track(11, 2, "Feed", "Two", "Haleen Music"),
+    ];
+    let artists = library_artist_rows(&rows, &facts);
+    assert_eq!(artists.len(), 1);
+    assert_eq!(artists[0].id, "artist-feed:haleen-guid");
+    assert_eq!(artists[0].label, "Haleen");
+    assert_eq!(artists[0].a11y_label, "Open the artist page Haleen");
+}
+
+/// R17-29, the Library part: a `NoFeed` name with no Library member of the
+/// name level gives no row.
+#[test]
+fn adr_0084_name_level_r17_29_name_with_no_member_gives_no_row() {
+    let rows = [local_track(10, 1, "Feed", "One", "Nobody")];
+    assert!(library_artist_rows(&rows, &name_level_facts(&[])).is_empty());
+}
+
+/// R17-14, the search part: the two name row ids open the name level page
+/// of the key of their text for `NoFeed`, and the feed page for
+/// `MatchedFeed`. A feed row id opens its feed page.
+#[test]
+fn adr_0084_name_level_r17_14_search_row_destinations() {
+    use crate::view_models::artist_identity::{
+        name_feed_matches, ArtistNameDestination, ArtistNameKey, NameFeedEntry,
+    };
+
+    let matches = name_feed_matches([NameFeedEntry {
+        feed_guid: "haleen-guid".to_owned(),
+        title: Some("Haleen".to_owned()),
+        keys: ["haleen".to_owned()].into_iter().collect(),
+    }]);
+    for prefix in ["index-artist:", "library-artist:"] {
+        assert_eq!(
+            super::artist_result_destination(&format!("{prefix}Survival Guide"), &matches),
+            Some(ArtistNameDestination::NameLevel(ArtistNameKey::from_text(
+                "Survival Guide"
+            )))
+        );
+        assert_eq!(
+            super::artist_result_destination(&format!("{prefix}HALEEN"), &matches),
+            Some(ArtistNameDestination::FeedPage("haleen-guid".to_owned()))
+        );
+    }
+    assert_eq!(
+        super::artist_result_destination("artist-feed:haleen-guid", &matches),
+        Some(ArtistNameDestination::FeedPage("haleen-guid".to_owned()))
+    );
+    assert_eq!(super::artist_result_destination("a1", &matches), None);
 }

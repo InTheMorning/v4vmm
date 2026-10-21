@@ -11,7 +11,6 @@
 
 use gpui::{div, prelude::*, AnyElement, App, Context, Modifiers, SharedString, Window};
 
-use super::publisher_dispatch::PublisherPageState;
 use super::search_dispatch::feed_guid_from_view;
 use super::TopApp;
 use crate::application::library_removal::LibraryRemovalIntent;
@@ -23,7 +22,6 @@ use crate::view_models::detail_selection::{
     DetailPageRows, DetailRowKey, TileArrow,
 };
 use crate::view_models::list_selection::FocusStep;
-use crate::view_models::publisher_page::PublisherPageVm;
 use crate::view_models::search_results::IndexDetailDisplay;
 use crate::view_models::selection_action_bar::{SelectionActionBarVm, SelectionActionKind};
 use crate::view_models::workspace::{
@@ -99,12 +97,18 @@ impl TopApp {
             | FrameNavigationEntry::DiscoverView(_)
             | FrameNavigationEntry::PlaylistDetail(_) => library.library_detail_page_rows(),
             FrameNavigationEntry::PublisherDetail(_) => {
-                let Some(PublisherPageState::Loaded { facts, .. }) = &self.publisher_page else {
-                    return None;
-                };
-                let sections = PublisherPageVm::new(facts.as_ref().clone()).sections();
+                let (vm, _) = self.publisher_page_vm(cx)?;
                 Some(DetailPageRows::Releases(feed_page_release_rows(
-                    &sections,
+                    &vm.sections(),
+                    |key| library.library_release_facts(key),
+                )))
+            }
+            // ADR 0084 packet 017: the name level page gives its rows
+            // through the feed page rows, with no new selection code.
+            FrameNavigationEntry::ArtistName(_) => {
+                let vm = self.name_level_page_vm(cx)?;
+                Some(DetailPageRows::Releases(feed_page_release_rows(
+                    &vm.sections(),
                     |key| library.library_release_facts(key),
                 )))
             }

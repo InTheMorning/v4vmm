@@ -26,9 +26,6 @@ pub(crate) enum RequestPathShape {
     ScopedTrack,
     /// `/v1/tracks/{item_guid}`
     UnscopedTrack,
-    /// `/v1/tracks?artist={name}` (ADR 0077 packet 006). This shape
-    /// matches a name query, never a track GUID.
-    TracksByArtistName,
     /// `/v1/artist-names` (Stophammer ADR 0070, ADR 0084 packet 016): one
     /// page of artist names in name order.
     ArtistNameList,
@@ -126,11 +123,19 @@ pub(crate) const INDEX_TRACK_DETAIL_UNSCOPED: RequestProfile =
 pub(crate) const INDEX_PUBLISHER_PAGE: RequestProfile =
     RequestProfile::new(RequestPathShape::Feed, Some(FEED_FULL));
 
-/// Index name-match tracks. The one request of the Index name-match track
-/// page (ADR 0077 packet 006, Accepted Refinement "Index artist page by
-/// name"). Owner: `search::fetch_name_match_tracks`.
-pub(crate) const INDEX_NAME_MATCH_TRACKS: RequestProfile =
-    RequestProfile::new(RequestPathShape::TracksByArtistName, None);
+/// MusicIndex releases of one name. Each request of the name level page
+/// and of the feed page section "Matched by name" (ADR 0084 packet 017).
+/// It sends `artist_key` and no include. Owner:
+/// `search::fetch_name_level_releases`.
+pub(crate) const INDEX_NAME_LEVEL_RELEASES: RequestProfile =
+    RequestProfile::new(RequestPathShape::FeedNameList, None);
+
+/// MusicIndex name check of one search name. The one request that tells
+/// whether a search name row shows (ADR 0084 packet 017 decision D15). It
+/// sends `from` and `limit=1` and no include. Owner:
+/// `search::index_name_row_exists`.
+pub(crate) const INDEX_ARTIST_NAME_CHECK: RequestProfile =
+    RequestProfile::new(RequestPathShape::ArtistNameList, None);
 
 /// MusicIndex artist name list. The one request of each page of the
 /// Artists scope "Everything" (ADR 0084 packet 016). Owner:
@@ -212,8 +217,8 @@ mod tests {
 
     /// R52-01 and R52-02 (ADR 0075, amendment of 2026-10-07): each feed
     /// profile sends every feed collection, and each track profile sends
-    /// every track collection. The name-match profile sends no include,
-    /// because `/v1/tracks` takes none. The literals are retyped from the
+    /// every track collection. The two name level profiles of packet 017
+    /// send no include. The literals are retyped from the
     /// stored contract, so the comparison is not circular.
     #[test]
     fn adr_0075_r52_profiles_send_full_include_lists() {
@@ -237,7 +242,8 @@ mod tests {
         ] {
             assert_eq!(profile.include(), Some(RECORDED_TRACK));
         }
-        assert_eq!(INDEX_NAME_MATCH_TRACKS.include(), None);
+        assert_eq!(INDEX_NAME_LEVEL_RELEASES.include(), None);
+        assert_eq!(INDEX_ARTIST_NAME_CHECK.include(), None);
     }
 
     /// R17-09: a profile's own value is its identity. `RequestProfile` is
@@ -281,14 +287,18 @@ mod tests {
         assert_eq!(INDEX_RELEASE_NAME_LIST.include(), Some("named_feeds"));
     }
 
-    /// R6-03 (ADR 0077 packet 006): `INDEX_NAME_MATCH_TRACKS` requests the
-    /// tracks-by-artist-name path shape with no include list.
+    /// ADR 0084 packet 017: the name level profile requests the release
+    /// name list path shape, and the name check profile requests the
+    /// artist name list path shape. Neither sends an include.
     #[test]
-    fn adr_0077_name_matches_index_name_match_tracks_profile_matches_recorded_literal() {
+    fn adr_0084_name_level_profiles_name_their_path_shapes() {
         assert_eq!(
-            INDEX_NAME_MATCH_TRACKS.path_shape(),
-            RequestPathShape::TracksByArtistName
+            INDEX_NAME_LEVEL_RELEASES.path_shape(),
+            RequestPathShape::FeedNameList
         );
-        assert_eq!(INDEX_NAME_MATCH_TRACKS.include(), None);
+        assert_eq!(
+            INDEX_ARTIST_NAME_CHECK.path_shape(),
+            RequestPathShape::ArtistNameList
+        );
     }
 }

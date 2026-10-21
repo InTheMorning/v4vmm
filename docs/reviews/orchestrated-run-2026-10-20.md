@@ -319,11 +319,11 @@ Use an isolated database copy for each step. Do not write to the Library.
 
 #### Search (§23 V1, V4)
 
-§23 V2 and V3 wait for ADR 0084 packet 017 and stay out of this walk.
+Packet 017 replaced the name match page on 2026-10-21. Its V5, V6 and V10 carry §23 V2 and V3. The row text of §23 V1 is now "Releases that name <name>".
 
 1. Click the toolbar search. Type "Survival Guide" and push Enter.
 2. Examine the result rows. (§23 V1)
-   - Wrong if: no row reads `Tracks matching "Survival Guide"`.
+   - Wrong if: no row reads "Releases that name Survival Guide", unless "Survival Guide" matches exactly one artist feed. Then its feed row shows in place of the name row (packet 017).
    - Wrong if: the row looks like an artist identity.
 3. Make the window narrow. Examine the row again. (§23 V4)
    - Wrong if: the row text is clipped.

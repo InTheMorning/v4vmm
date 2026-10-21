@@ -7,6 +7,9 @@
 #![warn(clippy::pedantic)]
 
 use super::WorkspaceModelError;
+use crate::view_models::artist_identity::{
+    ArtistNameKey, ARTIST_NAME_ROW_MARK, ARTIST_ROW_SEPARATOR,
+};
 use crate::view_models::singles_group::SinglesGroupKey;
 
 /// A Music destination, in sidebar order (ADR 0084 Decision 2).
@@ -117,8 +120,10 @@ pub(crate) enum FrameNavigationEntry {
     /// Decision 4). The origin selects only the data source of the page,
     /// held outside this entry.
     Track(TrackKey),
-    /// Artist detail by display name.
-    ArtistDetail(String),
+    /// The name level of the artist page, by its name key (ADR 0084
+    /// Decision 7, packet 017). The key decides the equality, so two
+    /// labels of one key are one page.
+    ArtistName(ArtistNameKey),
     /// Publisher page by publisher feed GUID (ADR 0077 Decision 1). This
     /// entry never keys on name text or on `publisher_text`.
     PublisherDetail(String),
@@ -127,11 +132,6 @@ pub(crate) enum FrameNavigationEntry {
     SinglesGroup(SinglesGroupKey),
     /// Search results by submitted query.
     Search(String),
-    /// Tracks `MusicIndex` gives for one name query (ADR 0077 packet 006,
-    /// Accepted Refinement "Index artist page by name"). This entry carries
-    /// no artist identity, no role, and no page type: it is a search
-    /// result, never an artist page.
-    IndexNameMatches(String),
     /// Application settings.
     Settings,
     /// Queue and Now Playing frame root.
@@ -163,10 +163,11 @@ impl FrameNavigationEntry {
             // The top app gives the real title from the resolved data
             // source. This fallback shows only before that title is known.
             Self::Track(_) => "Track".to_string(),
-            Self::ArtistDetail(name) => name.clone(),
-            // ADR 0077 packet 006: the breadcrumb shows the quoted name.
-            // This entry names no artist, so its label never looks like one.
-            Self::IndexNameMatches(name) => format!("\"{name}\""),
+            // ADR 0084 packet 017 decision D5: the mark of the Artists
+            // name row tells a name level page from a feed page.
+            Self::ArtistName(key) => {
+                format!("{}{ARTIST_ROW_SEPARATOR}{ARTIST_NAME_ROW_MARK}", key.label)
+            }
             // The publisher page view model gives the real title. This
             // fallback shows only when no caller supplies that title.
             Self::PublisherDetail(publisher_feed_guid) => publisher_feed_guid.clone(),
