@@ -179,6 +179,15 @@ The operator sends screenshots, and the orchestrator records each result here wi
 | 2026-10-21 | 017.6 search "haleen", Artists tab | Pass | No "Releases that name Haleen" row. The Library artist feed and a second Index feed "Haleen" (Wavlake, a different GUID) show as two rows |
 | 2026-10-21 | Second "Haleen" feed row shows "AR" | Open, packet 028 V3 | MusicIndex gives a 1875 × 1000 JPEG of 1.7 MB for it, and the URL answers 200. The cause is not known . Packet 028 found no cause in the image path. A restart and a new search tell a missing retry from a slow load |
 | 2026-10-21 | Search "haleen'" with an apostrophe | Fail, fix in progress | MusicIndex answers 400 `fts5: syntax error near "'"`. The app reports a setup failure of MusicIndex, keeps the search as a retained action and offers "Edit endpoint". The defect is older than the run |
+| 2026-10-21 | Walk fixes: the kind in the subtitle, the Library images, the saved search page | Pass | Script run `20261021-173713`, shots 01, 03, 05 and 09 |
+| 2026-10-21 | Walk fix: a new search clears the detail column, and Back restores the page | Pass | Shots 12 to 14 |
+| 2026-10-21 | Walk fix: "haleen'" shows the note and no setup banner | Pass | Shot 15 |
+| 2026-10-21 | 028 V2: the name row "Releases that name Matt Finlay" shows its art | Pass | Shot 03 |
+| 2026-10-21 | 028 V3: the second "Haleen" feed row shows its image after a restart | Pass | Shot 23. Thus the defect of the walk was a missing retry or a slow load, not an image limit |
+| 2026-10-21 | 029: "Label" for Sir Libre Records, "Artist" for Kolomona Myer, HeyCitizen, IxeMusic, D4DISTRICT and both Haleen feeds | Pass | Shots 03, 19 and 23 |
+| 2026-10-21 | 026: group rows in "Everything", for example "Rap Central · 15 singles · Artist feed", with the logo frame | Pass | Shot 26 |
+| 2026-10-21 | After Back to a search, the toolbar field keeps the later query | Open finding | Shot 14: the field reads "survival guide", and the list shows "haleen" |
+| 2026-10-21 | After Back to a search, the Index rows load with no visible feedback | Open finding | Shot 14 shows only the Library rows 1.2 s after Back. No loading row shows while the Library rows show |
 
 ## Final Walk
 
