@@ -80,6 +80,8 @@ Each entry names the step, the decision and the reason.
 
 - Operator answers of 2026-10-20 to the open questions: add "Stop queued" to the download queue (new packet 027), delete the dead code of flow map findings 13 and 14 now, and fix the test-code lints in one packet that adds `--all-targets` to the gate. The orchestrator implements the new packets now, while the operator walks the screenshot list. The operator reviews Stophammer request 9 before any commit in the Stophammer repository.
 
+- ADR 0083 task 006 review: the icon columns are 44 px, the hit area of a `Button`, not 28 px. A 28 px column cut the hover fill of each icon button.
+
 ## Steps
 
 | Step | State | Commit |

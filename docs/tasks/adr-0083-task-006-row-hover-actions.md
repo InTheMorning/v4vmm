@@ -1,6 +1,6 @@
 # ADR 0083 Task 006: Track Row Hover Actions
 
-Status: Ready - 2026-10-20
+Status: Implemented - 2026-10-20. Cases R83-6-01 to R83-6-15 pass. Mechanical checks are Green. V1 to V12 are open, in the final walk of the run.
 
 ## Goal
 
@@ -522,6 +522,15 @@ V5 changes a playlist. V7 removes an audio file. Use a test playlist and a track
 ### Cleanup
 
 32. Delete the new playlist of step 14. Download the removed track of step 19 again if you need it.
+
+## Orchestrator Review - 2026-10-20
+
+Pass, after one fix. The orchestrator made the fix in the same change.
+
+- The download column and the menu column were 28 px (`Size::PointerHitTarget`), but each `Button` has a hit area of at least 44 px (`Size::MinHitTarget`). The column thus cut the hover fill of each icon button. Both columns now use `Size::MinHitTarget`, which changes decision D13. The test `adr_0083_row_actions_r83_6_11_row_order_and_scale` holds the widths.
+- The deviations agree with the packet. "Inspect sources" opens the track page and then its disclosure, through `pending_inspect_sources`.
+- `cargo fmt -- --check` and `cargo clippy --all-targets -- -D warnings` are Green. `cargo test` gives 2064 library tests and 344 guards, all passing.
+- The orchestrator added `track_row_menu.rs` to the source map.
 
 ## Prompt for lower-context coding model
 
