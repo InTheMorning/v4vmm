@@ -27,7 +27,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 6 | A list of releases and of artists by name | API addition | Deployed in release 0.9.0 on 2026-10-18 |
 | 7 | The named feed rank and the release kind facts in each publisher relationship entry | API field addition | Deployed in release 0.11.0 on 2026-10-18, without `remote_release_kind` |
 | 8 | Each list row and each search row is complete | API rule and field additions | Deployed in release 0.12.0 on 2026-10-18 |
-| 9 | A named feed entry states its confirmation | API field, filter and include additions | Draft, operator review |
+| 9 | A named feed entry states its confirmation | API field, filter and include additions | Answered on 2026-10-21. Stophammer ADR 0076 is Proposed |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -180,7 +180,7 @@ Until then, packet 010 can use `GET /v1/artist-names?from=` to find the start of
 
 ### 9. A Named Feed Entry States Its Confirmation
 
-Status: Draft - 2026-10-20. The v4vmm operator reviews it before Stophammer reads it.
+Status: Answered - 2026-10-21. Stophammer ADR 0076 is Proposed.
 
 **What happens.** Release 0.12.0 (Stophammer ADR 0071) gives the named feeds of each release row, a filter for the releases of a name row, and publisher feeds in search.
 v4vmm ADR 0084 packets 010 and 016 use these routes. Their authors found three gaps on 2026-10-20.
@@ -441,6 +441,21 @@ In the backup of 2026-09-26, 34 names had some releases with a publisher feed
 and some without. Such a name shows two times: one `publisher` row and one
 `name` row. 19 publisher feeds had no music feed, and each one has a row.
 
+## Stophammer Answers - 2026-10-21
+
+**Request 9.** The three gaps are correct. Stophammer [ADR 0076](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0076-a-named-feed-entry-states-its-confirmation.md) is Proposed. It gives the decision. No release holds it now.
+
+The Stophammer review checked the live API on 2026-10-21, revision `056199b`. The first 200 rows of `GET /v1/feeds/by-name?include=named_feeds` gave 188 entries. 185 entries name a held feed through a confirmed link. 1 entry is a link that only the album states: "2 Die" names SOD at rank 1. 2 entries name a feed that the node does not hold. 12 rows gave an empty list.
+
+- Item 1 is accepted as `two_way_validated`, with its ADR 0049 meaning. `link_state` is declined, because the entry already gives each of its three cases. A held feed has a `remote_feed_title`. A link that only the album states has `two_way_validated` false. A conflict has `role_agreement` `conflict`.
+- Item 2 is accepted on `GET /v1/feeds/by-name` and on `GET /v1/feeds/recent`. `named_feed_guid` gives each music release that names the feed, at each rank, confirmed or not. With `artist_key`, or with a `medium` other than `music`, it gives `400`.
+- Item 3 is accepted. With `include=link_facts`, each `publisher` row of `GET /v1/search` gives the four fields of ADR 0068 and `first_named_count`. `GET /v1/node/capabilities` gives `include_params.search`. This changes ADR 0068 §5.
+- The note on D-2 needs no Stophammer action. ADR 0070 §4 stays.
+
+One statement of the request is not correct. The filter of item 2 is not the list of `first_named_count` (ADR 0071 §1b). That count includes only confirmed links at rank 1. A confirmed link is two-way, so `GET /v1/feeds/{guid}?include=publisher` already lists each one. The filter gives more: each rank, and the links that only the album states.
+
+Item 2 is also the reverse album list of the section "Deferred, Not Requested Now". That item is now requested, and this document removes it from that section.
+
 ## Release 0.12.0 - 2026-10-18
 
 Release 0.12.0 delivers request 8 (Stophammer ADR 0071). `GET /node/info` gives `git_revision` `056199b`. The checks on the live API on 2026-10-18:
@@ -496,12 +511,6 @@ Three facts of the request are not correct:
 - `GET /v1/feeds/by-name?medium=publisher&include=link_facts` gives the four ADR 0068 fields today, in name order. The contract does not declare the parameter. ADR 0071 §1c corrects the contract.
 
 ## Deferred, Not Requested Now
-
-**A reverse album list.** The publisher view lists only the albums that the publisher feed lists (`load_publisher` in `src/query.rs`).
-An album that names a publisher without a listing by it does not appear. Stophammer has a reverse query internally (`get_publisher_album_release_artists` in `src/db.rs`).
-
-The v4vmm operator decided on 2026-09-25 not to request this list now, because Stophammer is correcting the relationship data.
-`/v1/publisher-links/stats` shows the correction: unresolved links fell from 1,159 on 2026-09-24 to 156 on 2026-09-25.
 
 **A `musicL` playlist import.** Stophammer ADR 0060 is deployed on 2026-09-26. Each `remote_items` entry of a list feed gives `item_guid` and `item_title`.
 A v4vmm playlist could take a list feed by `feedGuid` and `itemGuid`, with no name match. v4vmm reads neither field on 2026-09-28.
