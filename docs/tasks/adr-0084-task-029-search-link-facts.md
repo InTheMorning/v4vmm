@@ -1,6 +1,6 @@
 # ADR 0084 Task 029: The Link Facts Of A Feed Row In Search
 
-Status: Ready - 2026-10-21. The operator answered decision D2 on 2026-10-21. The orchestrator decided D3 and D5 by their recommendations. Run it after packet 028 and before packet 026. It replaces the stored contract with 0.13.0.
+Status: Implemented - 2026-10-21. This packet replaced the stored contract with 0.13.0. The visual checks V1 to V6 are open. The operator walks them in the final walk of the run of 2026-10-20.
 
 ## Goal
 
@@ -280,3 +280,77 @@ Stop and report the problem, and do not guess, when:
 - The contract from `GET /openapi.json` differs from the Live API facts of this packet.
 - A row needs a second request to show its badge.
 - A change needs a file in "Do not touch".
+
+## Implementation Result - 2026-10-21
+
+### What changed
+
+- D1: `tests/fixtures/musicindex-openapi-0.13.0.json` replaces the 0.12.0 file. It holds the bytes of `GET /openapi.json` that the orchestrator got on 2026-10-21. `info.version` is `0.13.0`, the size is 104,418 bytes, and the sha256 is the value in "Live API facts". The implementer sent no request.
+- D1, continued: `MUSICINDEX_CONTRACT_FIXTURE`, its comment, the `CONTRACT_TYPE_MAP` comment and the failure message of the contract field guard name 0.13.0. The test `adr_0084_scopes_r16_03_contract_fixture_is_0_13_0` replaces `adr_0084_scopes_r16_03_contract_fixture_is_0_12_0`. It asserts `0.13.0`, maps the same four types, and finds no 0.11.0 file and no 0.12.0 file.
+- `SearchResult` in `src/api.rs` decodes `agreed_roles` and `first_named_count` (D6).
+- `RequestPathShape::Search` and `INDEX_PUBLISHER_SEARCH` (`link_facts`) are in `src/application/request_profiles.rs`. The registry test is now `adr_0075_request_profile_registry_names_eleven_profiles`, and it counts eleven profiles.
+- `Client::search` takes `profile: Option<&RequestProfile>`. With a profile, it sends `include` with the include list of the profile. `Client::search` is now `pub(crate)`, because `RequestProfile` is `pub(crate)`. The `type=publisher` request sends `INDEX_PUBLISHER_SEARCH`. The `type=feed` request and the `type=track` request send no profile.
+- `FeedLinkClass::from_link_facts` in `src/view_models/artists_everything.rs` gives the four classes. `classify_index_artist` uses it for a `publisher` row.
+- `ArtistResultDisplay.link_class` holds the class. `index_feed_page_result_display` sets it when the hit gives `agreed_roles` or `first_named_count`.
+- `SearchRowBadge::Roles(String)` holds the role text. `SearchRowBadge` is not `Copy` now, and `label()` gives a `&str`. `SearchRowBadge::for_feed` gives the badge sequence of "The badge". `artist_row_vm` adds ", <badge word>" to the accessibility label of each feed row (D7).
+- `entity_kind_for_badge` takes a reference, and it maps `Roles` to `EntityKind::Feed`.
+
+### Tests
+
+| Case | Proof |
+|---|---|
+| R29-01 | `adr_0084_scopes_r16_03_contract_fixture_is_0_13_0` and `adr_0084_search_link_facts_r29_01_contract_declares_the_search_include` in `tests/architecture_tests.rs`. The contract field guard passes |
+| R29-02 | `adr_0084_search_link_facts_r29_02_search_rows_decode_the_link_facts` |
+| R29-03 | `adr_0084_search_link_facts_r29_03_publisher_request_sends_the_include`, with a local fixture server |
+| R29-04 | `adr_0084_search_link_facts_r29_04_publisher_search_profile` and `adr_0075_request_profile_registry_names_eleven_profiles` |
+| R29-05 | `adr_0084_search_link_facts_r29_05_feed_link_class` |
+| R29-06 | `adr_0084_scopes_r16_08_classification` passes |
+| R29-07 | `adr_0084_search_link_facts_r29_07_badge_sequence` and `adr_0084_search_link_facts_r29_07_two_roles_give_the_frame_title_text` |
+| R29-08 | `adr_0084_search_link_facts_r29_08_library_decides_first` and `adr_0084_search_link_facts_r29_08_row_with_no_link_fact_has_no_class` |
+| R29-09 | `adr_0084_search_link_facts_r29_07_badge_sequence` and `adr_0084_search_link_facts_r29_08_library_decides_first` |
+| R29-10 | `cargo test` is Green. Each `adr_0084_search_list_` test, each `adr_0084_saved_search_` test and each `adr_0084_search_open_defects_` test passes |
+
+### Deviations from the packet text
+
+- `FeedLinkClass::from_link_facts` reads the agreed roles through `role_words`. Thus a blank role is not a role. Before, `classify_index_artist` put a feed with only blank roles in `OtherRole`. The recorded rows have no blank role, and R29-06 passes.
+- The library artist feed row (`artist-feed:<guid>`) is also a feed row. Thus its accessibility label also ends with ", Artist", for example "Open the artist page Haleen, Artist".
+- The name of the registry test changes from `..._names_ten_profiles` to `..._names_eleven_profiles`. Packet 026 names the old test.
+
+### Open points
+
+- None in the code. The visual checks V1 to V6 are open.
+
+## Orchestrator Review - 2026-10-21
+
+Pass. The review found no defect. The orchestrator added one case to the R29-05 test: a feed with only a blank role and a confirmed count of 3 is an unverified artist. That case changes the Artists list in "Everything", because such a feed was a hidden "other role" before. A node that refuses `include=link_facts` with a `400` gives no feed rows. The stored contract says that a node ignores an unknown include name, so the orchestrator accepts this.
+
+## Operator Visual Check
+
+The visual checks V1 to V6 are open. The operator walks them in the final walk of the run of 2026-10-20.
+
+Necessary state: a desktop session and a reachable `MusicIndex` endpoint at `https://api.musicindex.org` with release 0.13.0. V2 needs the Library artist feed of Haleen. V5 needs a saved search that finds Sir Libre Records.
+
+1. Build and start the binary:
+
+   ```bash
+   cd ~/build/v4vmm
+   cargo build --bin v4vmm
+   ./target/debug/v4vmm
+   ```
+
+2. V1: search "Libre" and select the Artists tab.
+   - Sir Libre Records shows the badge "Label".
+   - "Kolomona Myer - AKA Sir Libre" shows the badge "Artist".
+   - Click Sir Libre Records. The feed page opens with the frame title "Label".
+   - Wrong: the badge "Feed" or "Publisher" on Sir Libre Records, or a level word such as "Unverified" on a row.
+3. V2: search "haleen" and select the Artists tab. Each of the two "Haleen" rows shows the badge "Artist". Wrong: one row shows "Feed".
+4. V3: search "TJ Wong" and select the Artists tab. The row shows the badge "Feed". Wrong: "Artist" or "Publisher".
+5. V4: search "HeyCitizen" and select the Artists tab. The row shows the badge "Artist". Wrong: a role text such as "Label".
+6. V5: if no saved search finds Sir Libre Records, save the search "Libre". Open the saved search. The Sir Libre Records row shows "Label".
+7. V6: do steps 2 and 3 in the Light theme and in the Dark theme. Do them at a normal window width and at a narrow window width.
+   - The text of a role badge is fully visible.
+   - The title of the row keeps its width.
+   - Wrong: a clipped badge, or a badge on top of the title.
+
+Cleanup: delete the saved search "Libre" if step 6 added it. Close the app.
+

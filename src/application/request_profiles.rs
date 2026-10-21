@@ -32,6 +32,9 @@ pub(crate) enum RequestPathShape {
     /// `/v1/feeds/by-name` (Stophammer ADR 0070, ADR 0084 packet 016): one
     /// page of releases in name order.
     FeedNameList,
+    /// `/v1/search` (Stophammer ADR 0076 section 3, ADR 0084 packet 029):
+    /// one page of search results.
+    Search,
 }
 
 /// One named MusicIndex request profile.
@@ -149,6 +152,13 @@ pub(crate) const INDEX_ARTIST_NAME_LIST: RequestProfile =
 pub(crate) const INDEX_RELEASE_NAME_LIST: RequestProfile =
     RequestProfile::new(RequestPathShape::FeedNameList, Some("named_feeds"));
 
+/// MusicIndex feed search. The `type=publisher` request of the Artists tab
+/// of search (ADR 0084 packet 029). The include gives the link facts of
+/// each row, so that a row shows its badge with no second request. Owner:
+/// `search::fetch_index_feed_page_result_rows`.
+pub(crate) const INDEX_PUBLISHER_SEARCH: RequestProfile =
+    RequestProfile::new(RequestPathShape::Search, Some("link_facts"));
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,8 +169,9 @@ mod tests {
     /// list. The two inspector track detail profiles are gone from this
     /// list: their only caller was the parked Discover inspector, which
     /// ADR 0060 removed. ADR 0084 packet 016 adds the artist name list
-    /// profile and the release name list profile.
-    const ALL: [RequestProfile; 10] = [
+    /// profile and the release name list profile. ADR 0084 packet 029 adds
+    /// the feed search profile.
+    const ALL: [RequestProfile; 11] = [
         LIBRARY_TRACK_DETAIL_SCOPED_TRACK,
         LIBRARY_TRACK_DETAIL_UNSCOPED_TRACK,
         LIBRARY_TRACK_DETAIL_FEED,
@@ -171,6 +182,7 @@ mod tests {
         INDEX_TRACK_DETAIL_UNSCOPED,
         INDEX_ARTIST_NAME_LIST,
         INDEX_RELEASE_NAME_LIST,
+        INDEX_PUBLISHER_SEARCH,
     ];
 
     /// R17-01: the registry exposes one named profile for each table row,
@@ -178,10 +190,10 @@ mod tests {
     /// each owning call site (R17-04, R17-05, R17-06, R17-07), where the
     /// actual request order and fallback are the mechanical fact.
     #[test]
-    fn adr_0075_request_profile_registry_names_ten_profiles() {
+    fn adr_0075_request_profile_registry_names_eleven_profiles() {
         assert_eq!(
             ALL.len(),
-            10,
+            11,
             "one named profile for each surviving table row"
         );
         assert_eq!(
@@ -300,5 +312,17 @@ mod tests {
             INDEX_ARTIST_NAME_CHECK.path_shape(),
             RequestPathShape::ArtistNameList
         );
+    }
+
+    /// R29-04 (ADR 0084 packet 029): the feed search profile names the
+    /// search path shape and the include `link_facts`. The literal is
+    /// retyped from `GET /v1/node/capabilities` of 2026-10-21.
+    #[test]
+    fn adr_0084_search_link_facts_r29_04_publisher_search_profile() {
+        assert_eq!(
+            INDEX_PUBLISHER_SEARCH.path_shape(),
+            RequestPathShape::Search
+        );
+        assert_eq!(INDEX_PUBLISHER_SEARCH.include(), Some("link_facts"));
     }
 }

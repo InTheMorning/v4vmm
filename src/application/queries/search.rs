@@ -11,6 +11,7 @@ use crate::application::command_bus::{ApplicationCommand, CommandOutcome, Comman
 use crate::application::command_context::CommandContext;
 use crate::application::errors::command::CommandError;
 use crate::view_models::artist_identity::{NameFeedMatch, NameFeedMatches, UNKNOWN_ARTIST_TEXT};
+use crate::view_models::artists_everything::FeedLinkClass;
 use crate::view_models::index_name_list::name_sort_key;
 use crate::view_models::name_level_page::{
     NameLevelIndexRelease, NameLevelIndexState, NameLevelPageVm,
@@ -281,16 +282,22 @@ fn is_bad_request(error: &anyhow::Error) -> bool {
 }
 
 /// The feed rows of the Artists tab (packet 010 "The Artists tab", flow
-/// map finding 6). One `GET /v1/search?type=publisher` request gives them.
-/// The `entity_id` of a row is the feed GUID, and the row gives no link
-/// fact, so the row shows no level word and no role word. The search
-/// sends no request for a row. No row text says "Publisher" (ADR 0085
-/// Decision 1).
+/// map finding 6). One `GET /v1/search?type=publisher&include=link_facts`
+/// request gives them (profile `INDEX_PUBLISHER_SEARCH`, ADR 0084 packet
+/// 029). The `entity_id` of a row is the feed GUID. The link facts of a row
+/// give its badge, so the search sends no request for a row. No row text
+/// says "Publisher" (ADR 0085 Decision 1).
 fn fetch_index_feed_page_result_rows(
     client: &crate::api::Client,
     query: &str,
 ) -> Result<Vec<(SearchResultItemId, ArtistResultDisplay)>> {
-    let response = client.search(query, Some("publisher"), Some(crate::api::PAGE_LIMIT), None)?;
+    let response = client.search(
+        query,
+        Some("publisher"),
+        Some(crate::api::PAGE_LIMIT),
+        None,
+        Some(&crate::application::request_profiles::INDEX_PUBLISHER_SEARCH),
+    )?;
     Ok(unique_hits(&response.data)
         .filter_map(index_feed_page_result_display)
         .enumerate()
@@ -300,13 +307,21 @@ fn fetch_index_feed_page_result_rows(
 
 /// The row of one `type=publisher` hit, with the id
 /// `index-feed-page:<entity_id>`. `None` for a hit with an empty
-/// `entity_id`.
+/// `entity_id`. A hit that gives `agreed_roles` or `first_named_count` sets
+/// the link class of the row. The row view model adds the badge word to the
+/// accessibility label.
 fn index_feed_page_result_display(hit: &SearchResult) -> Option<ArtistResultDisplay> {
     let feed_guid = non_empty_str(Some(hit.entity_id.as_str()))?;
     let label = non_empty_str(hit.title.as_deref()).unwrap_or(feed_guid);
     let mut display =
         ArtistResultDisplay::new(format!("{INDEX_FEED_PAGE_RESULT_PREFIX}{feed_guid}"), label);
     display.a11y_label = format!("Open the feed page {label}");
+    if hit.agreed_roles.is_some() || hit.first_named_count.is_some() {
+        display.link_class = Some(FeedLinkClass::from_link_facts(
+            hit.agreed_roles.as_deref(),
+            hit.first_named_count,
+        ));
+    }
     if let Some(image_url) = non_empty_string(hit.feed_image_url.clone()) {
         display = display.with_thumbnail_href(image_url);
     }
@@ -493,7 +508,13 @@ fn fetch_index_feed_result_rows(
     client: &crate::api::Client,
     query: &str,
 ) -> Result<IndexFeedSearchRows> {
-    let response = client.search(query, Some("feed"), Some(crate::api::PAGE_LIMIT), None)?;
+    let response = client.search(
+        query,
+        Some("feed"),
+        Some(crate::api::PAGE_LIMIT),
+        None,
+        None,
+    )?;
     let mut rows = Vec::new();
     let mut artists = Vec::new();
 
@@ -518,7 +539,13 @@ fn fetch_index_track_result_rows(
     client: &crate::api::Client,
     query: &str,
 ) -> Result<IndexTrackSearchRows> {
-    let response = client.search(query, Some("track"), Some(crate::api::PAGE_LIMIT), None)?;
+    let response = client.search(
+        query,
+        Some("track"),
+        Some(crate::api::PAGE_LIMIT),
+        None,
+        None,
+    )?;
     let mut rows = Vec::new();
     let mut artists = Vec::new();
 
@@ -1803,6 +1830,86 @@ mod adr_0084_name_level_query_tests {
                     .any(|path| path.starts_with("/v1/search?") && path.contains(kind)),
                 "missing {kind}. Got: {requests:?}"
             );
+        }
+    }
+
+    /// The rows of
+    /// `GET /v1/search?q=Libre&type=publisher&include=link_facts&limit=20` of
+    /// 2026-10-21 (packet 029 "Live API facts").
+    fn libre_publisher_rows_with_link_facts() -> serde_json::Value {
+        serde_json::json!({
+            "data": [
+                {"entity_type": "publisher",
+                 "entity_id": "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+                 "title": "Sir Libre Records", "episode_count": 0,
+                 "two_way_link_count": 3, "agreed_roles": ["label"],
+                 "first_named_count": 0},
+                {"entity_type": "publisher",
+                 "entity_id": "c8ec3dba-ed28-5662-9509-094d769f9597",
+                 "title": "Kolomona Myer - AKA Sir Libre", "episode_count": 0,
+                 "two_way_link_count": 1, "agreed_roles": [], "first_named_count": 1}
+            ],
+            "pagination": {"has_more": false, "cursor": null}
+        })
+    }
+
+    /// R29-03: the `type=publisher` request sends `include=link_facts`. The
+    /// `type=feed` and `type=track` requests send no `include`. The link
+    /// facts of the recorded rows give the link class of each row, with no
+    /// other request.
+    #[test]
+    fn adr_0084_search_link_facts_r29_03_publisher_request_sends_the_include() {
+        let (endpoint, requests) = serve(
+            3,
+            Arc::new(|path: &str| {
+                if path.contains("type=publisher") {
+                    (200, libre_publisher_rows_with_link_facts().to_string())
+                } else {
+                    (200, empty_search())
+                }
+            }),
+        );
+        let rows =
+            fetch_index_search_result_rows(&endpoint.into(), "Libre", &NameFeedMatches::default())
+                .expect("the recorded response decodes");
+
+        let classes: Vec<Option<FeedLinkClass>> = rows
+            .artists
+            .iter()
+            .map(|(_, row)| row.link_class.clone())
+            .collect();
+        assert_eq!(
+            classes,
+            [
+                Some(FeedLinkClass::OtherRoles(vec!["label".to_owned()])),
+                Some(FeedLinkClass::UnverifiedArtist),
+            ]
+        );
+        let requests = requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 3, "Got: {requests:?}");
+        for path in &requests {
+            if path.contains("type=publisher") {
+                assert!(path.contains("include=link_facts"), "Got: {path}");
+            } else {
+                assert!(
+                    path.contains("type=feed") || path.contains("type=track"),
+                    "Got: {path}"
+                );
+                assert!(!path.contains("include"), "Got: {path}");
+            }
+        }
+    }
+
+    /// R29-08, the decode part: a `type=publisher` row with no link fact
+    /// has no link class. The recorded rows of 2026-10-20 give no link
+    /// fact.
+    #[test]
+    fn adr_0084_search_link_facts_r29_08_row_with_no_link_fact_has_no_class() {
+        let response: crate::api::SearchResponse =
+            serde_json::from_value(libre_publisher_rows()).expect("the recorded rows decode");
+        for hit in &response.data {
+            let display = index_feed_page_result_display(hit).expect("the row has an id");
+            assert_eq!(display.link_class, None);
         }
     }
 

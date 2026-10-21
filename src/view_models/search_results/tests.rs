@@ -420,6 +420,7 @@ fn adr_0084_search_list_r10_06_feed_row_badges() {
         assert!(!row.a11y_label.contains("Publisher"));
         assert!(!row
             .badge
+            .as_ref()
             .is_some_and(|badge| badge.label().contains("Publisher")));
         assert_eq!(row.state_word, None);
     }
@@ -1341,4 +1342,189 @@ fn adr_0084_name_level_r17_14_search_row_destinations() {
         Some(ArtistNameDestination::FeedPage("haleen-guid".to_owned()))
     );
     assert_eq!(destination("a1"), None);
+}
+
+/// A `MusicIndex` feed row with the link facts of one recorded row of
+/// `GET /v1/search?type=publisher&include=link_facts` of 2026-10-21 (ADR
+/// 0084 packet 029).
+fn index_feed_page_with_facts(
+    id: SearchResultItemId,
+    guid: &str,
+    label: &str,
+    agreed_roles: &[&str],
+    first_named_count: i64,
+) -> (SearchResultItemId, ArtistResultDisplay) {
+    use crate::view_models::artists_everything::FeedLinkClass;
+
+    let (id, mut row) = index_feed_page(id, guid, label);
+    let roles: Vec<String> = agreed_roles.iter().map(|role| (*role).to_owned()).collect();
+    row.link_class = Some(FeedLinkClass::from_link_facts(
+        Some(&roles),
+        Some(first_named_count),
+    ));
+    (id, row)
+}
+
+/// The recorded feed rows of packet 029 "Live API facts", in one Artists
+/// tab.
+fn recorded_link_fact_rows() -> SearchResultsInspectorPageVm {
+    let mut vm = SearchResultsInspectorPageVm::new("libre");
+    vm.replace_index_results(IndexSearchResultRows {
+        artists: vec![
+            index_feed_page_with_facts(
+                4_000_000_000,
+                "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+                "Sir Libre Records",
+                &["label"],
+                0,
+            ),
+            index_feed_page_with_facts(
+                4_000_000_001,
+                "c8ec3dba-ed28-5662-9509-094d769f9597",
+                "Kolomona Myer - AKA Sir Libre",
+                &[],
+                1,
+            ),
+            index_feed_page_with_facts(
+                4_000_000_002,
+                "fe80a515-2826-4a46-aa37-b27f38d3c30f",
+                "Haleen",
+                &[],
+                38,
+            ),
+            index_feed_page_with_facts(
+                4_000_000_003,
+                "64569161-a8f7-52e5-8aae-9e0385043149",
+                "Haleen",
+                &[],
+                56,
+            ),
+            index_feed_page_with_facts(
+                4_000_000_004,
+                "8a106e41-c54d-451e-9f35-a8834b62fe0e",
+                "HeyCitizen",
+                &["artist", "author", "host", "label", "producer"],
+                2,
+            ),
+            index_feed_page_with_facts(
+                4_000_000_005,
+                "a31f362c-d40b-5f56-ae2c-4ef9c548db9d",
+                "TJ Wong",
+                &[],
+                0,
+            ),
+        ],
+        ..no_index_rows()
+    });
+    vm
+}
+
+/// R29-07 and R29-09: the badge sequence gives "Label" for Sir Libre
+/// Records, "Artist" for Kolomona Myer, each Haleen row and `HeyCitizen`, and
+/// "Feed" for TJ Wong. The rows keep the rank order (decision D5). The
+/// accessibility label of each feed row ends with its badge word. No text
+/// of the view model says "Publisher" or "Unverified".
+#[test]
+fn adr_0084_search_link_facts_r29_07_badge_sequence() {
+    let vm = recorded_link_fact_rows();
+    assert_eq!(vm.tab(), SearchResultsTab::Artists);
+    let rows = rows(&vm, &RecordedLibrary::default());
+    let labels: Vec<(&str, &str)> = rows
+        .iter()
+        .map(|row| {
+            (
+                row.label.as_str(),
+                row.badge.as_ref().map_or("", SearchRowBadge::label),
+            )
+        })
+        .collect();
+    assert_eq!(
+        labels,
+        [
+            ("Sir Libre Records", "Label"),
+            ("Kolomona Myer - AKA Sir Libre", "Artist"),
+            ("Haleen", "Artist"),
+            ("Haleen", "Artist"),
+            ("HeyCitizen", "Artist"),
+            ("TJ Wong", "Feed"),
+        ]
+    );
+    assert_eq!(
+        rows[0].badge,
+        Some(SearchRowBadge::Roles("Label".to_owned()))
+    );
+    assert_eq!(
+        rows[0].a11y_label,
+        "Open the feed page Sir Libre Records, Label"
+    );
+    for row in &rows {
+        let badge = row.badge.as_ref().expect("a feed row has a badge");
+        assert!(
+            row.a11y_label.ends_with(&format!(", {}", badge.label())),
+            "{}",
+            row.a11y_label
+        );
+        for word in ["Publisher", "publisher", "Unverified"] {
+            assert!(!row.label.contains(word), "{}", row.label);
+            assert!(!row.secondary_text.contains(word), "{}", row.secondary_text);
+            assert!(!row.a11y_label.contains(word), "{}", row.a11y_label);
+            assert!(!badge.label().contains(word), "{}", badge.label());
+        }
+        assert_eq!(row.state_word, None);
+    }
+}
+
+/// R29-07, the role text: two other roles give the joined role words with a
+/// capital first letter, the text of the frame title of the feed page.
+#[test]
+fn adr_0084_search_link_facts_r29_07_two_roles_give_the_frame_title_text() {
+    let mut vm = SearchResultsInspectorPageVm::new("label");
+    vm.replace_index_results(IndexSearchResultRows {
+        artists: vec![index_feed_page_with_facts(
+            4_000_000_000,
+            "label-guid",
+            "A Label",
+            &["producer", "label"],
+            0,
+        )],
+        ..no_index_rows()
+    });
+    let rows = rows(&vm, &RecordedLibrary::default());
+    assert_eq!(
+        rows[0].badge,
+        Some(SearchRowBadge::Roles("Label and producer".to_owned()))
+    );
+}
+
+/// R29-08: a feed that the Library Artists list holds gives "Artist" also
+/// with the link facts of a label (decision D3). A row with no link fact
+/// gives "Feed".
+#[test]
+fn adr_0084_search_link_facts_r29_08_library_decides_first() {
+    let mut vm = SearchResultsInspectorPageVm::new("libre");
+    vm.replace_index_results(IndexSearchResultRows {
+        artists: vec![
+            index_feed_page_with_facts(
+                4_000_000_000,
+                "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+                "Sir Libre Records",
+                &["label"],
+                0,
+            ),
+            index_feed_page(4_000_000_001, "no-facts-guid", "No Facts"),
+        ],
+        ..no_index_rows()
+    });
+    let mut lookup = RecordedLibrary::default();
+    lookup
+        .artist_feeds
+        .insert("34bf795f-f551-4db1-8877-ad19aa5f89c8".to_owned());
+    let rows = rows(&vm, &lookup);
+    assert_eq!(rows[0].badge, Some(SearchRowBadge::Artist));
+    assert_eq!(
+        rows[0].a11y_label,
+        "Open the feed page Sir Libre Records, Artist"
+    );
+    assert_eq!(rows[1].badge, Some(SearchRowBadge::Feed));
+    assert_eq!(rows[1].a11y_label, "Open the feed page No Facts, Feed");
 }

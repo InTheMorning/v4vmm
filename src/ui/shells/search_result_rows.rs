@@ -114,10 +114,10 @@ pub(crate) fn render_result_row(
                 .color(SemanticColor::SecondaryLabel),
         );
     }
-    if let Some(badge) = row.badge {
+    if let Some(badge) = &row.badge {
         list_row = list_row.child(TagBadge::new(TagBadgeDisplay {
             kind: entity_kind_for_badge(badge),
-            label: Some(SharedString::from(badge.label())),
+            label: Some(SharedString::from(badge.label().to_owned())),
         }));
     }
 
@@ -211,11 +211,14 @@ const fn entity_kind_for_tab(tab: SearchResultsTab) -> EntityKind {
     }
 }
 
-const fn entity_kind_for_badge(badge: SearchRowBadge) -> EntityKind {
+/// The entity color of a badge. A role badge has the feed color. Its text
+/// tells it apart from the "Feed" badge, so color is not the only
+/// difference (ADR 0084 packet 029).
+const fn entity_kind_for_badge(badge: &SearchRowBadge) -> EntityKind {
     match badge {
         SearchRowBadge::Release(_) => EntityKind::Release,
         SearchRowBadge::Artist => EntityKind::Artist,
-        SearchRowBadge::Feed => EntityKind::Feed,
+        SearchRowBadge::Roles(_) | SearchRowBadge::Feed => EntityKind::Feed,
     }
 }
 

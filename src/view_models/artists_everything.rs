@@ -20,7 +20,7 @@ use crate::view_models::library::{
     release_row_slug_text, DestinationListRowTarget, DestinationListRowVm,
 };
 use crate::view_models::list_selection::RowSelectionVm;
-use crate::view_models::role_words::role_contains_artist;
+use crate::view_models::role_words::{role_contains_artist, role_words};
 
 /// The secondary text of a `MusicIndex` row (packet 016 decision D12).
 const NOT_IN_LIBRARY: &str = "Not in Library";
@@ -88,6 +88,45 @@ pub(crate) struct LibraryArtistRow {
     pub(crate) row: DestinationListRowVm,
 }
 
+/// The class of one feed by its link facts (ADR 0085 Decision 2). The
+/// Artists list of packet 016 and the Artists tab of search (packet 029)
+/// use this one rule.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum FeedLinkClass {
+    /// The agreed roles hold `artist`.
+    Artist,
+    /// The agreed roles are not empty and hold no `artist`. The words are
+    /// the role words of [`role_words`], for example `["label"]`.
+    OtherRoles(Vec<String>),
+    /// The feed has no agreed role, and a confirmed link names it first.
+    UnverifiedArtist,
+    /// The feed has no agreed role, and no confirmed link names it first.
+    /// A null count gives this class.
+    NotNamedFirst,
+}
+
+impl FeedLinkClass {
+    /// Classifies a feed by its agreed roles and the count of the
+    /// confirmed links that name it first. A blank role is not a role.
+    #[must_use]
+    pub(crate) fn from_link_facts(
+        agreed_roles: Option<&[String]>,
+        first_named_count: Option<i64>,
+    ) -> Self {
+        let combined = agreed_roles.unwrap_or_default().join(",");
+        let words = role_words(Some(&combined));
+        if role_contains_artist(Some(&combined)) {
+            Self::Artist
+        } else if !words.is_empty() {
+            Self::OtherRoles(words)
+        } else if first_named_count.unwrap_or(0) > 0 {
+            Self::UnverifiedArtist
+        } else {
+            Self::NotNamedFirst
+        }
+    }
+}
+
 /// The class of one `MusicIndex` artist name row (ADR 0085 Decision 2,
 /// packet 016 decision D11).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -125,15 +164,12 @@ pub(crate) fn classify_index_artist(row: &ArtistNameRow) -> IndexArtistClass {
         ArtistNameKind::Name => IndexArtistClass::Name,
         ArtistNameKind::Unknown => IndexArtistClass::UnknownKind,
         ArtistNameKind::Publisher => {
-            let roles = row.agreed_roles.as_deref().unwrap_or_default();
-            if roles.iter().any(|role| role_contains_artist(Some(role))) {
-                IndexArtistClass::Artist
-            } else if !roles.is_empty() {
-                IndexArtistClass::OtherRole
-            } else if row.first_named_count.unwrap_or(0) > 0 {
-                IndexArtistClass::UnverifiedArtist
-            } else {
-                IndexArtistClass::NotNamedFirst
+            match FeedLinkClass::from_link_facts(row.agreed_roles.as_deref(), row.first_named_count)
+            {
+                FeedLinkClass::Artist => IndexArtistClass::Artist,
+                FeedLinkClass::OtherRoles(_) => IndexArtistClass::OtherRole,
+                FeedLinkClass::UnverifiedArtist => IndexArtistClass::UnverifiedArtist,
+                FeedLinkClass::NotNamedFirst => IndexArtistClass::NotNamedFirst,
             }
         }
     }
@@ -431,5 +467,106 @@ mod tests {
         let rows = everything_rows(library, &page, &no_match());
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].label, "Zed");
+    }
+
+    /// R29-05 (ADR 0084 packet 029): the class of each row of the table of
+    /// "One classification for a feed", and of the recorded rows of
+    /// `GET /v1/search?type=publisher&include=link_facts` of 2026-10-21.
+    #[test]
+    fn adr_0084_search_link_facts_r29_05_feed_link_class() {
+        type Case = (
+            &'static str,
+            Option<Vec<String>>,
+            Option<i64>,
+            FeedLinkClass,
+        );
+
+        fn roles(words: &[&str]) -> Vec<String> {
+            words.iter().map(|word| (*word).to_owned()).collect()
+        }
+        let cases: [Case; 11] = [
+            (
+                "Sir Libre Records",
+                Some(roles(&["label"])),
+                Some(0),
+                FeedLinkClass::OtherRoles(roles(&["label"])),
+            ),
+            (
+                "Kolomona Myer - AKA Sir Libre",
+                Some(Vec::new()),
+                Some(1),
+                FeedLinkClass::UnverifiedArtist,
+            ),
+            (
+                "Haleen fe80a515",
+                Some(Vec::new()),
+                Some(38),
+                FeedLinkClass::UnverifiedArtist,
+            ),
+            (
+                "Haleen 64569161",
+                Some(Vec::new()),
+                Some(56),
+                FeedLinkClass::UnverifiedArtist,
+            ),
+            (
+                "Paul Birken",
+                Some(Vec::new()),
+                Some(143),
+                FeedLinkClass::UnverifiedArtist,
+            ),
+            (
+                "HeyCitizen",
+                Some(roles(&["artist", "author", "host", "label", "producer"])),
+                Some(2),
+                FeedLinkClass::Artist,
+            ),
+            (
+                "Official DETOX Music",
+                Some(Vec::new()),
+                Some(30),
+                FeedLinkClass::UnverifiedArtist,
+            ),
+            (
+                "TJ Wong",
+                Some(Vec::new()),
+                Some(0),
+                FeedLinkClass::NotNamedFirst,
+            ),
+            (
+                "a null count",
+                Some(Vec::new()),
+                None,
+                FeedLinkClass::NotNamedFirst,
+            ),
+            (
+                "only a blank role, named first",
+                Some(roles(&[" "])),
+                Some(3),
+                FeedLinkClass::UnverifiedArtist,
+            ),
+            (
+                "two other roles",
+                Some(roles(&["producer", "label"])),
+                None,
+                FeedLinkClass::OtherRoles(roles(&["label", "producer"])),
+            ),
+        ];
+        for (name, agreed_roles, first_named_count, expected) in cases {
+            assert_eq!(
+                FeedLinkClass::from_link_facts(agreed_roles.as_deref(), first_named_count),
+                expected,
+                "{name}"
+            );
+        }
+        assert_eq!(
+            FeedLinkClass::from_link_facts(None, None),
+            FeedLinkClass::NotNamedFirst
+        );
+        assert_eq!(
+            FeedLinkClass::from_link_facts(Some(&roles(&["Artist"])), Some(0)),
+            FeedLinkClass::Artist,
+            "the artist role is read without case"
+        );
     }
 }

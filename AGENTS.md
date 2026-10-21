@@ -24,7 +24,7 @@ Phase 4A builds ADR 0084 in the packets of the
 for each item, three columns, the six destinations and Discover.
 Stophammer release 0.13.0 delivered request 9 on 2026-10-21, so packets 026 and 029 wait for nothing outside this repository.
 
-Packets 001 to 009, 013 to 015, 018 and 019 are complete. Packets 010 to 012, 016, 017, 020 to 025, 027 and 028 are implemented,
+Packets 001 to 009, 013 to 015, 018 and 019 are complete. Packets 010 to 012, 016, 017, 020 to 025 and 027 to 029 are implemented,
 and so are ADR 0083 tasks 006 to 008. Their visual checks are open in the final walk of the run of 2026-10-20.
 
 Phase 4 and 5 packets carry the
@@ -43,7 +43,7 @@ step. The [run record](docs/reviews/orchestrated-run-2026-10-20.md) holds the st
 Delete this paragraph when the operator walks the final walk.
 
 Ready packets include
-[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md), and ADR 0084 packets 029 and 026, in that order.
+[ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md), and ADR 0084 packet 026.
 
 Known open defects:
 
@@ -56,7 +56,7 @@ Known open defects:
 Stored facts that agents need:
 
 - Schema version 21 is current. The migration registry of ADR 0016 owns each schema change.
-- `tests/fixtures/musicindex-openapi-0.12.0.json` is the stored MusicIndex contract. After each Stophammer
+- `tests/fixtures/musicindex-openapi-0.13.0.json` is the stored MusicIndex contract. After each Stophammer
   release, replace it in the same change as the decode changes (ADR 0075 section 6).
 - [Open Stophammer requests](docs/plans/v4vmm-open-requests.md) has an equal copy in the Stophammer
   repository. Update both copies together.

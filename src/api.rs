@@ -39,6 +39,11 @@ pub struct SearchResponse {
 /// omitted field decodes as `None`. `quality_score` is an integer in the
 /// contract; `Option<f64>` still accepts it, because `serde_json` decodes
 /// a JSON integer into an `f64` field without an error.
+///
+/// `agreed_roles` and `first_named_count` are two link facts of a
+/// `publisher` row (contract version `0.13.0`, ADR 0084 packet 029). Only a
+/// `type=publisher` request with `include=link_facts` gives them. Each other
+/// row decodes them as `None`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct SearchResult {
@@ -58,6 +63,8 @@ pub struct SearchResult {
     pub duration_secs: Option<i32>,
     pub episode_count: Option<i32>,
     pub href: Option<String>,
+    pub agreed_roles: Option<Vec<String>>,
+    pub first_named_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -901,12 +908,20 @@ impl Client {
         self
     }
 
-    pub fn search(
+    /// Sends `GET /v1/search`. With a profile, the request sends `include`
+    /// with the include list of the profile (ADR 0084 packet 029). Without a
+    /// profile, the request sends no `include`.
+    ///
+    /// # Errors
+    /// Returns an error when the request fails or the response does not
+    /// decode.
+    pub(crate) fn search(
         &self,
         query: &str,
         entity_type: Option<&str>,
         limit: Option<i32>,
         cursor: Option<&str>,
+        profile: Option<&RequestProfile>,
     ) -> Result<SearchResponse> {
         let mut params = vec![
             ("q", query.to_string()),
@@ -919,6 +934,17 @@ impl Client {
 
         if let Some(cursor) = cursor {
             params.push(("cursor", cursor.to_string()));
+        }
+
+        if let Some(profile) = profile {
+            debug_assert_eq!(
+                profile.path_shape(),
+                RequestPathShape::Search,
+                "ADR 0084 packet 029: {profile:?} must name the search path shape"
+            );
+            if let Some(include) = profile.include() {
+                params.push(("include", include.to_string()));
+            }
         }
 
         self.get_json(&["v1", "search"], &params)
@@ -1382,7 +1408,7 @@ pub(crate) mod tests {
         let client =
             Client::new_with_base_url("https://secret:credential@invalid host/?token=hidden");
         let error = client
-            .search("local", None, None, None)
+            .search("local", None, None, None, None)
             .unwrap_err()
             .to_string();
         assert!(error.contains("musicindex_endpoint"));
@@ -4092,5 +4118,49 @@ mod adr_0084_scopes_tests {
         assert_eq!(entry.role, None);
         assert_eq!(entry.role_agreement, None);
         assert!(!page.pagination.has_more);
+    }
+}
+
+/// ADR 0084 packet 029: the decode of the link facts of a search row of the
+/// 0.13.0 contract.
+#[cfg(test)]
+mod adr_0084_search_link_facts_tests {
+    use super::*;
+
+    /// R29-02: the recorded rows of
+    /// `GET /v1/search?q=Libre&type=publisher&include=link_facts&limit=20` of
+    /// 2026-10-21 decode `agreed_roles` and `first_named_count`. A row with no
+    /// link fact decodes them as `None`.
+    #[test]
+    fn adr_0084_search_link_facts_r29_02_search_rows_decode_the_link_facts() {
+        let page: SearchResponse = serde_json::from_value(serde_json::json!({
+            "data": [
+                {"entity_type": "publisher",
+                 "entity_id": "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+                 "title": "Sir Libre Records", "episode_count": 0,
+                 "two_way_link_count": 3, "stated_rels": ["label"],
+                 "agreed_roles": ["label"], "confirmed_release_artists": [],
+                 "first_named_count": 0},
+                {"entity_type": "publisher",
+                 "entity_id": "c8ec3dba-ed28-5662-9509-094d769f9597",
+                 "title": "Kolomona Myer - AKA Sir Libre", "episode_count": 0,
+                 "two_way_link_count": 1, "agreed_roles": [], "first_named_count": 1},
+                {"entity_type": "publisher",
+                 "entity_id": "a31f362c-d40b-5f56-ae2c-4ef9c548db9d",
+                 "title": "TJ Wong", "episode_count": 0}
+            ],
+            "pagination": {"has_more": false, "cursor": null}
+        }))
+        .expect("the recorded rows decode");
+
+        let sir_libre = &page.data[0];
+        assert_eq!(sir_libre.agreed_roles, Some(vec!["label".to_owned()]));
+        assert_eq!(sir_libre.first_named_count, Some(0));
+        let kolomona = &page.data[1];
+        assert_eq!(kolomona.agreed_roles, Some(Vec::new()));
+        assert_eq!(kolomona.first_named_count, Some(1));
+        let no_facts = &page.data[2];
+        assert_eq!(no_facts.agreed_roles, None);
+        assert_eq!(no_facts.first_named_count, None);
     }
 }

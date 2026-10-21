@@ -43,8 +43,8 @@ The code facts come from the working tree of 2026-10-21, after commit `c1c728a`.
 - `SinglesGroupAction::DownloadSingles(Vec<i64>)` holds Library feed ids only.
 - `singles_group_name_link` gives "All n singles" only for a release in a Library group.
 - `Client::fetch_recent_feeds` in `src/api.rs` sends `limit` and `cursor` only, with no request profile. `Client::fetch_feeds_by_name` sends `artist_key`, `limit`, `cursor` and the profile include.
-- `src/application/request_profiles.rs` has ten profiles. The test `adr_0075_request_profile_registry_names_ten_profiles` counts them.
-- `MUSICINDEX_CONTRACT_FIXTURE` in `tests/architecture_tests.rs` names `tests/fixtures/musicindex-openapi-0.12.0.json`. The test `adr_0084_scopes_r16_03_contract_fixture_is_0_12_0` asserts the version `0.12.0`. The AGENTS.md "Stored facts" line names the same file.
+- `src/application/request_profiles.rs` has eleven profiles after packet 029. The test `adr_0075_request_profile_registry_names_eleven_profiles` counts them.
+- Packet 029 replaced the stored contract on 2026-10-21. `MUSICINDEX_CONTRACT_FIXTURE` in `tests/architecture_tests.rs` names `tests/fixtures/musicindex-openapi-0.13.0.json`. The test `adr_0084_scopes_r16_03_contract_fixture_is_0_13_0` asserts the version `0.13.0`. Thus this packet does not replace the contract (D1), and R26-01 is complete.
 - `ReleasesDownloadPlan` and `loaded_index_release_title` in `src/view_models/releases_everything.rs` give the MusicIndex releases of the "Download" action and their titles.
 
 ### Live API facts

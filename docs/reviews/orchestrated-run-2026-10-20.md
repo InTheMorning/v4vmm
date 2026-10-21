@@ -119,6 +119,7 @@ Each entry names the step, the decision and the reason.
 | Walk fixes of 2026-10-21: Library search images, the kind in the subtitle, a clear detail column, a rejected query | Implemented. Walk again | `e495bdd`, `c1c728a` |
 | Packet 028: the open defects of search | Implemented. V1 to V4 open | `5bdeec1` |
 | Packets 026 and 029 written after Stophammer release 0.13.0 | Ready. The operator answered their decisions | `22c7f7d` |
+| Packet 029: the link facts of search, the 0.13.0 contract | Implemented. V1 to V6 open | this commit |
 
 ## Questions For The Operator
 

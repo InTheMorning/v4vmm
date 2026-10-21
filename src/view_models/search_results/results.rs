@@ -8,6 +8,7 @@ use crate::db::TrackRow;
 use crate::view_models::artist_identity::{
     name_label, ArtistNameDestination, ArtistNameKey, NameFeedMatch, NameFeedMatches,
 };
+use crate::view_models::artists_everything::FeedLinkClass;
 use crate::view_models::collection_art::CollectionArtVm;
 use crate::view_models::format::plural;
 use crate::view_models::index_name_list::name_sort_key;
@@ -37,6 +38,10 @@ pub(crate) struct ArtistResultDisplay {
     /// Library releases, the same art as its Artists list row (packet 028
     /// D3). `None` for each other row.
     pub(crate) art: Option<CollectionArtVm>,
+    /// The class of a `MusicIndex` feed row by its link facts (ADR 0084
+    /// packet 029). `None` for a row that gives no link fact, and for each
+    /// row that is not a `MusicIndex` feed row.
+    pub(crate) link_class: Option<FeedLinkClass>,
 }
 
 impl SearchRowMergeKey for ArtistResultDisplay {
@@ -79,6 +84,7 @@ impl ArtistResultDisplay {
             secondary_text: String::new(),
             thumbnail_href: None,
             art: None,
+            link_class: None,
         }
     }
 

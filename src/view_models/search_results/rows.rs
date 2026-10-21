@@ -8,10 +8,12 @@
 
 #![warn(clippy::pedantic)]
 
+use crate::view_models::artists_everything::FeedLinkClass;
 use crate::view_models::collection_art::CollectionArtVm;
 use crate::view_models::detail_selection::{DetailRowKey, DetailSelection, LibraryReleaseFacts};
 use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::release_kind::ReleaseKind;
+use crate::view_models::role_words::{capitalize_first, role_list_text};
 use crate::view_models::workspace::{ReleaseKey, TrackKey};
 
 use super::{
@@ -59,13 +61,19 @@ pub(crate) trait SearchLibraryLookup {
     fn is_artist_feed(&self, feed_guid: &str) -> bool;
 }
 
-/// The badge at the end of a search row (packet 010 decisions D5 and D11).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// The badge at the end of a search row (packet 010 decisions D5 and D11,
+/// packet 029 decision D2).
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SearchRowBadge {
     /// The kind of a release row (ADR 0084 Decision 5).
     Release(ReleaseKind),
-    /// A feed row whose feed is an artist feed of the Library.
+    /// A feed row whose feed is an artist feed of the Library, or a confirmed
+    /// or an unverified artist by its link facts.
     Artist,
+    /// A feed row with agreed roles and no `artist` role. The text is the
+    /// role words with a capital first letter, for example "Label" (ADR
+    /// 0085 Decision 7, the frame title of the feed page).
+    Roles(String),
     /// Each other feed row. No row text calls a feed a "publisher" (ADR
     /// 0085 Decision 1).
     Feed,
@@ -74,11 +82,28 @@ pub(crate) enum SearchRowBadge {
 impl SearchRowBadge {
     /// The visible badge text.
     #[must_use]
-    pub(crate) const fn label(self) -> &'static str {
+    pub(crate) fn label(&self) -> &str {
         match self {
             Self::Release(kind) => kind.label(),
             Self::Artist => "Artist",
+            Self::Roles(words) => words,
             Self::Feed => "Feed",
+        }
+    }
+
+    /// The badge of a feed row, in the sequence of packet 029 "The badge".
+    /// A feed of the Library Artists list is "Artist" whatever its link
+    /// facts (decision D3). A row with no link class is "Feed".
+    fn for_feed(is_library_artist: bool, link_class: Option<&FeedLinkClass>) -> Self {
+        if is_library_artist {
+            return Self::Artist;
+        }
+        match link_class {
+            Some(FeedLinkClass::Artist | FeedLinkClass::UnverifiedArtist) => Self::Artist,
+            Some(FeedLinkClass::OtherRoles(words)) => {
+                Self::Roles(capitalize_first(&role_list_text(words)))
+            }
+            Some(FeedLinkClass::NotNamedFirst) | None => Self::Feed,
         }
     }
 }
@@ -197,22 +222,24 @@ pub(super) fn track_row_vm(
     }
 }
 
-/// The visible row of an artist result. A feed row has the badge "Artist"
-/// or "Feed". A name row has no badge. The Artists tab has no selection
-/// model.
+/// The visible row of an artist result. A feed row has the badge "Artist",
+/// the role words or "Feed" (packet 029 "The badge"). The accessibility
+/// label of a feed row ends with the badge word (packet 029 decision D7).
+/// A name row has no badge. The Artists tab has no selection model.
 pub(super) fn artist_row_vm(
     row: &ArtistResultDisplay,
     lookup: &dyn SearchLibraryLookup,
 ) -> SearchResultRowVm {
     let badge = match SearchResultTarget::from_row_id(SearchResultsTab::Artists, &row.id) {
-        Some(SearchResultTarget::FeedPage(feed_guid)) => {
-            Some(if lookup.is_artist_feed(&feed_guid) {
-                SearchRowBadge::Artist
-            } else {
-                SearchRowBadge::Feed
-            })
-        }
+        Some(SearchResultTarget::FeedPage(feed_guid)) => Some(SearchRowBadge::for_feed(
+            lookup.is_artist_feed(&feed_guid),
+            row.link_class.as_ref(),
+        )),
         _ => None,
+    };
+    let a11y_label = match &badge {
+        Some(badge) => format!("{}, {}", row.a11y_label, badge.label()),
+        None => row.a11y_label.clone(),
     };
     SearchResultRowVm {
         id: row.id.clone(),
@@ -220,7 +247,7 @@ pub(super) fn artist_row_vm(
         secondary_text: row.secondary_text.clone(),
         thumbnail_href: row.thumbnail_href.clone(),
         art: row.art.clone(),
-        a11y_label: row.a11y_label.clone(),
+        a11y_label,
         state_word: None,
         badge,
         selection: RowSelectionVm::none(),

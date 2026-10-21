@@ -19781,7 +19781,7 @@ fn adr_0075_projection_views_combine_no_fact_and_column() {
 //
 // Situational — ADR 0075 section 6. `src/api.rs` must decode only fields
 // that the deployed MusicIndex contract declares. The guard below reads the
-// stored contract copy at `tests/fixtures/musicindex-openapi-0.12.0.json` and
+// stored contract copy at `tests/fixtures/musicindex-openapi-0.13.0.json` and
 // each mapped struct body in `src/api.rs`, and fails when a decoded field is
 // not a declared property. Delete this guard when ADR 0075 is superseded.
 //
@@ -19790,12 +19790,14 @@ fn adr_0075_projection_views_combine_no_fact_and_column() {
 // 0085 packet 008 replaced it again with the Stophammer 0.11.0 contract on
 // 2026-10-18, for `album_names_rank` and `remote_episode_count`. ADR 0084
 // packet 016 replaced it with the Stophammer 0.12.0 contract on 2026-10-21,
-// for the two name lists and `named_feeds`.
+// for the two name lists and `named_feeds`. ADR 0084 packet 029 replaced it
+// with the Stophammer 0.13.0 contract on 2026-10-21, for the link facts of a
+// search row.
 
 /// The stored MusicIndex contract (ADR 0075 section 6). The file name holds
 /// the contract version. A person or an agent replaces this file after each
 /// Stophammer release, in the same change as the decode changes.
-const MUSICINDEX_CONTRACT_FIXTURE: &str = "tests/fixtures/musicindex-openapi-0.12.0.json";
+const MUSICINDEX_CONTRACT_FIXTURE: &str = "tests/fixtures/musicindex-openapi-0.13.0.json";
 
 /// Where a decoded type's declared fields live in the stored contract: a
 /// named schema under `components.schemas`, or the inline response schema
@@ -19840,7 +19842,8 @@ struct ContractTypeMapping {
 /// with named fields, mapped to its contract schema. Built from the
 /// deployed contract version `0.2.0` on 2026-10-01, and extended against
 /// the deployed contract version `0.7.0` on 2026-10-02 (ADR 0082 packet
-/// 001).
+/// 001). The map is checked against the deployed contract version `0.13.0`
+/// since 2026-10-21 (ADR 0084 packet 029).
 const CONTRACT_TYPE_MAP: &[ContractTypeMapping] = &[
     ContractTypeMapping {
         rust_type: "SearchResponse",
@@ -20224,7 +20227,7 @@ fn undeclared_fields(decoded: &[String], declared: &BTreeSet<String>) -> Vec<Str
 /// 0075 task 051 specifies.
 fn contract_field_violation(rust_type: &str, field: &str, schema_description: &str) -> String {
     format!(
-        "ADR 0075 section 6: api::{rust_type} decodes `{field}`, and MusicIndex contract 0.12.0 \
+        "ADR 0075 section 6: api::{rust_type} decodes `{field}`, and MusicIndex contract 0.13.0 \
 does not declare it in {schema_description}.\n\
 Remove the field, or replace {MUSICINDEX_CONTRACT_FIXTURE} with the contract that declares it."
     )
@@ -20322,13 +20325,13 @@ fn adr_0075_task_051_contract_field_guard_passes_on_present_code() {
     );
 }
 
-/// R16-03: the stored contract copy gives `info.version` `0.12.0`, the
-/// 0.11.0 copy is absent, and the type map names each decoded type of the
-/// two name lists (ADR 0084 packet 016).
+/// R16-03 and R29-01: the stored contract copy gives `info.version`
+/// `0.13.0`, the 0.11.0 and 0.12.0 copies are absent, and the type map names
+/// each decoded type of the two name lists (ADR 0084 packets 016 and 029).
 #[test]
-fn adr_0084_scopes_r16_03_contract_fixture_is_0_12_0() {
+fn adr_0084_scopes_r16_03_contract_fixture_is_0_13_0() {
     let contract = load_musicindex_contract();
-    assert_eq!(contract["info"]["version"], "0.12.0");
+    assert_eq!(contract["info"]["version"], "0.13.0");
     let mapped: BTreeSet<&str> = CONTRACT_TYPE_MAP.iter().map(|m| m.rust_type).collect();
     for rust_type in [
         "FeedNamesResponse",
@@ -20342,11 +20345,47 @@ fn adr_0084_scopes_r16_03_contract_fixture_is_0_12_0() {
 Add its contract schema to the map."
         );
     }
-    assert!(
-        !manifest_path("tests/fixtures/musicindex-openapi-0.11.0.json").exists(),
-        "ADR 0075 section 6: tests/fixtures/musicindex-openapi-0.11.0.json must be absent. \
+    for old_copy in [
+        "tests/fixtures/musicindex-openapi-0.11.0.json",
+        "tests/fixtures/musicindex-openapi-0.12.0.json",
+    ] {
+        assert!(
+            !manifest_path(old_copy).exists(),
+            "ADR 0075 section 6: {old_copy} must be absent. \
 The stored contract is {MUSICINDEX_CONTRACT_FIXTURE}. Delete the old copy."
+        );
+    }
+}
+
+/// R29-01 (ADR 0084 packet 029): the stored contract declares `include` on
+/// `GET /v1/search` with the include name `link_facts`, and
+/// `SearchResponseItem` declares the two link facts that the app decodes.
+#[test]
+fn adr_0084_search_link_facts_r29_01_contract_declares_the_search_include() {
+    let contract = load_musicindex_contract();
+    let include_names = contract["paths"]["/v1/search"]["get"]["parameters"]
+        .as_array()
+        .and_then(|parameters| {
+            parameters
+                .iter()
+                .find(|entry| entry["name"].as_str() == Some("include"))
+        })
+        .map(|entry| entry["x-include-names"].clone());
+    assert_eq!(
+        include_names,
+        Some(serde_json::json!(["link_facts"])),
+        "ADR 0075 section 6: {MUSICINDEX_CONTRACT_FIXTURE} must declare `include` with \
+`link_facts` on GET /v1/search (ADR 0084 packet 029). Replace the stored contract in the same \
+change as the decode."
     );
+    let properties = &contract["components"]["schemas"]["SearchResponseItem"]["properties"];
+    for field in ["agreed_roles", "first_named_count"] {
+        assert!(
+            properties.get(field).is_some(),
+            "ADR 0075 section 6: {MUSICINDEX_CONTRACT_FIXTURE} must declare \
+SearchResponseItem.{field} (ADR 0084 packet 029)."
+        );
+    }
 }
 
 /// R17-19 (ADR 0084 packet 017): the stored contract declares the two query
