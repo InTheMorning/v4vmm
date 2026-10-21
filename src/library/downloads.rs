@@ -1,4 +1,5 @@
-//! The download jobs of `LibraryApp` (ADR 0084 Decision 10, packet 022).
+//! The download jobs of `LibraryApp` (ADR 0084 Decision 10, packets 022
+//! and 027).
 //!
 //! Each download entry point queues a job here: the action bars, the
 //! release page, the track page, the playlist page and the singles group
@@ -7,6 +8,8 @@
 //! runs through `present_command` on the ADR 0040 command runner. An Index
 //! completion sends [`LibraryAppEvent::IndexDownloadFinished`], and
 //! `TopApp` updates its open pages in place.
+//! [`LibraryApp::stop_queued_downloads`] removes each waiting job. A
+//! running job keeps writing its file.
 
 #![warn(clippy::pedantic)]
 
@@ -135,16 +138,36 @@ impl LibraryApp {
         }
     }
 
+    /// "Stop queued" removes each job that waits. A running job keeps
+    /// writing its file, because a stop during a write leaves a partial
+    /// file (ADR 0084 Decision 10, packet 027: the operator decision of
+    /// 2026-10-20).
+    pub(crate) fn stop_queued_downloads(&mut self, cx: &mut Context<Self>) {
+        let stopped = self.download_queue.stop_queued(chrono::Local::now());
+        if stopped > 0 {
+            self.vm
+                .set_download_activity(self.download_queue.activity());
+            cx.notify();
+        }
+    }
+
     /// Renders the progress item, or an empty element when no batch is
     /// open. `TopApp::render` mounts it on each section.
     pub(crate) fn render_download_status(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let Some(display) = self.download_progress() else {
             return gpui::Empty.into_any_element();
         };
-        let entity = cx.entity();
-        download_status_item(display, move |_, _, cx| {
-            entity.update(cx, LibraryApp::dismiss_download_report);
-        })
+        let stop_queued_entity = cx.entity();
+        let dismiss_entity = cx.entity();
+        download_status_item(
+            display,
+            move |_, _, cx| {
+                stop_queued_entity.update(cx, LibraryApp::stop_queued_downloads);
+            },
+            move |_, _, cx| {
+                dismiss_entity.update(cx, LibraryApp::dismiss_download_report);
+            },
+        )
         .into_any_element()
     }
 

@@ -1,6 +1,6 @@
 # ADR 0084 Task 027: Stop The Queued Downloads
 
-Status: Ready - 2026-10-20.
+Status: Implemented - 2026-10-20. Cases R27-01 to R27-06 pass. Mechanical checks are Green. V1 to V3 are open, in the final walk of the run.
 
 ## Goal
 
@@ -122,3 +122,139 @@ At the end, report: files changed, tests run, behavior changed, deviations, unre
 Stop and report the problem, and do not guess, when:
 - A stop needs a change to a job in flight.
 - A change needs a file in "Do not touch".
+
+## Implementation Result - 2026-10-20
+
+### Files Changed
+
+- `src/library/download_queue.rs`: `BatchState` gets a new `stopped` count.
+  `DownloadQueue::stop_queued` removes each queued job and adds their
+  count to `stopped`. It finishes the batch at the given time when no job
+  stays in flight. Tests for R27-01, R27-02 and R27-05.
+- `src/view_models/download_progress.rs`:
+  - `DownloadBatch` gets a `stopped` count and a `queued` count. The new
+    type `DownloadProgressStopQueuedAction` holds the typed "Stop
+    queued" action. `DownloadProgressDisplay` gets a `stop_queued`
+    field.
+  - `DownloadProgressDisplay::project` shows "Stop queued" only while
+    the batch runs with one or more queued jobs. It also names the
+    stopped count in the finished text.
+  - New functions `stopped_downloads` and `stop_queued_a11y_label` build
+    the count text. Tests for R27-03 and R27-04.
+- `src/ui/composites/download_status_item.rs`: the composite takes a new
+  `on_stop_queued` callback. It renders a "Stop queued" button with the
+  `Stop` icon, adjacent to the "Dismiss" button. The shared handler type
+  is renamed from `DismissHandler` to `ClickHandler`, because both
+  buttons use it.
+- `src/library/downloads.rs`: the new method
+  `LibraryApp::stop_queued_downloads` calls `DownloadQueue::stop_queued`.
+  It then refreshes the busy state and notifies the open page when the
+  call removes one or more jobs. `render_download_status` wires the new
+  button to this method.
+
+### Behavior Changed
+
+- The download progress item shows "Stop queued" while the batch runs
+  and one or more jobs wait. The button names the count in its
+  accessibility label, for example "Stop 6 queued downloads".
+- A click on "Stop queued" removes each job that waits. A running job
+  keeps writing its file, and it is not stopped.
+- A stopped release or a stopped track goes back to its earlier state,
+  for example "Download". The queue no longer holds its job.
+- A batch with no job in flight after the stop finishes at once, with
+  the time of the click. A batch with running jobs finishes when its
+  last job ends.
+- The finished text names the stopped count. For example, "Downloaded 3
+  of 9, 6 stopped. Finished 14:02". With failures: "Downloaded 2 of 9, 1
+  failed, 6 stopped. Finished 14:02".
+- "Stop queued" shows no confirmation dialog, because it deletes no file
+  and the operator can queue the jobs again.
+
+### Checks - 2026-10-20
+
+| Check | Result |
+|---|---|
+| `cargo test --lib adr_0084_stop_queued_` | Green, 6 tests |
+| `cargo test --lib adr_0084_download_queue_` | Green, 21 tests |
+| `cargo test` | Green, 2070 unit tests and 344 guards. Ten documentation examples stay ignored |
+| `cargo test --test architecture_tests` | Green, 344 guards |
+| `cargo fmt -- --check` | Green |
+| `cargo clippy --all-targets -- -D warnings` | Green |
+| `cargo check --all-targets` | Green, no warning |
+| `cargo build --bin v4vmm` | Green |
+
+No application launch and no production-data change occurred. No test
+sends a request or writes a file.
+
+### Deviations From The Task
+
+1. The accessibility label of "Stop queued" also gives the singular
+   word for one queued job, "Stop 1 queued download". The packet names
+   only the plural example, "Stop 6 queued downloads". The singular word
+   follows the same pattern as the existing failed-download count text.
+
+### Unresolved Concerns
+
+1. AGENTS.md asks each fix to leave its gate open in
+   `docs/pending-human-checks.md` too. This task names only the packet
+   file as an editable document, so checks V1 to V3 are not yet in that
+   index. The operator should add them there.
+2. Packet 022's unresolved concern about a missing "Stop queued" action
+   is now resolved. Its other concerns, for example the source map not
+   listing the new queue files, stay open and are outside this packet.
+
+## Operator Visual Check
+
+This check needs a Linux desktop session, this checkout, and nine or
+more Library releases that are not downloaded. Use releases that you
+can remove after the check.
+
+The steps download audio files. The cleanup removes them.
+
+1. Build the app: `cargo build --bin v4vmm`. Then start
+   `target/debug/v4vmm` from a desktop session.
+2. Open Music, then Releases, in the sidebar.
+
+### V1: "Stop queued" removes the waiting releases
+
+3. Click "Select". Check nine releases that are not downloaded. Click
+   "Download 9 releases".
+4. Look at the item below the live status strip. It must show the
+   button "Stop queued".
+5. Click "Stop queued".
+6. Look at the release rows. The releases that waited must go back to
+   "Download". The releases that ran must keep "Downloading" and
+   continue.
+
+**Wrong if:** "Stop queued" is absent while jobs wait. Also wrong: a
+running release stops, or a release that waited keeps "Queued" after
+the click.
+
+### V2: The finished text names the stopped count
+
+7. Wait until each running release ends.
+8. Look at the item. It must show "Downloaded n of 9, m stopped.
+   Finished hh:mm". Here, n is the releases that finished, and m is the
+   releases that this check stopped.
+9. Click "Dismiss".
+
+**Wrong if:** the text does not name the stopped count, or the item
+does not show a finish time.
+
+### V3: Themes and a narrow width
+
+10. Repeat steps 3 to 5 with the app in the Light theme. Look at the
+    item and the "Stop queued" button.
+11. Repeat steps 3 to 5 with the app in the Dark theme.
+12. Make the window narrow. Look at the item title, the item name and
+    the "Stop queued" button.
+
+**Wrong if:** a text is clipped, the button label overlaps another
+element, or a text has too little contrast in one theme.
+
+### Cleanup
+
+13. Open Music, then Releases. Click "Select" and check each release
+    that this check downloaded.
+14. Click "Remove n releases…", then confirm.
+15. Close the app.

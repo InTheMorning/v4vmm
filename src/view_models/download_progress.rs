@@ -153,6 +153,12 @@ pub(crate) struct DownloadBatch {
     pub(crate) done: usize,
     /// Each job that failed, in completion order.
     pub(crate) failures: Vec<DownloadFailure>,
+    /// Each job that the operator stopped while it waited (ADR 0084
+    /// Decision 10, packet 027: "Stop queued").
+    pub(crate) stopped: usize,
+    /// Each job that still waits. The "Stop queued" action shows this
+    /// count, and shows only while it is more than zero.
+    pub(crate) queued: usize,
     /// The name of the oldest job in flight.
     pub(crate) current_label: Option<String>,
     /// The time that the last completion handler recorded. `None` while
@@ -195,6 +201,22 @@ const DISMISS_ACTION: DownloadProgressDismissAction = DownloadProgressDismissAct
     a11y_label: "Dismiss the download report",
 };
 
+/// The typed "Stop queued" action (ADR 0084 Decision 10, packet 027: the
+/// operator decision of 2026-10-20). It removes each job that waits. A
+/// job in flight keeps writing its file, because a stop during a write
+/// leaves a partial file.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct DownloadProgressStopQueuedAction {
+    pub(crate) id: &'static str,
+    pub(crate) label: &'static str,
+    /// Names the count of the jobs that wait, for example "Stop 6 queued
+    /// downloads".
+    pub(crate) a11y_label: String,
+}
+
+const STOP_QUEUED_ACTION_ID: &str = "download-progress-stop-queued";
+const STOP_QUEUED_ACTION_LABEL: &str = "Stop queued";
+
 /// The display facts of the progress item.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DownloadProgressDisplay {
@@ -211,6 +233,8 @@ pub(crate) struct DownloadProgressDisplay {
     /// One report line for each failed job, with its name and its error.
     pub(crate) failure_lines: Vec<String>,
     pub(crate) a11y_label: String,
+    /// Present only while the batch runs and one or more jobs wait.
+    pub(crate) stop_queued: Option<DownloadProgressStopQueuedAction>,
     /// Present only when the batch is finished.
     pub(crate) dismiss: Option<DownloadProgressDismissAction>,
 }
@@ -243,6 +267,7 @@ impl DownloadProgressDisplay {
                 DownloadProgressIconRole::InProgress
             }
         };
+        let stopped = batch.stopped;
         let display = match batch.finished_at {
             None => {
                 let position = (batch.done + failed + 1).min(batch.total);
@@ -256,6 +281,11 @@ impl DownloadProgressDisplay {
                     write!(a11y_label, " {}.", failed_downloads(failed))
                         .expect("writing to a String cannot fail");
                 }
+                let stop_queued = (batch.queued > 0).then(|| DownloadProgressStopQueuedAction {
+                    id: STOP_QUEUED_ACTION_ID,
+                    label: STOP_QUEUED_ACTION_LABEL,
+                    a11y_label: stop_queued_a11y_label(batch.queued),
+                });
                 Self {
                     id: "download-progress-item",
                     state: DownloadProgressState::Running,
@@ -265,28 +295,30 @@ impl DownloadProgressDisplay {
                     failure_text: (failed > 0).then(|| format!("{failed} failed")),
                     failure_lines,
                     a11y_label,
+                    stop_queued,
                     dismiss: None,
                 }
             }
             Some(finished_at) => {
                 let time = finished_at.format("%H:%M");
-                let title = if failed > 0 {
-                    format!(
-                        "Downloaded {} of {}, {failed} failed. Finished {time}",
-                        batch.done, batch.total
-                    )
-                } else {
-                    format!(
-                        "Downloaded {} of {}. Finished {time}",
-                        batch.done, batch.total
-                    )
-                };
+                let mut title = format!("Downloaded {} of {}", batch.done, batch.total);
+                if failed > 0 {
+                    write!(title, ", {failed} failed").expect("writing to a String cannot fail");
+                }
+                if stopped > 0 {
+                    write!(title, ", {stopped} stopped").expect("writing to a String cannot fail");
+                }
+                write!(title, ". Finished {time}").expect("writing to a String cannot fail");
                 let mut a11y_label = format!(
                     "Downloaded {} of {} items. Finished at {time}.",
                     batch.done, batch.total
                 );
                 if failed > 0 {
                     write!(a11y_label, " {}.", failed_downloads(failed))
+                        .expect("writing to a String cannot fail");
+                }
+                if stopped > 0 {
+                    write!(a11y_label, " {}.", stopped_downloads(stopped))
                         .expect("writing to a String cannot fail");
                 }
                 Self {
@@ -298,6 +330,7 @@ impl DownloadProgressDisplay {
                     failure_text: None,
                     failure_lines,
                     a11y_label,
+                    stop_queued: None,
                     dismiss: Some(DISMISS_ACTION),
                 }
             }
@@ -312,6 +345,24 @@ fn failed_downloads(failed: usize) -> String {
         "1 download failed".to_owned()
     } else {
         format!("{failed} downloads failed")
+    }
+}
+
+/// "1 download stopped" or "2 downloads stopped".
+fn stopped_downloads(stopped: usize) -> String {
+    if stopped == 1 {
+        "1 download stopped".to_owned()
+    } else {
+        format!("{stopped} downloads stopped")
+    }
+}
+
+/// "Stop 1 queued download" or "Stop 2 queued downloads".
+fn stop_queued_a11y_label(queued: usize) -> String {
+    if queued == 1 {
+        "Stop 1 queued download".to_owned()
+    } else {
+        format!("Stop {queued} queued downloads")
     }
 }
 
@@ -361,6 +412,8 @@ mod tests {
             total: 9,
             done: 1,
             failures: vec![failure("Old Song")],
+            stopped: 0,
+            queued: 0,
             current_label: Some("Face Pale".to_owned()),
             finished_at: None,
         };
@@ -387,6 +440,8 @@ mod tests {
             total: 2,
             done: 2,
             failures: Vec::new(),
+            stopped: 0,
+            queued: 0,
             current_label: None,
             finished_at: None,
         };
@@ -405,6 +460,8 @@ mod tests {
             total: 9,
             done: 8,
             failures: vec![failure("Face Pale")],
+            stopped: 0,
+            queued: 0,
             current_label: None,
             finished_at: Some(recorded_time()),
         };
@@ -436,6 +493,8 @@ mod tests {
             total: 1,
             done: 0,
             failures: Vec::new(),
+            stopped: 0,
+            queued: 0,
             current_label: Some("Face Pale".to_owned()),
             finished_at: None,
         };
@@ -465,9 +524,108 @@ mod tests {
             total: 0,
             done: 0,
             failures: Vec::new(),
+            stopped: 0,
+            queued: 0,
             current_label: None,
             finished_at: None,
         };
         assert_eq!(DownloadProgressDisplay::project(&batch), None);
+    }
+
+    /// R27-03: "Stop queued" shows only while the batch runs with one or
+    /// more queued jobs. Its accessibility label names the count.
+    #[test]
+    fn adr_0084_stop_queued_progress_display_shows_the_action_only_while_jobs_wait() {
+        let running_with_queue = DownloadBatch {
+            total: 9,
+            done: 3,
+            failures: Vec::new(),
+            stopped: 0,
+            queued: 6,
+            current_label: Some("Face Pale".to_owned()),
+            finished_at: None,
+        };
+        let stop_queued = DownloadProgressDisplay::project(&running_with_queue)
+            .expect("a display")
+            .stop_queued
+            .expect("one or more jobs wait");
+        assert_eq!(stop_queued.label, "Stop queued");
+        assert_eq!(stop_queued.a11y_label, "Stop 6 queued downloads");
+
+        let running_without_queue = DownloadBatch {
+            queued: 0,
+            ..running_with_queue.clone()
+        };
+        assert_eq!(
+            DownloadProgressDisplay::project(&running_without_queue)
+                .expect("a display")
+                .stop_queued,
+            None,
+            "no job waits"
+        );
+
+        let finished = DownloadBatch {
+            finished_at: Some(recorded_time()),
+            ..running_with_queue
+        };
+        assert_eq!(
+            DownloadProgressDisplay::project(&finished)
+                .expect("a display")
+                .stop_queued,
+            None,
+            "the batch is finished"
+        );
+    }
+
+    /// R27-03: the accessibility label uses the singular word for one
+    /// queued job.
+    #[test]
+    fn adr_0084_stop_queued_progress_display_a11y_label_is_singular_for_one() {
+        let batch = DownloadBatch {
+            total: 2,
+            done: 1,
+            failures: Vec::new(),
+            stopped: 0,
+            queued: 1,
+            current_label: Some("Face Pale".to_owned()),
+            finished_at: None,
+        };
+        let stop_queued = DownloadProgressDisplay::project(&batch)
+            .expect("a display")
+            .stop_queued
+            .expect("one job waits");
+        assert_eq!(stop_queued.a11y_label, "Stop 1 queued download");
+    }
+
+    /// R27-04: the finished text names the stopped count, with and
+    /// without failures.
+    #[test]
+    fn adr_0084_stop_queued_progress_display_finished_title_names_the_stopped_count() {
+        let batch = DownloadBatch {
+            total: 9,
+            done: 3,
+            failures: Vec::new(),
+            stopped: 6,
+            queued: 0,
+            current_label: None,
+            finished_at: Some(recorded_time()),
+        };
+        let display = DownloadProgressDisplay::project(&batch).expect("a display");
+        assert_eq!(
+            display.title,
+            "Downloaded 3 of 9, 6 stopped. Finished 14:02"
+        );
+        assert!(display.a11y_label.contains("6 downloads stopped"));
+
+        let with_failure = DownloadBatch {
+            done: 2,
+            failures: vec![failure("Face Pale")],
+            ..batch
+        };
+        let display = DownloadProgressDisplay::project(&with_failure).expect("a display");
+        assert_eq!(
+            display.title,
+            "Downloaded 2 of 9, 1 failed, 6 stopped. Finished 14:02"
+        );
     }
 }

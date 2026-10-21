@@ -1,10 +1,12 @@
-//! Download progress item composite (ADR 0084 Decision 10, packet 022).
+//! Download progress item composite (ADR 0084 Decision 10, packets 022
+//! and 027).
 //!
 //! The item shows the download batch on each section, for example
 //! "Downloading 3 of 9". It renders the display facts of
-//! [`DownloadProgressDisplay`] and exposes one callback: "Dismiss" of a
-//! finished batch. It makes no text, no count and no time. The text wraps,
-//! so a narrow window does not clip it (ADR 0063).
+//! [`DownloadProgressDisplay`] and exposes two callbacks: "Stop queued" of
+//! a running batch, and "Dismiss" of a finished batch. It makes no text,
+//! no count and no time. The text wraps, so a narrow window does not clip
+//! it (ADR 0063).
 
 #![warn(clippy::pedantic)]
 
@@ -21,26 +23,31 @@ use crate::ui::primitives::{Button as UiButton, Tooltip};
 use crate::ui::tokens::{color, FontSize, SemanticColor, Spacing};
 use crate::view_models::download_progress::{
     DownloadProgressDismissAction, DownloadProgressDisplay, DownloadProgressIconRole,
+    DownloadProgressStopQueuedAction,
 };
 
-type DismissHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
+type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 /// Download progress item element.
 #[derive(IntoElement)]
 #[must_use]
 pub(crate) struct DownloadStatusItem {
     display: DownloadProgressDisplay,
-    on_dismiss: DismissHandler,
+    on_stop_queued: ClickHandler,
+    on_dismiss: ClickHandler,
 }
 
-/// Creates a download progress item. `on_dismiss` runs when the operator
-/// clicks "Dismiss" of a finished batch.
+/// Creates a download progress item. `on_stop_queued` runs when the
+/// operator clicks "Stop queued" of a running batch. `on_dismiss` runs
+/// when the operator clicks "Dismiss" of a finished batch.
 pub(crate) fn download_status_item(
     display: DownloadProgressDisplay,
+    on_stop_queued: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     on_dismiss: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> DownloadStatusItem {
     DownloadStatusItem {
         display,
+        on_stop_queued: Rc::new(on_stop_queued),
         on_dismiss: Rc::new(on_dismiss),
     }
 }
@@ -55,6 +62,7 @@ impl RenderOnce for DownloadStatusItem {
             failure_text,
             failure_lines,
             a11y_label,
+            stop_queued,
             dismiss,
             ..
         } = self.display;
@@ -106,6 +114,9 @@ impl RenderOnce for DownloadStatusItem {
                             .child(SharedString::from(line))
                     })),
             )
+            .when_some(stop_queued, |el, stop_queued| {
+                el.child(render_stop_queued_button(stop_queued, &self.on_stop_queued))
+            })
             .when_some(dismiss, |el, dismiss| {
                 el.child(render_dismiss_button(dismiss, &self.on_dismiss))
             })
@@ -144,7 +155,7 @@ fn render_detail_line(
 
 fn render_dismiss_button(
     dismiss: DownloadProgressDismissAction,
-    handler: &DismissHandler,
+    handler: &ClickHandler,
 ) -> UiButton {
     let handler = Rc::clone(handler);
     UiButton::styled(dismiss.id, ControlStyle::Secondary)
@@ -152,6 +163,19 @@ fn render_dismiss_button(
         .label(dismiss.label)
         .a11y_label(dismiss.a11y_label)
         .tooltip(dismiss.a11y_label)
+        .on_click(move |event, window, cx| handler(event, window, cx))
+}
+
+fn render_stop_queued_button(
+    stop_queued: DownloadProgressStopQueuedAction,
+    handler: &ClickHandler,
+) -> UiButton {
+    let handler = Rc::clone(handler);
+    UiButton::styled(stop_queued.id, ControlStyle::Secondary)
+        .leading_icon(IconName::Stop)
+        .label(stop_queued.label)
+        .a11y_label(stop_queued.a11y_label.clone())
+        .tooltip(stop_queued.a11y_label)
         .on_click(move |event, window, cx| handler(event, window, cx))
 }
 

@@ -12,6 +12,8 @@
 //!   jobs after it can start.
 //! - A failure records the item name and its error text. The queue
 //!   continues.
+//! - [`DownloadQueue::stop_queued`] removes each waiting job and leaves
+//!   each running job to finish (ADR 0084 Decision 10, packet 027).
 
 #![warn(clippy::pedantic)]
 
@@ -257,6 +259,9 @@ struct BatchState {
     total: usize,
     done: usize,
     failures: Vec<DownloadFailure>,
+    /// Each job that the operator stopped while it waited (ADR 0084
+    /// Decision 10, packet 027).
+    stopped: usize,
     finished_at: Option<DateTime<Local>>,
 }
 
@@ -447,6 +452,8 @@ impl DownloadQueue {
             total: batch.total,
             done: batch.done,
             failures: batch.failures.clone(),
+            stopped: batch.stopped,
+            queued: self.queued.len(),
             current_label: self.in_flight.first().map(|job| job.label.clone()),
             finished_at: batch.finished_at,
         })
@@ -460,6 +467,24 @@ impl DownloadQueue {
             return true;
         }
         false
+    }
+
+    /// Removes each queued job and adds their count to the `stopped` count
+    /// of the batch. A job in flight does not change (ADR 0084 Decision
+    /// 10, packet 027: the operator decision of 2026-10-20). When no job
+    /// stays in flight, the batch is finished at `now`. Returns the count
+    /// of the jobs this call removes.
+    pub(crate) fn stop_queued(&mut self, now: DateTime<Local>) -> usize {
+        let stopped = self.queued.len();
+        if stopped == 0 {
+            return 0;
+        }
+        self.queued.clear();
+        if let Some(batch) = self.batch.as_mut() {
+            batch.stopped += stopped;
+        }
+        self.close_batch_when_idle(now);
+        stopped
     }
 
     fn next_startable_index(&self) -> Option<usize> {
@@ -858,5 +883,90 @@ mod tests {
             Some(DownloadPhase::Queued)
         );
         assert_eq!(activity.release_phase(&guid_key("g1")), None);
+    }
+
+    /// R27-01: `stop_queued` removes each queued job and changes no job
+    /// in flight. It returns the count of the jobs it removes.
+    #[test]
+    fn adr_0084_stop_queued_removes_each_queued_job_and_returns_its_count() {
+        let mut queue = DownloadQueue::default();
+        for feed_id in 1..=5 {
+            queue.enqueue(feed_job(feed_id, &format!("g{feed_id}")));
+        }
+        start_all(&mut queue); // "g1" to "g3" run; "g4" and "g5" wait.
+        assert_eq!(queue.batch().expect("a batch").queued, 2);
+
+        let stopped = queue.stop_queued(recorded_time());
+
+        assert_eq!(stopped, 2);
+        let batch = queue.batch().expect("a batch");
+        assert_eq!((batch.queued, batch.stopped), (0, 2));
+        assert_eq!(batch.finished_at, None, "three releases still run");
+        let activity = queue.activity();
+        for feed_id in 1..=3 {
+            assert_eq!(
+                activity.release_phase(&guid_key(&format!("g{feed_id}"))),
+                Some(DownloadPhase::InFlight),
+                "a running release does not change"
+            );
+        }
+        for feed_id in 4..=5 {
+            assert_eq!(
+                activity.release_phase(&guid_key(&format!("g{feed_id}"))),
+                None,
+                "a stopped release has no phase"
+            );
+        }
+    }
+
+    /// R27-02: a batch with no job in flight after the stop is finished,
+    /// with the time that the caller gives. A batch with running jobs
+    /// finishes when its last job ends.
+    #[test]
+    fn adr_0084_stop_queued_finishes_the_batch_only_when_idle() {
+        let mut idle_queue = DownloadQueue::default();
+        idle_queue.enqueue(feed_job(1, "a"));
+        idle_queue.enqueue(feed_job(2, "b"));
+        idle_queue.stop_queued(recorded_time());
+        let batch = idle_queue.batch().expect("a batch");
+        assert_eq!(batch.finished_at, Some(recorded_time()));
+        assert_eq!((batch.done, batch.stopped), (0, 2));
+
+        let mut running_queue = DownloadQueue::default();
+        for feed_id in 1..=4 {
+            running_queue.enqueue(feed_job(feed_id, &format!("g{feed_id}")));
+        }
+        start_all(&mut running_queue); // "g1" to "g3" run; "g4" waits.
+        running_queue.stop_queued(recorded_time());
+        assert_eq!(
+            running_queue.batch().expect("a batch").finished_at,
+            None,
+            "a running job stays, so the batch does not finish yet"
+        );
+        for feed_id in 1..=3 {
+            running_queue.finish(
+                &JobIdentity::Release(guid_key(&format!("g{feed_id}"))),
+                DownloadOutcome::Succeeded,
+                recorded_time(),
+            );
+        }
+        let batch = running_queue.batch().expect("a batch");
+        assert_eq!(batch.finished_at, Some(recorded_time()));
+        assert_eq!((batch.done, batch.stopped), (3, 1));
+    }
+
+    /// R27-05: after the stop, `DownloadActivity` gives no `Queued`
+    /// phase for a stopped key.
+    #[test]
+    fn adr_0084_stop_queued_activity_has_no_queued_phase_for_a_stopped_key() {
+        let mut queue = DownloadQueue::default();
+        for feed_id in 1..=4 {
+            queue.enqueue(feed_job(feed_id, &format!("g{feed_id}")));
+        }
+        start_all(&mut queue); // "g1" to "g3" run; "g4" waits.
+        queue.stop_queued(recorded_time());
+        let activity = queue.activity();
+        assert_eq!(activity.key_phase(&guid_key("g4")), None);
+        assert_eq!(activity.release_phase(&guid_key("g4")), None);
     }
 }
