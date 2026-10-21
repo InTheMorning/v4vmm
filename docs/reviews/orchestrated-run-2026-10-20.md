@@ -117,8 +117,8 @@ Each entry names the step, the decision and the reason.
 | Packet 010: the search results in the list column | Implemented. V1 to V7 open | `2c4170e` |
 | Packet 012: saved searches (migration 21) | Implemented. V1 to V7 open | `c563ca4` |
 | Walk fixes of 2026-10-21: Library search images, the kind in the subtitle, a clear detail column, a rejected query | Implemented. Walk again | `e495bdd`, `c1c728a` |
-| Packet 028: the open defects of search | Implemented. V1 to V4 open | this commit |
-| Packets 026 and 029 written after Stophammer release 0.13.0 | Ready. The operator answered their decisions | this commit |
+| Packet 028: the open defects of search | Implemented. V1 to V4 open | `5bdeec1` |
+| Packets 026 and 029 written after Stophammer release 0.13.0 | Ready. The operator answered their decisions | `22c7f7d` |
 
 ## Questions For The Operator
 
