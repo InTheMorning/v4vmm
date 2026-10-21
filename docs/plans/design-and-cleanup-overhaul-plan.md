@@ -182,6 +182,7 @@ The operator asked on 2026-10-08 for a later phase that tunes how fast the app r
 13. 2026-10-20: the top app builds the playlist page rows of the detail selection several times in each render. A long playlist can thus render slowly (`detail_page_rows` in `src/app/detail_selection.rs`, ADR 0084 packet 025). No measurement confirms it.
 14. 2026-10-20: `reload_playlists` reads the cover images of each playlist on the UI thread, beside the playlist list read (`playlist_cover_images` in `src/db.rs`, ADR 0084 packet 011). No measurement confirms a delay.
 15. 2026-10-20: the first show of the Artists list or the Playlists list starts one logo composition for each row at the same time. They run on the command runner (`FetchLogoMosaic` in `src/application/queries/images.rs`, ADR 0084 packet 011). The rows show the entity color until each image arrives.
+16. 2026-10-21: one render computes the merge of the Releases list in "Everything" more than one time: for the header action, for the rows and for the selection keys (`src/view_models/releases_everything.rs`, ADR 0084 packet 016). With many loaded pages, this can slow the render. No measurement confirms it.
 
 ## Visual Requirements Moved From Pending Checks - 2026-10-07
 

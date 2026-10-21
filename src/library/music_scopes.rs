@@ -2,9 +2,9 @@
 //! Artists list (ADR 0084 Decision 8, packet 016).
 //!
 //! `LibraryApp` keeps the scope of each list in memory (decision D3). The
-//! Artists scope "Everything" loads the `MusicIndex` artist name pages
-//! through `present_command` on the ADR 0040 command runner. A result of an
-//! older request generation changes nothing (decision D10).
+//! scope "Everything" loads the `MusicIndex` release name pages or artist
+//! name pages through `present_command` on the ADR 0040 command runner. A
+//! result of an older request generation changes nothing (decision D10).
 
 #![warn(clippy::pedantic)]
 
@@ -12,12 +12,16 @@ use gpui::Context;
 
 use super::app_impl::command_error_detail;
 use super::LibraryApp;
-use crate::application::queries::name_lists::FetchArtistNamePage;
+use crate::application::command_bus::ApplicationCommand;
+use crate::application::queries::name_lists::{FetchArtistNamePage, FetchReleaseNamePage};
 use crate::application::CommandContext;
 use crate::presentation::present_command;
 use crate::view_models::index_name_list::{
-    IndexNameListLoadIntent, MusicListScope, MusicScopeControlDisplay,
+    IndexListStatusRowVm, IndexNameListBatch, IndexNameListLoadIntent, IndexNameListPage,
+    MusicListScope, MusicScopeControlDisplay,
 };
+use crate::view_models::library::{LibraryViewModel, ReleasesListEntryVm};
+use crate::view_models::releases_everything::reset_selection_on_scope_change;
 use crate::view_models::workspace::MusicDestination;
 
 impl LibraryApp {
@@ -36,13 +40,39 @@ impl LibraryApp {
         MusicScopeControlDisplay::for_destination(destination, selected)
     }
 
-    /// Sets the scope of the active destination. The Artists scope
-    /// "Everything" loads page 1 of the artist names when no request was
-    /// sent. Part B of packet 016 gives the Releases scope its `MusicIndex`
-    /// rows.
+    /// The entries of the Releases list in its present scope.
+    pub(crate) fn releases_entries(&self) -> Vec<ReleasesListEntryVm> {
+        self.vm.releases_list(
+            self.releases_scope,
+            &self.release_name_page,
+            &self.expanded_singles_groups,
+        )
+    }
+
+    /// The status row of the Releases list in its present scope.
+    pub(crate) fn releases_status(&self) -> Option<IndexListStatusRowVm> {
+        LibraryViewModel::releases_list_status(self.releases_scope, &self.release_name_page)
+    }
+
+    /// Sets the scope of the active destination. The scope "Everything"
+    /// loads page 1 of its name list when no request was sent. A new
+    /// Releases scope clears the Releases selection and ends selection
+    /// mode (decision D15).
     pub(crate) fn set_music_list_scope(&mut self, scope: MusicListScope, cx: &mut Context<Self>) {
         match self.vm.active_destination() {
-            MusicDestination::Releases => self.releases_scope = scope,
+            MusicDestination::Releases => {
+                reset_selection_on_scope_change(
+                    self.releases_scope,
+                    scope,
+                    &mut self.releases_selection,
+                    &mut self.releases_selection_mode,
+                );
+                self.releases_scope = scope;
+                if scope == MusicListScope::Everything && self.release_name_page.is_not_started() {
+                    let intent = self.release_name_page.begin_load(false);
+                    self.send_release_name_request(intent, cx);
+                }
+            }
             MusicDestination::Artists => {
                 self.artists_scope = scope;
                 if scope == MusicListScope::Everything && self.artist_name_page.is_not_started() {
@@ -71,33 +101,78 @@ impl LibraryApp {
         self.send_artist_name_request(intent, cx);
     }
 
-    /// Sends the request of `intent`, when there is one. The result
-    /// changes the page only when its generation is current.
+    /// "Load more" at the end of the Releases list (packet 016 decision
+    /// D7).
+    pub(crate) fn load_more_release_names(&mut self, cx: &mut Context<Self>) {
+        let intent = self.release_name_page.begin_load(true);
+        self.send_release_name_request(intent, cx);
+    }
+
+    /// "Try again" on the error row of the Releases list (packet 016
+    /// decision D8).
+    pub(crate) fn retry_release_names(&mut self, cx: &mut Context<Self>) {
+        let intent = self.release_name_page.begin_retry();
+        self.send_release_name_request(intent, cx);
+    }
+
+    fn send_release_name_request(
+        &mut self,
+        intent: Option<IndexNameListLoadIntent>,
+        cx: &mut Context<Self>,
+    ) {
+        let endpoint = self.musicindex_endpoint.clone();
+        self.send_name_request(
+            intent,
+            |cursor| FetchReleaseNamePage::new(endpoint, cursor),
+            |this| &mut this.release_name_page,
+            cx,
+        );
+    }
+
     fn send_artist_name_request(
         &mut self,
         intent: Option<IndexNameListLoadIntent>,
         cx: &mut Context<Self>,
     ) {
+        let endpoint = self.musicindex_endpoint.clone();
+        self.send_name_request(
+            intent,
+            |cursor| FetchArtistNamePage::new(endpoint, cursor),
+            |this| &mut this.artist_name_page,
+            cx,
+        );
+    }
+
+    /// Sends the request of `intent`, when there is one. `command` makes
+    /// the command for the cursor, and `page` names the page state of the
+    /// list. The result changes the page only when its generation is
+    /// current.
+    fn send_name_request<C, Row>(
+        &mut self,
+        intent: Option<IndexNameListLoadIntent>,
+        command: impl FnOnce(Option<String>) -> C,
+        page: fn(&mut Self) -> &mut IndexNameListPage<Row>,
+        cx: &mut Context<Self>,
+    ) where
+        C: ApplicationCommand<Output = IndexNameListBatch<Row>>,
+        Row: 'static,
+    {
         let Some(IndexNameListLoadIntent { cursor, generation }) = intent else {
             return;
         };
-        let command = FetchArtistNamePage::new(self.musicindex_endpoint.clone(), cursor);
         cx.notify();
         present_command(
             &self.command_runner,
-            command,
+            command(cursor),
             CommandContext::next(),
             cx,
             move |this, batch, cx| {
-                if this.artist_name_page.finish_load(batch, generation) {
+                if page(this).finish_load(batch, generation) {
                     cx.notify();
                 }
             },
             move |this, error, cx| {
-                if this
-                    .artist_name_page
-                    .fail_load(command_error_detail(error), generation)
-                {
+                if page(this).fail_load(command_error_detail(error), generation) {
                     cx.notify();
                 }
             },

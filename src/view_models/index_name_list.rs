@@ -312,10 +312,11 @@ impl<Row> IndexNameListPage<Row> {
     }
 }
 
-/// The `MusicIndex` name list of a destination list. Part B of packet 016
-/// adds the release name list of the Releases list.
+/// The `MusicIndex` name list of a destination list.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum IndexNameList {
+    /// `GET /v1/feeds/by-name`, for the Releases list.
+    Releases,
     /// `GET /v1/artist-names`, for the Artists list.
     Artists,
 }
@@ -323,12 +324,14 @@ pub(crate) enum IndexNameList {
 impl IndexNameList {
     const fn noun(self) -> &'static str {
         match self {
+            Self::Releases => "releases",
             Self::Artists => "artists",
         }
     }
 
     const fn singular(self) -> &'static str {
         match self {
+            Self::Releases => "release",
             Self::Artists => "artist",
         }
     }
@@ -336,6 +339,7 @@ impl IndexNameList {
     /// The request that the error report names.
     const fn request(self) -> &'static str {
         match self {
+            Self::Releases => "GET /v1/feeds/by-name",
             Self::Artists => "GET /v1/artist-names",
         }
     }
@@ -346,6 +350,7 @@ impl IndexNameList {
 
     const fn loading_label(self) -> &'static str {
         match self {
+            Self::Releases => "Loading MusicIndex releases",
             Self::Artists => "Loading MusicIndex artists",
         }
     }
@@ -624,5 +629,39 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    /// R16-12 for the Releases list: the texts of the loading row, the
+    /// error row and "Load more" name the release list.
+    #[test]
+    fn adr_0084_scopes_r16_12_release_status_rows() {
+        let list = IndexNameList::Releases;
+        let mut page = IndexNameListPage::<String>::default();
+        let first = page.begin_load(false).unwrap();
+        assert!(matches!(
+            page.status_row(list),
+            Some(IndexListStatusRowVm::Loading {
+                label: "Loading MusicIndex releases",
+                ..
+            })
+        ));
+        assert!(page.fail_load("connection refused", first.generation));
+        let Some(IndexListStatusRowVm::Failed {
+            message, detail, ..
+        }) = page.status_row(list)
+        else {
+            panic!("a failure on page 1 gives the error row");
+        };
+        assert_eq!(
+            message,
+            "MusicIndex did not answer the release list request. The list shows Library releases only."
+        );
+        assert_eq!(detail, "GET /v1/feeds/by-name: connection refused");
+        let again = page.begin_retry().unwrap();
+        assert!(page.finish_load(batch(&["a"], Some("c1"), true), again.generation));
+        let Some(IndexListStatusRowVm::LoadMore(load_more)) = page.status_row(list) else {
+            panic!("more pages give Load more");
+        };
+        assert_eq!(load_more.a11y_label, "Load more MusicIndex releases");
     }
 }

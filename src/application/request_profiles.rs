@@ -32,6 +32,9 @@ pub(crate) enum RequestPathShape {
     /// `/v1/artist-names` (Stophammer ADR 0070, ADR 0084 packet 016): one
     /// page of artist names in name order.
     ArtistNameList,
+    /// `/v1/feeds/by-name` (Stophammer ADR 0070, ADR 0084 packet 016): one
+    /// page of releases in name order.
+    FeedNameList,
 }
 
 /// One named MusicIndex request profile.
@@ -135,18 +138,24 @@ pub(crate) const INDEX_NAME_MATCH_TRACKS: RequestProfile =
 pub(crate) const INDEX_ARTIST_NAME_LIST: RequestProfile =
     RequestProfile::new(RequestPathShape::ArtistNameList, Some("link_facts"));
 
+/// MusicIndex release name list. The one request of each page of the
+/// Releases scope "Everything" (ADR 0084 packet 016). Owner:
+/// `name_lists::FetchReleaseNamePage`.
+pub(crate) const INDEX_RELEASE_NAME_LIST: RequestProfile =
+    RequestProfile::new(RequestPathShape::FeedNameList, Some("named_feeds"));
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// All nine registry profiles, in the packet's table order. Kept
+    /// All ten registry profiles, in the packet's table order. Kept
     /// test-only: nothing in production code enumerates the registry
     /// today. Packet 018 is the first production consumer of a profile
     /// list. The two inspector track detail profiles are gone from this
     /// list: their only caller was the parked Discover inspector, which
-    /// ADR 0060 removed. ADR 0084 packet 016 Part A adds the artist name
-    /// list profile. Part B adds the release name list profile.
-    const ALL: [RequestProfile; 9] = [
+    /// ADR 0060 removed. ADR 0084 packet 016 adds the artist name list
+    /// profile and the release name list profile.
+    const ALL: [RequestProfile; 10] = [
         LIBRARY_TRACK_DETAIL_SCOPED_TRACK,
         LIBRARY_TRACK_DETAIL_UNSCOPED_TRACK,
         LIBRARY_TRACK_DETAIL_FEED,
@@ -156,6 +165,7 @@ mod tests {
         INDEX_TRACK_DETAIL_SCOPED,
         INDEX_TRACK_DETAIL_UNSCOPED,
         INDEX_ARTIST_NAME_LIST,
+        INDEX_RELEASE_NAME_LIST,
     ];
 
     /// R17-01: the registry exposes one named profile for each table row,
@@ -163,10 +173,10 @@ mod tests {
     /// each owning call site (R17-04, R17-05, R17-06, R17-07), where the
     /// actual request order and fallback are the mechanical fact.
     #[test]
-    fn adr_0075_request_profile_registry_names_nine_profiles() {
+    fn adr_0075_request_profile_registry_names_ten_profiles() {
         assert_eq!(
             ALL.len(),
-            9,
+            10,
             "one named profile for each surviving table row"
         );
         assert_eq!(
@@ -254,9 +264,9 @@ mod tests {
         assert_ne!(INDEX_TRACK_DETAIL_SCOPED, INDEX_TRACK_DETAIL_UNSCOPED);
     }
 
-    /// R16-04 (ADR 0084 packet 016 Part A): the artist name list profile
-    /// names its path shape and its include list. The literal is retyped
-    /// from `GET /v1/node/capabilities` of 2026-10-20.
+    /// R16-04 (ADR 0084 packet 016): the two name list profiles name their
+    /// path shape and their include list. The literals are retyped from
+    /// `GET /v1/node/capabilities` of 2026-10-20.
     #[test]
     fn adr_0084_scopes_r16_04_name_list_profiles() {
         assert_eq!(
@@ -264,6 +274,11 @@ mod tests {
             RequestPathShape::ArtistNameList
         );
         assert_eq!(INDEX_ARTIST_NAME_LIST.include(), Some("link_facts"));
+        assert_eq!(
+            INDEX_RELEASE_NAME_LIST.path_shape(),
+            RequestPathShape::FeedNameList
+        );
+        assert_eq!(INDEX_RELEASE_NAME_LIST.include(), Some("named_feeds"));
     }
 
     /// R6-03 (ADR 0077 packet 006): `INDEX_NAME_MATCH_TRACKS` requests the

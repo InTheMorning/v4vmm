@@ -18,7 +18,7 @@ use rusqlite::Connection;
 use gpui::{Entity, FocusHandle, Image, ScrollHandle};
 use gpui_component::input::InputState;
 
-use crate::api::ArtistNameRow;
+use crate::api::{ArtistNameRow, Feed};
 use crate::application::paged_track_list::{PagedTrackListMsg, PagedTrackListSnapshot};
 use crate::application::{ApplicationServices, AsyncCommandRunner};
 use crate::db::{self, TrackRow};
@@ -278,6 +278,9 @@ pub struct LibraryApp {
     /// "Everything" (packet 016 decision D9). They stay until the app
     /// stops.
     artist_name_page: IndexNameListPage<ArtistNameRow>,
+    /// The loaded MusicIndex release name pages of the Releases scope
+    /// "Everything" (packet 016 decision D9).
+    release_name_page: IndexNameListPage<Feed>,
     /// The singles groups whose Releases list rows show their singles
     /// (ADR 0084 Decision 6). This is view state. It is not stored.
     expanded_singles_groups: BTreeSet<SinglesGroupKey>,

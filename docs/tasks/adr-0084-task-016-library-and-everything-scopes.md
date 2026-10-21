@@ -1,6 +1,6 @@
 # ADR 0084 Task 016: The Library And Everything Scopes
 
-Status: Ready - 2026-10-20. Two sessions: Part A, then Part B. Orchestrator Decisions D4, D12, D13, D14 and D18 need an operator answer before Part B starts.
+Status: Implemented - 2026-10-21, Parts A and B. Mechanical checks are Green. V1 to V8 are open, in the final walk of the run.
 
 ## Goal
 
@@ -356,6 +356,14 @@ Pass. The code needs no fix.
 - The Releases list shows the scope control before Part B makes "Everything" act. AGENTS.md says that a control that cannot act is absent. Part B starts at once after this commit, so the orchestrator accepts the short gap. No operator walk runs on this commit alone.
 - The orchestrator added the new files to the source map.
 
+## Orchestrator Review Of Part B - 2026-10-21
+
+Pass. The code needs no fix.
+
+- The deviations agree with the packet. "Add to playlist" now counts Library releases only, the rule of packet 018 R18-06.
+- The repeated merge in one render is responsiveness item 16 of the overhaul plan.
+- A Library reload while page 1 loads clears the Releases selection. The orchestrator accepts this, because no item row shows at that time.
+
 ## Prompt for lower-context coding model
 
 You are implementing one bounded part of a larger plan.
@@ -475,6 +483,60 @@ The "0$" row of R16-01 is a constructed row with each contract field. The packet
 - A scope change on Artists starts page 1 only when no request was sent. After an error, "Try again" is the only new request.
 - `docs/architecture/source-map.md` does not name the five new files. This packet may not change that file.
 
+## Implementation Result - 2026-10-21 (Part B)
+
+Part B is complete. Required Changes 11 to 16 and the four items that Part A moved to Part B are in the code. The section "Deviations" gives the small differences.
+
+### Files changed
+
+- `src/api.rs`: `Client::fetch_feeds_by_name`. It sends `GET /v1/feeds/by-name` with `limit`, the cursor and the profile include.
+- `src/application/request_profiles.rs`: `RequestPathShape::FeedNameList` and `INDEX_RELEASE_NAME_LIST` (`named_feeds`). The registry test is now `adr_0075_request_profile_registry_names_ten_profiles`.
+- `src/application/queries/name_lists.rs`: `FetchReleaseNamePage`. It sends one request for each page and reads no release detail.
+- `src/view_models/releases_everything.rs` (new): the order key, the state word, the `MusicIndex` release row, the merge with the watermark, the scope change of the selection and `ReleasesDownloadPlan`.
+- `src/view_models/index_name_list.rs`: `IndexNameList::Releases`, with the texts of the loading row, the error row and "Load more".
+- `src/view_models/library.rs`:
+  - `releases_list` and `releases_list_with_selection` take the scope and the release page. `releases_list_status` gives the status row.
+  - `library_release_row` adds the state word. `releases_selection_rows` gives the selection rows of the shown entries.
+  - `releases_selection_action_bar` uses `SelectionActionBarVm::from_counts`. `releases_download_plan` gives the "Download" plan.
+  - `release_is_fully_downloaded` gives `false` for a key that the tree does not hold (Required Change 14).
+- `src/library.rs`: the field `release_name_page`.
+- `src/library/music_scopes.rs`: the Releases scope, "Load more", "Try again" and one shared request function for the two name lists.
+- `src/library/app_impl.rs`: the "Download" action queues the `MusicIndex` jobs. The Releases list gets its status row. A focus move counts a status row at the list start.
+- `src/ui/shells/library/destination_lists.rs`: the status row of the Releases list.
+
+### Tests
+
+| Case | Proof |
+|---|---|
+| R16-04 | `adr_0084_scopes_r16_04_name_list_profiles` and `adr_0075_request_profile_registry_names_ten_profiles` |
+| R16-05 | `adr_0084_scopes_r16_05_release_page_sends_one_request` and `adr_0084_scopes_r16_05_artist_page_sends_one_request` |
+| R16-12 | `adr_0084_scopes_r16_12_release_status_rows`, for the Releases texts |
+| R16-13 | `adr_0084_scopes_r16_13_merge_order_and_watermark` and `adr_0084_scopes_r16_13_first_page_in_flight_shows_no_row` |
+| R16-14 | `adr_0084_scopes_r16_14_index_row_text`, `adr_0084_scopes_r16_14_state_words` and `adr_0084_scopes_r16_14_library_row_state_words` |
+| R16-15 | `adr_0084_scopes_r16_15_index_single_is_a_release_row`. The `adr_0084_singles_group_` tests pass |
+| R16-16 | `adr_0084_scopes_r16_16_bar_counts` |
+| R16-17 | `adr_0084_scopes_r16_17_download_plan`. It also proves Required Change 14 |
+| R16-18 | `adr_0084_scopes_r16_18_scope_change_resets_selection` and `adr_0084_scopes_r16_18_select_all_selects_shown_rows_only` |
+| R16-19 | `adr_0084_scopes_r16_19_download_changes_the_row_in_place` |
+| R16-20 | The full `cargo test` run passes, with the tests of packets 009, 015, 018, 019 and 022 |
+
+The commands of the section "Checks" are Green. `cargo clippy --all-targets -- -D warnings` and `cargo check --all-targets` are Green. `cargo build --bin v4vmm` ran last.
+
+### Deviations
+
+1. A `MusicIndex` row with no feed GUID gives no row. The app cannot open, select or download it.
+2. A `MusicIndex` row with no title shows "Untitled release".
+3. The single rows of an open singles group also show the state word in "Everything". They use the same row function as each other Library release row.
+4. The selection rows of the Releases list moved from `LibraryApp` to `releases_selection_rows` in the view model, so that a test can prove R16-18.
+
+### Notes
+
+- "Add to playlist" now counts only the selected Library releases. Before Part B, it counted each selected release.
+- A `MusicIndex` row has the element id of a Library row with the same key. The row thus keeps its identity when a download adds it to the Library.
+- The Releases list computes the merge for each call of `releases_entries`. One render calls it more than one time, for the header action and for the rows.
+- A Library reload while page 1 loads clears the Releases selection, because the list then shows no item row.
+- `docs/architecture/source-map.md` does not name `src/view_models/releases_everything.rs`. This packet may not change that file.
+
 ## Operator Visual Check
 
 Part A owns V1 to V3, V7 and V8 for the Artists list. The gate stays open until a person does these steps.
@@ -509,3 +571,41 @@ Cleanup:
 1. Close the app.
 2. Make sure that the network is on: `nmcli networking on`.
 3. The app stores no scope in the config file, so no other cleanup is necessary.
+
+### Part B: the Releases list
+
+Part B owns V4 to V8 for the Releases list. The gate stays open until a person does these steps.
+
+The check needs a desktop session, network access to `https://api.musicindex.org` and a Library with one or more releases. One Library release with only some tracks downloaded helps the check of the partial state.
+
+1. Build the binary: `cargo build --bin v4vmm`.
+2. Start the app: `target/debug/v4vmm`. Open Music, then open Releases.
+3. D13 in "Library": a release with only some tracks downloaded shows, for example, "Haleen · Album · 3 of 7 tracks". Each other Library row shows no state word.
+4. V4: click "Everything".
+   - One row "Loading MusicIndex releases" shows, and no item row. Then the rows show in name order.
+   - A MusicIndex release shows "artist · Kind", for example "LIIINEKELA · Single", with no state word.
+   - Each Library release adds "In Library", "3 of 7 tracks" or "Not downloaded".
+   - A Library singles group stays one group row. A MusicIndex single shows as a release row.
+   - Wrong: one release on two rows, a group single that shows a second time as a MusicIndex row, or a Library row with no state word.
+5. Click a MusicIndex release row. Its release page opens in the detail column.
+6. V5: scroll to the end of the list and click "Load more". The new rows come after the last row. No row that showed before moves.
+7. V6: click "Select". Select two MusicIndex releases and one Library release that is fully downloaded.
+   - The bar shows "Download 2 releases", "Add 1 release to playlist" and "Remove 1 release…".
+   - Wrong: a MusicIndex release in the count of "Add to playlist" or "Remove".
+8. V6: click "Download 2 releases".
+   - The download progress item shows the two releases.
+   - After each download, its row changes to the Library row in place, with "In Library". The row does not move.
+9. Click "Library". The selection clears, and selection mode ends.
+10. V8: do steps 4 and 7 again in the Light theme and in the Dark theme. Make the window narrow until the list column is at its minimum width. The control and the row text must not be clipped.
+11. V7: close the app. Turn the network off: `nmcli networking off`.
+12. V7: start the app with `target/debug/v4vmm`. Open Releases and click "Everything".
+    - The error row shows first: "MusicIndex did not answer the release list request. The list shows Library releases only." Its detail names `GET /v1/feeds/by-name`.
+    - The Library rows show under it, with their state words. The row has "Try again".
+13. V7: turn the network on with `nmcli networking on`. Click "Try again". The MusicIndex rows show.
+
+Cleanup for Part B:
+
+1. Close the app.
+2. Make sure that the network is on: `nmcli networking on`.
+3. Step 8 added two releases to the Library. To remove them, open Releases, click "Select", select the two releases and click "Remove 2 releases…". You can also keep them.
+4. The app stores no scope in the config file, so no other cleanup is necessary.

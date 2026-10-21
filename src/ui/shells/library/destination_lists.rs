@@ -83,6 +83,21 @@ enum RowArt {
     Collection(CollectionArt),
 }
 
+/// Renders the status row of the scope "Everything" (ADR 0084 packet 016
+/// decision D8) before or after the item rows.
+fn split_status_row(
+    status: Option<(IndexListStatusRowVm, IndexListActions)>,
+    cx: &mut Context<LibraryApp>,
+) -> (Option<AnyElement>, Option<AnyElement>) {
+    match status {
+        Some((row, actions)) if row.at_list_start() => {
+            (Some(render_index_list_status_row(row, actions, cx)), None)
+        }
+        Some((row, actions)) => (None, Some(render_index_list_status_row(row, actions, cx))),
+        None => (None, None),
+    }
+}
+
 /// Renders the Artists destination list (ADR 0084 Decision 2).
 /// `empty_label` names the row kind for the empty-list message, for
 /// example "artists". `status` is the status row of the scope
@@ -94,13 +109,7 @@ pub(crate) fn render_library_destination_rows(
     arts: &RowArts,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let (leading, trailing) = match status {
-        Some((row, actions)) if row.at_list_start() => {
-            (Some(render_index_list_status_row(row, actions, cx)), None)
-        }
-        Some((row, actions)) => (None, Some(render_index_list_status_row(row, actions, cx))),
-        None => (None, None),
-    };
+    let (leading, trailing) = split_status_row(status, cx);
     let mut children: Vec<AnyElement> = leading.into_iter().collect();
     children.extend(rows.into_iter().map(|row| {
         let art = RowArt::Collection(row_art(arts, &row.element_id, CollectionKind::Artist));
@@ -118,12 +127,14 @@ pub(crate) fn render_library_destination_rows(
 /// focused row in view.
 pub(crate) fn render_library_releases_list(
     entries: Vec<ReleasesListEntryVm>,
+    status: Option<(IndexListStatusRowVm, IndexListActions)>,
     thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
     arts: &RowArts,
     scroll_handle: &ScrollHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let mut children: Vec<AnyElement> = Vec::new();
+    let (leading, trailing) = split_status_row(status, cx);
+    let mut children: Vec<AnyElement> = leading.into_iter().collect();
     for entry in entries {
         match entry {
             ReleasesListEntryVm::Release(row) => {
@@ -140,6 +151,7 @@ pub(crate) fn render_library_releases_list(
             }
         }
     }
+    children.extend(trailing);
     render_destination_list_container_tracked(children, "releases", scroll_handle, cx)
 }
 

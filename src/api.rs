@@ -958,6 +958,28 @@ impl Client {
         self.get_json(&["v1", "artist-names"], &params)
     }
 
+    /// Fetches one page of music releases in name order (`GET
+    /// /v1/feeds/by-name`, ADR 0084 packet 016). The profile gives the
+    /// `include` value. The default medium of the endpoint is `music`.
+    ///
+    /// # Errors
+    /// Returns an error when the request fails or the response does not
+    /// decode.
+    pub(crate) fn fetch_feeds_by_name(
+        &self,
+        limit: i32,
+        cursor: Option<&str>,
+        profile: &RequestProfile,
+    ) -> Result<FeedNamesResponse> {
+        debug_assert_eq!(
+            profile.path_shape(),
+            RequestPathShape::FeedNameList,
+            "ADR 0084 packet 016: {profile:?} must name the release name list path shape"
+        );
+        let params = name_list_params(limit, cursor, profile);
+        self.get_json(&["v1", "feeds", "by-name"], &params)
+    }
+
     pub fn fetch_feed(&self, feed_guid: &str, include: Option<&str>) -> Result<Feed> {
         let mut params = Vec::new();
         if let Some(include) = include {

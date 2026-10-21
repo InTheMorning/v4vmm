@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use super::download_queue::{DownloadOutcome, JobIdentity};
+use super::downloads::index_release_job_by_guid;
 use super::PlaylistActorState;
 use super::{
     InspectorFrame, LazyPanel, LibraryApp, LibraryArtistDetail, LibraryDetail, PlaylistDetail,
@@ -90,7 +91,9 @@ use crate::view_models::library::{
     PlaylistAppendOutcome, PlaylistDetailActionsDisplay, ReleasesDisclosureStep,
     ReleasesListEntryVm, ReleasesRowId, RemovalConfirmation, TrackSubscribeOutcome,
 };
-use crate::view_models::library::{spring_load_navigation, SpringLoadGeneration};
+use crate::view_models::library::{
+    releases_selection_rows, spring_load_navigation, SpringLoadGeneration,
+};
 use crate::view_models::library_removal::{
     SelectionRemovalConfirmationState, SelectionRemovalPendingItem, SelectionRemovalReport,
 };
@@ -1000,6 +1003,7 @@ impl LibraryApp {
             releases_scope: MusicListScope::default(),
             artists_scope: MusicListScope::default(),
             artist_name_page: IndexNameListPage::default(),
+            release_name_page: IndexNameListPage::default(),
             discover_scroll_reveal: ScrollReveal::new(recent_music_scroll.clone()),
             recent_music_scroll,
             expanded_singles_groups: BTreeSet::new(),
@@ -3471,41 +3475,7 @@ impl LibraryApp {
     /// singles group row, and, for an open group, one row for each of
     /// its singles, after the group row.
     fn releases_visible_rows(&self) -> Vec<SelectionRow<ReleasesRowId, ReleaseKey>> {
-        self.vm
-            .releases_list(&self.expanded_singles_groups)
-            .into_iter()
-            .flat_map(|entry| match entry {
-                ReleasesListEntryVm::Release(row) => match row.open {
-                    DestinationListRowTarget::Release(key) => vec![SelectionRow::new(
-                        ReleasesRowId::Release(key.clone()),
-                        vec![key],
-                    )],
-                    DestinationListRowTarget::Artist(_)
-                    | DestinationListRowTarget::Publisher(_)
-                    | DestinationListRowTarget::IndexPublisher(_)
-                    | DestinationListRowTarget::IndexName(_) => Vec::new(),
-                },
-                ReleasesListEntryVm::SinglesGroup(group) => {
-                    let mut group_rows = vec![SelectionRow::new(
-                        ReleasesRowId::Group(group.open.clone()),
-                        group.single_keys.clone(),
-                    )];
-                    group_rows.extend(group.singles.iter().filter_map(|single_row| {
-                        match &single_row.open {
-                            DestinationListRowTarget::Release(key) => Some(SelectionRow::new(
-                                ReleasesRowId::Release(key.clone()),
-                                vec![key.clone()],
-                            )),
-                            DestinationListRowTarget::Artist(_)
-                            | DestinationListRowTarget::Publisher(_)
-                            | DestinationListRowTarget::IndexPublisher(_)
-                            | DestinationListRowTarget::IndexName(_) => None,
-                        }
-                    }));
-                    group_rows
-                }
-            })
-            .collect()
+        releases_selection_rows(self.releases_entries())
     }
 
     /// Every release key the Releases list currently shows, flattened
@@ -3714,9 +3684,15 @@ impl LibraryApp {
         match self.vm.active_destination() {
             MusicDestination::Releases => {
                 let visible = self.releases_visible_rows();
+                // A status row at the list start is the first child of the
+                // list (ADR 0084 packet 016 decision D8).
+                let leading = usize::from(
+                    self.releases_status()
+                        .is_some_and(|row| row.at_list_start()),
+                );
                 if let Some(focused) = self.releases_selection.move_focus(step, &visible) {
                     if let Some(index) = visible.iter().position(|row| row.id == focused) {
-                        self.releases_list_scroll.scroll_to_item(index);
+                        self.releases_list_scroll.scroll_to_item(index + leading);
                     }
                 }
                 cx.notify();
@@ -3750,7 +3726,7 @@ impl LibraryApp {
         {
             return;
         }
-        let entries = self.vm.releases_list(&self.expanded_singles_groups);
+        let entries = self.releases_entries();
         match releases_disclosure_step(self.releases_selection.focused(), open, &entries) {
             ReleasesDisclosureStep::Open(key) => {
                 self.expanded_singles_groups.insert(key);
@@ -3977,11 +3953,21 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) {
         match kind {
+            // ADR 0084 packet 016 Required Change 15: the Library jobs of
+            // the Library releases, and one Index release job with no feed
+            // for each MusicIndex release. Each job reads its feed in its
+            // own queue slot.
             SelectionActionKind::Download => {
-                let feed_ids = self
+                let plan = self
                     .vm
-                    .releases_downloadable_feed_ids(&self.releases_selection);
-                self.download_library_feeds(&feed_ids, cx);
+                    .releases_download_plan(&self.releases_selection, &self.release_name_page);
+                self.download_library_feeds(&plan.library_feed_ids, cx);
+                let index_jobs = plan
+                    .index_releases
+                    .into_iter()
+                    .map(|(feed_guid, title)| index_release_job_by_guid(feed_guid, title))
+                    .collect();
+                self.queue_downloads(index_jobs, cx);
             }
             SelectionActionKind::Remove => self.request_releases_selection_removal(window, cx),
             SelectionActionKind::Clear => {
@@ -4502,6 +4488,8 @@ impl LibraryApp {
                 // ADR 0084 Decision 10: the entries carry the Releases
                 // selection's checkbox facts.
                 let entries = self.vm.releases_list_with_selection(
+                    self.releases_scope,
+                    &self.release_name_page,
                     &self.expanded_singles_groups,
                     &self.releases_selection,
                     self.releases_selection_mode,
@@ -4535,8 +4523,18 @@ impl LibraryApp {
                     let img = self.thumbnail_for_url(Some(&href), animated, cx);
                     thumbs.insert(element_id, img);
                 }
+                // ADR 0084 packet 016 decision D8: the loading row, the
+                // error row or "Load more" of the scope "Everything".
+                let status = self.releases_status().map(|row| {
+                    let actions = IndexListActions {
+                        retry: Self::retry_release_names,
+                        load_more: Self::load_more_release_names,
+                    };
+                    (row, actions)
+                });
                 let pane = render_library_releases_list(
                     entries,
+                    status,
                     &thumbs,
                     &arts,
                     &self.releases_list_scroll,

@@ -62,6 +62,7 @@
 pub(crate) mod app_toolbar;
 pub(crate) mod cached_files;
 pub(crate) mod collection_art;
+pub(crate) mod releases_everything;
 pub mod startup;
 
 pub mod album_page;
