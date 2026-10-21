@@ -55,7 +55,7 @@ use crate::ui::composites::{PlaylistOption, PlaylistOptionDisplay, StatusRole, T
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button as UiButton;
 use crate::ui::shells::library::content_list::{
-    render_discover_new_releases_detail, render_library_content_list,
+    render_discover_new_releases_detail, render_library_content_list, ContentListMenuContext,
 };
 use crate::ui::shells::library::destination_lists::{
     render_library_destination_rows, render_library_discover_views_list,
@@ -90,6 +90,7 @@ use crate::view_models::library_removal::{
 use crate::view_models::list_selection::{FocusStep, ListSelection, SelectionMode, SelectionRow};
 use crate::view_models::playlist_option_displays;
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
+use crate::view_models::release_page::TrackRowMenuAction;
 use crate::view_models::selection_action_bar::{SelectionActionBarVm, SelectionActionKind};
 use crate::view_models::singles_group::{SinglesGroupKey, SinglesGroupPageVm};
 use crate::view_models::track_detail::TrackNameLinkTarget;
@@ -674,7 +675,6 @@ impl LibraryApp {
     pub(crate) fn run_content_list_row_action(
         &mut self,
         action: ContentListRowActionKind,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match action {
@@ -684,12 +684,121 @@ impl LibraryApp {
             ContentListRowActionKind::ConfirmRemovedFromFeed { track_id } => {
                 self.confirm_removed_track(track_id, cx);
             }
-            // ADR 0076 Decision 7: the ADR 0044 removal flow with its
-            // confirmation. No second removal path.
-            ContentListRowActionKind::RemoveFromLibrary { track_id } => {
-                self.remove_track(track_id, window, cx);
+        }
+    }
+
+    /// Runs one item of the row menu of a Tracks or Needs attention row
+    /// (ADR 0083 task 007, decisions D9 and D10). `row_id` is the id of the
+    /// row, which is the id of its Library track. "Add to playlist" opens
+    /// a level of the menu, and the playlist items are items of a playlist
+    /// row only, so this function ignores them.
+    pub(crate) fn run_content_list_menu_action(
+        &mut self,
+        row_id: &str,
+        action: TrackRowMenuAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Ok(track_id) = row_id.parse::<i64>() else {
+            return;
+        };
+        self.run_track_row_menu_action(track_id, action, window, cx);
+    }
+
+    /// "Add to playlist" of the row menu of a Tracks or Needs attention row
+    /// (ADR 0083 task 007, decision D9).
+    pub(crate) fn add_content_row_to_playlist(
+        &mut self,
+        row_id: &str,
+        playlist_id: i64,
+        cx: &mut Context<Self>,
+    ) {
+        if let Ok(track_id) = row_id.parse::<i64>() {
+            self.add_track_to_playlist(track_id, playlist_id, cx);
+        }
+    }
+
+    /// "New Playlist" of the row menu of a Tracks or Needs attention row
+    /// (ADR 0083 task 007, decision D9).
+    pub(crate) fn create_playlist_for_content_row(
+        &mut self,
+        row_id: &str,
+        name: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if let Ok(track_id) = row_id.parse::<i64>() {
+            self.create_playlist_and_add_track(name, track_id, cx);
+        }
+    }
+
+    /// Runs one item of the row menu of a playlist row (ADR 0083 task 007,
+    /// decision D5). "Move up", "Move down" and "Remove from playlist" act
+    /// on the entry at `position` of the playlist. Each other item acts on
+    /// the Library track.
+    pub(crate) fn run_playlist_row_menu_action(
+        &mut self,
+        entry: (i64, i64),
+        track_id: i64,
+        action: TrackRowMenuAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (playlist_id, position) = entry;
+        match action {
+            TrackRowMenuAction::MoveUp => {
+                self.move_playlist_track(playlist_id, position, position - 1, cx);
+            }
+            TrackRowMenuAction::MoveDown => {
+                self.move_playlist_track(playlist_id, position, position + 1, cx);
+            }
+            // ADR 0083 task 007, decision D6: the track stays in the
+            // Library, so no confirmation opens.
+            TrackRowMenuAction::RemoveFromPlaylist => {
+                self.remove_playlist_track_at(playlist_id, position, cx);
+            }
+            TrackRowMenuAction::AddToPlaylist
+            | TrackRowMenuAction::Download
+            | TrackRowMenuAction::InspectSources
+            | TrackRowMenuAction::Remove => {
+                self.run_track_row_menu_action(track_id, action, window, cx);
             }
         }
+    }
+
+    /// Runs one Library item of a track row menu of a list row (ADR 0083
+    /// task 007, "The commands").
+    pub(crate) fn run_track_row_menu_action(
+        &mut self,
+        track_id: i64,
+        action: TrackRowMenuAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match action {
+            TrackRowMenuAction::Download => self.download_library_tracks(&[track_id], cx),
+            // ADR 0083 task 006, decision D4: open the track page with the
+            // "Inspect sources" disclosure open.
+            TrackRowMenuAction::InspectSources => {
+                if let Some(key) = self.vm.library_track_key(track_id) {
+                    self.request_inspect_sources(track_id);
+                    self.open_page(
+                        FrameNavigationEntry::Track(key),
+                        NavigationPathStart::CurrentPath,
+                        cx,
+                    );
+                }
+            }
+            // ADR 0083 Decision 5: "Remove from Library…" always asks for
+            // confirmation.
+            TrackRowMenuAction::Remove => {
+                self.remove_track_after_confirmation(track_id, window, cx);
+            }
+            TrackRowMenuAction::AddToPlaylist
+            | TrackRowMenuAction::MoveUp
+            | TrackRowMenuAction::MoveDown
+            | TrackRowMenuAction::RemoveFromPlaylist => return,
+        }
+        cx.notify();
     }
 
     /// ADR 0076 Decision 7: the operator confirms that the show plays a
@@ -2541,20 +2650,6 @@ impl LibraryApp {
         );
     }
 
-    pub(crate) fn remove_track(
-        &mut self,
-        track_id: i64,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.request_library_removal(
-            LibraryRemovalIntent::TrackId(track_id),
-            RemovalConfirmation::WhenReferenced,
-            window,
-            cx,
-        );
-    }
-
     /// "Remove track…" of the track page: the removal always asks for
     /// confirmation (ADR 0083 Decision 5).
     pub(crate) fn remove_track_after_confirmation(
@@ -4303,12 +4398,19 @@ impl LibraryApp {
                     &self.track_selection,
                     self.track_selection_mode,
                 );
+                // ADR 0083 task 007, decision D15: the right-click menu of
+                // a row gives the focus back to the list column.
+                let menu = ContentListMenuContext {
+                    playlists: std::rc::Rc::new(playlist_options(self.vm.playlists())),
+                    return_focus: self.list_column_focus.clone(),
+                };
                 let pane = render_library_content_list(
                     self.vm.content_list_page(),
                     rows,
                     &content_row_thumbs,
                     &self.recent_music_scroll,
                     (ContentListSelectionTarget::ListColumn, None),
+                    Some(menu),
                     cx,
                 );
                 if let Some(bar) = self.content_list_selection_action_bar() {

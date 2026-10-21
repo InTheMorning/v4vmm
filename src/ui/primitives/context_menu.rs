@@ -71,7 +71,6 @@ struct PointerMenuLevel {
 pub enum ContextMenuScope {
     FeedList,
     TrackList,
-    PlaylistTrack,
     WorkspaceFrame,
 }
 
@@ -519,11 +518,10 @@ mod tests {
             [
                 ContextMenuScope::FeedList,
                 ContextMenuScope::TrackList,
-                ContextMenuScope::PlaylistTrack,
                 ContextMenuScope::WorkspaceFrame,
             ]
             .len(),
-            4
+            3
         );
     }
 
@@ -546,11 +544,11 @@ mod tests {
     #[test]
     fn context_menu_carries_row_scope() {
         let menu = ContextMenu::new(
-            "playlist-track-actions",
-            ContextMenuScope::PlaylistTrack,
+            "track-actions",
+            ContextMenuScope::TrackList,
             "Track actions",
         );
 
-        assert_eq!(menu.scope(), ContextMenuScope::PlaylistTrack);
+        assert_eq!(menu.scope(), ContextMenuScope::TrackList);
     }
 }

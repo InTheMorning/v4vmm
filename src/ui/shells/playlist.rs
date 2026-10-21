@@ -6,23 +6,33 @@
 //! ADR 0084 Decision 10, packet 025: in selection mode, the row checkbox
 //! takes the place of the drag handle, and the row menu and the drop
 //! target are absent. The page scrolls with the held detail column handle.
+//!
+//! ADR 0083 Decision 6, task 007: a row shows its information and its state
+//! at all times. The drag handle, the Play icon and "⋯" show on a hover of
+//! the row and on the keyboard focus of the row. Each hidden cell keeps its
+//! width. A right-click on the row opens the same menu as "⋯".
 
 #![warn(clippy::pedantic)]
 
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, AnyElement, App, ClickEvent, ClipboardItem, Context, Entity, FontWeight,
-    InteractiveElement, ParentElement, Pixels, Point, Render, ScrollHandle, SharedString, Styled,
-    Window,
+    div, prelude::*, AnyElement, App, ClickEvent, ClipboardItem, Context, Div, Entity, FontWeight,
+    InteractiveElement, ParentElement, Pixels, Point, Render, RenderOnce, ScrollHandle,
+    SharedString, Styled, Window,
 };
 use gpui_component::input::{Input, InputState};
 use gpui_component::Size;
 
-use crate::ui::composites::list_row::{row_outline, RowOutline};
+use crate::ui::composites::list_row::{
+    menu_cell, row_menu_parts, row_outline, RowMenu, RowMenuRoot, RowOutline,
+};
 use crate::ui::composites::music_column_scroll::music_column_tracked_scrollbar;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::track_row::checkbox_state_for;
+use crate::ui::composites::track_row_menu::{
+    menu_cell_visibility, MenuCellVisibility, TrackRowMenuCell, TRACK_ROW_GROUP,
+};
 use crate::ui::composites::{
     CollectionArt, CollectionArtImage, DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow,
     DetailTextRow, EntityKind, StatusRole, ThumbnailSize,
@@ -30,10 +40,7 @@ use crate::ui::composites::{
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::{Icon, IconName, IconSize};
 use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
-use crate::ui::primitives::{
-    Button as UiButton, Checkbox, ContextMenu, ContextMenuItem, ContextMenuItemDisplay,
-    ContextMenuScope,
-};
+use crate::ui::primitives::{Button as UiButton, Checkbox};
 use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::{color, spacing};
 use crate::ui::{
@@ -42,7 +49,7 @@ use crate::ui::{
 };
 use crate::view_models::collection_art::CollectionKind;
 use crate::view_models::library::{
-    PlaylistTrackControlsDisplay, PlaylistTrackMenuItemDisplay, PlaylistTrackRowDisplay,
+    PlaylistTrackControlsDisplay, PlaylistTrackRowDisplay, RowCellVisibility,
 };
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
 use crate::view_models::playlist_rss_check::{
@@ -101,8 +108,12 @@ pub(crate) struct PlaylistTrackRowSlot {
     pub(crate) thumbnail: Option<AnyElement>,
     pub(crate) on_select: Option<PlaylistClickHandler>,
     pub(crate) on_play: Option<PlaylistClickHandler>,
-    pub(crate) on_move_up: Option<PlaylistCommandHandler>,
-    pub(crate) on_move_down: Option<PlaylistCommandHandler>,
+    /// The "⋯" menu and the right-click menu of the row (ADR 0083 task
+    /// 007). `None` shows an empty menu cell and attaches no right-click
+    /// menu.
+    pub(crate) menu: Option<RowMenu>,
+    /// "Remove from playlist" of the "removed from feed" block (ADR 0076
+    /// Decision 7).
     pub(crate) on_remove: Option<PlaylistCommandHandler>,
     /// ADR 0076 Decision 7: "Remove from all playlists" of a removed track.
     pub(crate) on_remove_from_all_playlists: Option<PlaylistClickHandler>,
@@ -567,9 +578,13 @@ fn render_playlist_shell_row(
             last_position,
             probe,
         } => render_pending_playlist_row(playlist_id, position, last_position, probe, cx),
-        PlaylistShellRow::Ready(ready) => {
-            render_playlist_track_row(playlist_id, ready.display, ready.slot, on_reorder, cx)
+        PlaylistShellRow::Ready(ready) => PlaylistTrackRowElement {
+            playlist_id,
+            display: ready.display,
+            slot: ready.slot,
+            on_reorder,
         }
+        .into_any_element(),
     }
 }
 
@@ -670,11 +685,40 @@ const fn playlist_row_insertion_edge(
     }
 }
 
+/// One ready playlist row. The row menu reads its keyed state at render
+/// time, so the row is a component with the window (ADR 0083 task 007).
+#[derive(IntoElement)]
+struct PlaylistTrackRowElement {
+    playlist_id: i64,
+    display: PlaylistTrackRowDisplay,
+    slot: PlaylistTrackRowSlot,
+    on_reorder: Option<PlaylistReorderHandler>,
+}
+
+impl RenderOnce for PlaylistTrackRowElement {
+    fn render(mut self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let menu = self.slot.menu.take();
+        let focused = self.display.selection.focused;
+        let parts = row_menu_parts(menu, menu_cell(cx), focused, window, cx);
+        render_playlist_track_row(
+            self.playlist_id,
+            self.display,
+            self.slot,
+            self.on_reorder,
+            parts,
+            cx,
+        )
+    }
+}
+
+/// A playlist row. `menu` is the menu cell and the root part of the row
+/// menu, from `row_menu_parts`.
 fn render_playlist_track_row(
     playlist_id: i64,
     display: PlaylistTrackRowDisplay,
     slot: PlaylistTrackRowSlot,
     on_reorder: Option<PlaylistReorderHandler>,
+    (menu_cell, menu_root): (TrackRowMenuCell, RowMenuRoot),
     cx: &App,
 ) -> AnyElement {
     let controls = display.controls.clone();
@@ -689,21 +733,24 @@ fn render_playlist_track_row(
         thumbnail,
         on_select,
         on_play,
-        on_move_up,
-        on_move_down,
-        on_remove,
+        menu: _,
+        on_remove: _,
         on_remove_from_all_playlists: _,
         on_toggle_selection,
         scroll_probe,
     } = slot;
-    // ADR 0084 packet 025: selection mode hides the drag handle, the drop
-    // target and the row menu.
+    // ADR 0084 packet 025: selection mode hides the drag handle and the
+    // drop target. The view model gives no row menu then.
     let reorder_visible = controls.reorder_visible;
     let selection = display.selection.clone();
+    let focused = selection.focused;
     let leading = render_playlist_leading_slot(playlist_id, &display, on_toggle_selection, cx);
 
+    // ADR 0083 task 007, decision D3: the row is the hover group of the
+    // drag handle, the Play cell and the menu cell.
     let mut row = div()
         .id(SharedString::from(controls.row_id.clone()))
+        .group(TRACK_ROW_GROUP)
         .flex()
         .flex_row()
         .flex_wrap()
@@ -725,17 +772,11 @@ fn render_playlist_track_row(
             cx,
         ))
         .child(render_playlist_track_controls(
-            controls,
-            PlaylistTrackControlSlots {
-                play: on_play,
-                move_up: on_move_up,
-                move_down: on_move_down,
-                remove: on_remove,
-            },
-            cx,
+            controls, on_play, menu_cell, focused, cx,
         ))
         .when_some(removed_from_feed, ParentElement::child)
         .when_some(scroll_probe, |el, probe| el.relative().child(probe));
+    row = menu_root.attach(row);
 
     // ADR 0084 Decision 10, packet 025: in selection mode the row accepts
     // no drop.
@@ -816,7 +857,20 @@ fn render_playlist_leading_slot(
             from_position: display.position,
             title: SharedString::from(display.title.clone()),
         };
-        render_playlist_drag_handle(&display.controls, drag_payload, cx)
+        // ADR 0083 task 007, decision D3: the handle shows on a hover of
+        // the row and on the keyboard focus of the row. Decision D17: the
+        // drag does not change.
+        hover_cell(
+            div().flex_shrink_0(),
+            RowCellVisibility::OnHover,
+            display.selection.focused,
+        )
+        .child(render_playlist_drag_handle(
+            &display.controls,
+            drag_payload,
+            cx,
+        ))
+        .into_any_element()
     } else {
         render_playlist_row_checkbox(&display.controls, &display.selection, on_toggle, cx)
     }
@@ -875,11 +929,20 @@ fn render_playlist_row_checkbox(
         .into_any_element()
 }
 
-struct PlaylistTrackControlSlots {
-    play: Option<PlaylistClickHandler>,
-    move_up: Option<PlaylistCommandHandler>,
-    move_down: Option<PlaylistCommandHandler>,
-    remove: Option<PlaylistCommandHandler>,
+/// Applies the hover rule of ADR 0083 Decision 6 to `cell`. An
+/// `OnHover` cell is hidden until a hover of the row, unless the row has
+/// the keyboard focus. A hidden cell keeps its width.
+fn hover_cell(cell: Div, visibility: RowCellVisibility, focused: bool) -> Div {
+    let rule = match visibility {
+        RowCellVisibility::Always => MenuCellVisibility::Always,
+        RowCellVisibility::OnHover => menu_cell_visibility(focused, false),
+    };
+    match rule {
+        MenuCellVisibility::Always => cell,
+        MenuCellVisibility::OnHover => cell
+            .invisible()
+            .group_hover(TRACK_ROW_GROUP, Styled::visible),
+    }
 }
 
 fn render_playlist_drag_handle(
@@ -929,28 +992,19 @@ fn render_playlist_drag_handle(
 
 fn render_playlist_track_controls(
     controls: PlaylistTrackControlsDisplay,
-    slots: PlaylistTrackControlSlots,
+    play: Option<PlaylistClickHandler>,
+    menu_cell: TrackRowMenuCell,
+    focused: bool,
     cx: &App,
 ) -> AnyElement {
     let PlaylistTrackControlsDisplay {
-        actions_menu_id,
-        actions_menu_a11y_label,
         play_button_id,
         play_affordance,
         play_a11y_label,
         play_enabled,
-        move_up_menu_item,
-        move_down_menu_item,
-        remove_menu_item,
-        reorder_visible,
+        play_visibility,
         ..
     } = controls;
-    let PlaylistTrackControlSlots {
-        play,
-        move_up,
-        move_down,
-        remove,
-    } = slots;
 
     // ADR 0083 Decision 10: `Play` draws the Play icon alone; `label()`
     // gives `None` for it. `RepairPlayback` draws its word instead, with
@@ -963,19 +1017,23 @@ fn render_playlist_track_controls(
         None => play_button.leading_icon(IconName::Play),
     };
     let play_btn = apply_click_handler(play_button, play);
-    // ADR 0084 packet 025: selection mode shows no row menu.
-    let actions_menu = reorder_visible.then(|| {
-        render_playlist_track_actions_menu(
-            actions_menu_id,
-            actions_menu_a11y_label,
-            [
-                menu_item(move_up_menu_item, move_up),
-                menu_item(move_down_menu_item, move_down),
-                menu_item(remove_menu_item, remove),
-            ],
-        )
-    });
+    // ADR 0083 task 007, decision D4: the view model selects when the play
+    // cell shows. The cell keeps its width when it is hidden.
+    let play_cell = hover_cell(
+        div()
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .justify_center()
+            .min_w(TokenSize::MinHitTarget.scaled(cx)),
+        play_visibility,
+        focused,
+    )
+    .child(play_btn);
 
+    // ADR 0083 task 007: the menu cell is built through `track_row_menu.rs`.
+    // It is empty when the view model gives no menu, for example in
+    // selection mode.
     let controls = div()
         .flex()
         .flex_row()
@@ -985,46 +1043,11 @@ fn render_playlist_track_controls(
         .ml_auto()
         .items_center()
         .gap(Spacing::XS.scaled(cx))
-        .child(play_btn)
-        .children(actions_menu);
+        .child(play_cell)
+        .child(menu_cell);
     #[cfg(test)]
     let controls = controls.debug_selector(|| "playlist-row-controls".to_owned());
     controls.into_any_element()
-}
-
-fn render_playlist_track_actions_menu(
-    id: String,
-    a11y_label: &'static str,
-    items: [ContextMenuItem; 3],
-) -> AnyElement {
-    ContextMenu::new(
-        SharedString::from(id),
-        ContextMenuScope::PlaylistTrack,
-        SharedString::from(a11y_label),
-    )
-    .trigger_label("")
-    .items(items)
-    .into_any_element()
-}
-
-fn menu_item(
-    display: PlaylistTrackMenuItemDisplay,
-    handler: Option<PlaylistCommandHandler>,
-) -> ContextMenuItem {
-    let disabled = display.disabled;
-    let mut item = ContextMenuItem::new(ContextMenuItemDisplay {
-        id: SharedString::from(display.id),
-        label: SharedString::from(display.label),
-        a11y_label: SharedString::from(display.a11y_label),
-        destructive: display.destructive,
-        disabled,
-    });
-    if !disabled {
-        if let Some(handler) = handler {
-            item = item.on_select(move |window, cx| handler(window, cx));
-        }
-    }
-    item
 }
 
 fn render_playlist_track_body(
@@ -1272,6 +1295,10 @@ mod tests {
                     display,
                     super::PlaylistTrackRowSlot::default(),
                     None,
+                    (
+                        super::TrackRowMenuCell::new(super::menu_cell(cx), false),
+                        super::RowMenuRoot::empty(),
+                    ),
                     cx,
                 ))
         }
@@ -1504,6 +1531,63 @@ mod tests {
                 "ordinary text selection must still work after a playlist drag"
             );
         });
+    }
+
+    struct HiddenHandleTest;
+
+    impl gpui::Render for HiddenHandleTest {
+        fn render(
+            &mut self,
+            _: &mut gpui::Window,
+            cx: &mut gpui::Context<Self>,
+        ) -> impl gpui::IntoElement {
+            let track = crate::db::TrackRow {
+                id: 1,
+                track_title: Some("Original track".into()),
+                ..Default::default()
+            };
+            let display =
+                crate::view_models::library::PlaylistTrackRowVm::new(&track, 0, 1).display(1);
+            gpui::div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .child(
+                    gpui::div()
+                        .id("hidden-handle-row")
+                        .group(super::TRACK_ROW_GROUP)
+                        .child(super::render_playlist_leading_slot(1, &display, None, cx)),
+                )
+                .child(
+                    gpui::div()
+                        .id("hidden-handle-target")
+                        .debug_selector(|| "hidden-handle-target".to_owned())
+                        .h(gpui::px(60.))
+                        .w_full(),
+                )
+        }
+    }
+
+    /// ADR 0083 task 007, decision D17: the drag handle hides until a
+    /// hover of the row. After the hover shows it, a drag of the handle
+    /// starts as before.
+    #[gpui::test]
+    fn adr_0083_list_row_actions_hidden_handle_starts_a_drag_after_hover(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let (_view, cx) = cx.add_window_view(|_, _| HiddenHandleTest);
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        let handle = cx.debug_bounds("playlist-drag-handle").unwrap().center();
+        let target = cx.debug_bounds("hidden-handle-target").unwrap().center();
+        cx.simulate_mouse_move(handle, None, Modifiers::default());
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        cx.simulate_mouse_down(handle, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(target, MouseButton::Left, Modifiers::default());
+        cx.update(|_, cx| assert!(cx.has_active_drag(), "the shown handle must start a drag"));
+        cx.simulate_mouse_up(target, MouseButton::Left, Modifiers::default());
     }
 
     #[test]

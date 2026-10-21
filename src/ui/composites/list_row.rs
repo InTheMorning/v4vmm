@@ -7,16 +7,28 @@
 //! VM-sourced `a11y_label`. GPUI 0.2.x does not expose a row-level label sink
 //! for `div`; the field is retained as contract data until the framework can
 //! consume it.
+//!
+//! ADR 0083 Decision 6, task 007: a row can have one menu cell. The cell
+//! is the last fixed column. It holds the "⋯" button, which shows on a
+//! hover of the row and on the keyboard focus of the row. A right-click on
+//! the row opens a menu with the same items. [`RowMenu`] and
+//! [`row_menu_parts`] give the same menu to the playlist row.
 
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, App, ClickEvent, ElementId, InteractiveElement, IntoElement, ParentElement,
-    RenderOnce, Styled, Window,
+    div, prelude::*, App, ClickEvent, Div, ElementId, Entity, FocusHandle, InteractiveElement,
+    IntoElement, MouseButton, ParentElement, RenderOnce, Styled, Window,
 };
 
-use crate::ui::primitives::HStack;
-use crate::ui::tokens::{color, Radius, SemanticColor, Size, Spacing};
+use crate::ui::composites::playlist_popover::PlaylistOption;
+use crate::ui::composites::track_row_menu::{
+    row_menu_state, track_row_menu_items, track_row_pointer_menu, TrackRowMenuCell,
+    TrackRowMenuHandlers, TrackRowMenuState, TRACK_ROW_GROUP,
+};
+use crate::ui::primitives::{HStack, PointerContextMenu};
+use crate::ui::tokens::{color, Radius, SemanticColor, Size, Spacing, TrackRowColumn};
+use crate::view_models::release_page::TrackRowMenuVm;
 
 type ClickHandler = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
@@ -74,6 +86,11 @@ pub struct ListRow {
     /// The scroll probe of the focused row of a detail page (ADR 0084
     /// Decision 10, packet 018). It paints nothing.
     scroll_probe: Option<gpui::AnyElement>,
+    /// The row has a menu cell (ADR 0083 task 007). A cell with no
+    /// `menu` is empty and keeps its width.
+    has_menu_cell: bool,
+    /// The menu of the menu cell.
+    menu: Option<RowMenu>,
     children: Vec<gpui::AnyElement>,
 }
 
@@ -89,6 +106,8 @@ impl ListRow {
             checkbox: None,
             audition: None,
             scroll_probe: None,
+            has_menu_cell: false,
+            menu: None,
             children: Vec::new(),
         }
     }
@@ -141,6 +160,16 @@ impl ListRow {
         self
     }
 
+    /// The menu cell of the row (ADR 0083 task 007). The cell is the last
+    /// fixed column. It keeps its width when `menu` is `None`, so each cell
+    /// of a list starts at the same position. A row with a menu is the
+    /// hover group of the cell and opens the same menu on a right-click.
+    pub(crate) fn menu_cell(mut self, menu: Option<RowMenu>) -> Self {
+        self.has_menu_cell = true;
+        self.menu = menu;
+        self
+    }
+
     pub fn on_click<F>(mut self, handler: F) -> Self
     where
         F: Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -157,7 +186,7 @@ impl ParentElement for ListRow {
 }
 
 impl RenderOnce for ListRow {
-    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let pad_x = self.density.padding().scaled(cx);
         let pad_y = self.density.padding().scaled(cx);
         let radius = Radius::SM.scaled(cx);
@@ -175,6 +204,15 @@ impl RenderOnce for ListRow {
         // only in selection mode. The caller gives one only then, so it
         // always renders, with no hover reveal.
         let checkbox = self.checkbox;
+
+        // ADR 0083 task 007: the menu cell is the last fixed column.
+        let has_menu_cell = self.has_menu_cell;
+        let (menu_cell, menu_root) = if has_menu_cell {
+            let (cell, root) = row_menu_parts(self.menu, menu_cell(cx), focused, window, cx);
+            (Some(cell.into_any_element()), root)
+        } else {
+            (None, RowMenuRoot::empty())
+        };
 
         // ADR 0084 Decision 1: a row in a scrolling list keeps its content
         // height. A list column has a fixed height, and a flex child shrinks
@@ -205,10 +243,13 @@ impl RenderOnce for ListRow {
                     checkbox
                         .into_iter()
                         .chain(self.children)
-                        .chain(self.audition),
+                        .chain(self.audition)
+                        .chain(menu_cell),
                 ),
             )
+            .when(has_menu_cell, |el| el.group(TRACK_ROW_GROUP))
             .when_some(self.scroll_probe, |el, probe| el.relative().child(probe));
+        row = menu_root.attach(row);
 
         if let Some(handler) = on_click {
             row = row
@@ -221,6 +262,101 @@ impl RenderOnce for ListRow {
 
         row
     }
+}
+
+/// The menu of a list row: the view model of the menu, the playlists of
+/// its "Add to playlist" level, its handlers and the focus that the
+/// right-click menu gives back (ADR 0083 task 007).
+#[derive(Clone)]
+pub(crate) struct RowMenu {
+    pub(crate) menu: TrackRowMenuVm,
+    pub(crate) playlists: Rc<Vec<PlaylistOption>>,
+    pub(crate) handlers: TrackRowMenuHandlers,
+    pub(crate) return_focus: FocusHandle,
+}
+
+/// The part of a row menu that the row root holds: the right-click
+/// handler and the open right-click menu.
+pub(crate) struct RowMenuRoot {
+    state: Option<Entity<TrackRowMenuState>>,
+    pointer_menu: Option<PointerContextMenu>,
+}
+
+impl RowMenuRoot {
+    /// A row with no menu: no right-click handler and no menu.
+    pub(crate) const fn empty() -> Self {
+        Self {
+            state: None,
+            pointer_menu: None,
+        }
+    }
+
+    /// Attaches the right-click handler and the open right-click menu to
+    /// `root`. A row with no menu does not change.
+    pub(crate) fn attach<E: InteractiveElement + ParentElement>(self, root: E) -> E {
+        let mut root = root;
+        if let Some(state) = self.state {
+            root = root.on_mouse_down(MouseButton::Right, move |event, _, cx| {
+                state.update(cx, |state, cx| {
+                    state.open_at(event.position);
+                    cx.notify();
+                });
+                cx.stop_propagation();
+            });
+        }
+        root.children(self.pointer_menu)
+    }
+}
+
+/// The menu cell and the root part of a row menu for one render (ADR 0083
+/// Decision 6). `cell` is the fixed column of the "⋯" button. With no
+/// menu, the cell is empty and keeps its width, and the root part is
+/// empty.
+pub(crate) fn row_menu_parts(
+    menu: Option<RowMenu>,
+    cell: Div,
+    focused: bool,
+    window: &mut Window,
+    cx: &mut App,
+) -> (TrackRowMenuCell, RowMenuRoot) {
+    let menu_cell = TrackRowMenuCell::new(cell, focused);
+    let Some(RowMenu {
+        menu,
+        playlists,
+        handlers,
+        return_focus,
+    }) = menu
+    else {
+        return (menu_cell, RowMenuRoot::empty());
+    };
+    let state = row_menu_state(&menu.id, window, cx);
+    let items = track_row_menu_items(&menu, &playlists, &handlers, &state);
+    let pointer_menu = state.read(cx).pointer().map(|position| {
+        track_row_pointer_menu(&menu, position, return_focus, items.clone(), &state)
+    });
+    (
+        menu_cell.menu(menu, items, state.clone()),
+        RowMenuRoot {
+            state: Some(state),
+            pointer_menu,
+        },
+    )
+}
+
+/// The fixed menu column of a list row. Its width is the token width of
+/// the menu column of a track row, so the hover fill of the button is not
+/// cut. It has the height of a hit target, so each row has the same
+/// height with or without a menu.
+pub(crate) fn menu_cell(cx: &App) -> Div {
+    div()
+        .w(TrackRowColumn::Menu.scaled(cx))
+        .flex_shrink_0()
+        .flex()
+        .flex_row()
+        .items_center()
+        .justify_center()
+        .min_h(Size::MinHitTarget.scaled(cx))
+        .debug_selector(|| "list-row-menu-cell".to_owned())
 }
 
 /// The outline of a list row and of a selectable tile (ADR 0084 Decision
@@ -246,6 +382,103 @@ pub(crate) const fn row_outline(selected: bool, focused: bool) -> RowOutline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui::{px, Bounds, Pixels, TestAppContext, VisualTestContext};
+
+    use crate::ui::tokens::ScaleFactor;
+    use crate::view_models::release_page::TrackRowMenuFacts;
+
+    /// The state of the menu cell under test.
+    #[derive(Clone, Copy, Debug)]
+    enum CellCase {
+        /// The row has a menu cell with no menu.
+        Empty,
+        /// The row has a menu, and the cell is hidden until a hover.
+        Hidden,
+        /// The row has the keyboard focus, so the cell is visible.
+        Visible,
+    }
+
+    struct MenuCellTest {
+        case: CellCase,
+        focus: FocusHandle,
+    }
+
+    impl gpui::Render for MenuCellTest {
+        fn render(
+            &mut self,
+            _window: &mut Window,
+            _cx: &mut gpui::Context<Self>,
+        ) -> impl IntoElement {
+            let menu = TrackRowMenuVm::project(&TrackRowMenuFacts {
+                inspect_sources: true,
+                ..TrackRowMenuFacts::new("row", "Song", false)
+            })
+            .map(|menu| RowMenu {
+                menu,
+                playlists: Rc::new(Vec::new()),
+                handlers: TrackRowMenuHandlers {
+                    action: Rc::new(|_, _, _| {}),
+                    select_playlist: Rc::new(|_, _, _| {}),
+                    create_playlist: Rc::new(|_, _, _| {}),
+                },
+                return_focus: self.focus.clone(),
+            });
+            let (menu, focused) = match self.case {
+                CellCase::Empty => (None, false),
+                CellCase::Hidden => (menu, false),
+                CellCase::Visible => (menu, true),
+            };
+            div().w(px(600.0)).child(
+                ListRow::new("row")
+                    .focused(focused)
+                    .child(div().flex_1().min_w_0().child("Song"))
+                    .menu_cell(menu),
+            )
+        }
+    }
+
+    fn cell_bounds(cx: &mut VisualTestContext) -> Bounds<Pixels> {
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        cx.debug_bounds("list-row-menu-cell")
+            .expect("the menu cell bounds are recorded")
+    }
+
+    /// R83-7-12 (ADR 0083 Decision 6, task 007): the menu cell of
+    /// `ListRow` has its token width when it is empty, hidden or visible.
+    /// The cell starts at the same position in each case.
+    #[gpui::test]
+    fn adr_0083_list_row_actions_r83_7_12_menu_cell_keeps_its_width(cx: &mut TestAppContext) {
+        cx.update(gpui_component::init);
+        let (view, cx) = cx.add_window_view(|_, cx| MenuCellTest {
+            case: CellCase::Empty,
+            focus: cx.focus_handle(),
+        });
+        let mut cases = Vec::new();
+        for case in [CellCase::Empty, CellCase::Hidden, CellCase::Visible] {
+            view.update(cx, |this, cx| {
+                this.case = case;
+                cx.notify();
+            });
+            cases.push((case, cell_bounds(cx)));
+        }
+        let first = cases[0].1;
+        for (case, bounds) in cases {
+            assert_eq!(
+                bounds.size.width,
+                TrackRowColumn::Menu.scaled_px(ScaleFactor::Medium),
+                "{case:?}: the cell must have the token width"
+            );
+            // The focus outline is 1 px wider than the plain border, so a
+            // focused row moves its content by at most 1 px.
+            let shift = bounds.origin.x - first.origin.x;
+            assert!(
+                shift >= px(-1.0) && shift <= px(1.0),
+                "{case:?}: the cell must start at the same position, moved by {shift:?}"
+            );
+        }
+    }
 
     #[test]
     fn adr_0084_selection_focus_outline_shows_on_each_focused_row() {

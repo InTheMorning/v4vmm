@@ -78,7 +78,7 @@ The first Phase 4 packet builds the track page once, for a Library track and an 
 
 1. [ADR 0083 task 004](../tasks/archive/adr-0083-task-004-one-track-page.md): one track page, the action hierarchy, name links, credits and "Inspect sources". Done on 2026-10-07.
 2. [ADR 0083 task 005](../tasks/archive/adr-0083-task-005-album-page-header-and-actions.md): one album page header and action row for the Library and the Index, the 200 pixel cover and the cover color backdrop. Done on 2026-10-08.
-3. Later packets: the inspection view of RSS, MusicIndex and file tags (ADR 0083 Decision 8), not started. The row hover actions (ADR 0083 Decisions 5 and 6) are three Ready packets of 2026-10-20: [task 006](../tasks/adr-0083-task-006-row-hover-actions.md) for the track row (implemented on 2026-10-20, visual check open), [task 007](../tasks/adr-0083-task-007-list-and-playlist-row-actions.md) for the playlist, Tracks and Needs attention rows, and [task 008](../tasks/adr-0083-task-008-drag-track-to-playlist.md) for a drag to a playlist.
+3. Later packets: the inspection view of RSS, MusicIndex and file tags (ADR 0083 Decision 8), not started. The row hover actions (ADR 0083 Decisions 5 and 6) are three Ready packets of 2026-10-20: [task 006](../tasks/adr-0083-task-006-row-hover-actions.md) for the track row (implemented on 2026-10-20, visual check open), [task 007](../tasks/adr-0083-task-007-list-and-playlist-row-actions.md) for the playlist, Tracks and Needs attention rows (implemented on 2026-10-20, visual check open), and [task 008](../tasks/adr-0083-task-008-drag-track-to-playlist.md) for a drag to a playlist.
    Also the payment split bar for the track page and the album page.
 
 ### Phase 4A: Flow And Information Architecture

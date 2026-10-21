@@ -58,7 +58,7 @@ Open - the run adds each packet when its mechanical checks are Green.
 
 - Owner: the [run record](reviews/orchestrated-run-2026-10-20.md#final-walk).
 - Packets of ADR 0084: [packet 021](tasks/adr-0084-task-021-one-release-page-assembly.md) V1 to V3.
-  Also [packet 022](tasks/adr-0084-task-022-download-queue.md) V1 to V6, [packet 020](tasks/adr-0084-task-020-discover-selection.md) V1 to V6, [packet 025](tasks/adr-0084-task-025-playlist-selection.md) V1 to V7, [packet 011](tasks/adr-0084-task-011-logo-frame.md) V1 to V7, [packet 024](tasks/adr-0084-task-024-artist-feed-image.md) V1 to V3, [ADR 0083 task 006](tasks/adr-0083-task-006-row-hover-actions.md) V1 to V12, [packet 027](tasks/adr-0084-task-027-stop-queued-downloads.md) V1 to V3, and [packet 023](tasks/adr-0084-task-023-one-track-page-assembly.md) V1 to V5.
+  Also [packet 022](tasks/adr-0084-task-022-download-queue.md) V1 to V6, [packet 020](tasks/adr-0084-task-020-discover-selection.md) V1 to V6, [packet 025](tasks/adr-0084-task-025-playlist-selection.md) V1 to V7, [packet 011](tasks/adr-0084-task-011-logo-frame.md) V1 to V7, [packet 024](tasks/adr-0084-task-024-artist-feed-image.md) V1 to V3, [ADR 0083 task 006](tasks/adr-0083-task-006-row-hover-actions.md) V1 to V12, [packet 027](tasks/adr-0084-task-027-stop-queued-downloads.md) V1 to V3, [packet 023](tasks/adr-0084-task-023-one-track-page-assembly.md) V1 to V5, and [ADR 0083 task 007](tasks/adr-0083-task-007-list-and-playlist-row-actions.md) V1 to V11.
 - Packet 024 adds migration 20. Before the first start of the new build, make the backup of its Rollback section.
 - Part B holds the deferred visual requirements of the overhaul plan that present screens can show.
 

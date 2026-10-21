@@ -5055,7 +5055,8 @@ and sets `Normal`. Keep the reset and the bind of the detail selection.\n{}",
 
 /// R25-11, situational ADR 0084 Decision 10 (packet 025): in selection
 /// mode the playlist row attaches no drop handler and shows no row menu.
-/// The drop target and the menu exist only when `reorder_visible` is true.
+/// The drop target exists only when `reorder_visible` is true. ADR 0083
+/// task 007: the view model gives no row menu in selection mode.
 /// The playlist page also scrolls with the held detail column handle, so
 /// the keys can keep the focused row in view.
 #[test]
@@ -5088,11 +5089,13 @@ fn adr_0084_playlist_selection_r25_11_selection_mode_row_accepts_no_drop() {
 `{gate}`."
         )),
     }
-    let controls = top_level_body("fn render_playlist_track_controls(");
-    if !controls.contains("let actions_menu = reorder_visible.then(||") {
+    let view_model = read_source(&manifest_path("src/view_models/library.rs"));
+    if !compact_source(&view_model).contains(
+        "self.controls.reorder_visible=!selection.checkbox_visible;ifselection.checkbox_visible{self.controls.menu=None;}",
+    ) {
         violations.push(
-            "src/ui/shells/playlist.rs: `render_playlist_track_controls` must render the row menu \
-only when `reorder_visible` is true."
+            "src/view_models/library.rs: `PlaylistTrackRowDisplay::with_selection` must hide the \
+drag handle and give no row menu in selection mode."
                 .to_owned(),
         );
     }
@@ -5997,7 +6000,6 @@ fn row_context_menu_chrome_has_shared_primitive_contract() {
         "pub enum ContextMenuScope",
         "ContextMenuScope::FeedList",
         "ContextMenuScope::TrackList",
-        "ContextMenuScope::PlaylistTrack",
         "ControlStyle::RowAction",
         "ControlStyle::DestructiveRowAction",
         "Size::MenuRegular",
@@ -9448,31 +9450,19 @@ fn view_models_own_display_fallbacks_for_library() {
 #[test]
 fn playlist_reorder_display_contract_uses_drag_handle_and_menu_fallbacks() {
     let view_model_source = read_source(&manifest_path("src/view_models/library.rs"));
+    // ADR 0083 task 007, decision D5: the menu items come from the shared
+    // track row menu. "Move up" and "Move down" show only when the row can
+    // move, and "Remove from playlist" is not destructive (D6).
     for required in [
-        "pub(crate) struct PlaylistTrackMenuItemDisplay",
         "pub(crate) drag_handle_id: String",
         "pub(crate) drag_handle_a11y_label: &'static str",
-        "pub(crate) actions_menu_id: String",
-        "pub(crate) actions_menu_a11y_label: &'static str",
-        "pub(crate) move_up_menu_item: PlaylistTrackMenuItemDisplay",
-        "pub(crate) move_down_menu_item: PlaylistTrackMenuItemDisplay",
-        "pub(crate) remove_menu_item: PlaylistTrackMenuItemDisplay",
+        "pub(crate) menu: Option<TrackRowMenuVm>",
         "drag_handle_id: format!(\"playlist-drag-handle-{playlist_id}-{position}\")",
         "drag_handle_a11y_label: \"Drag to reorder playlist track\"",
-        "actions_menu_id: format!(\"playlist-actions-{playlist_id}-{position}\")",
-        "actions_menu_a11y_label: \"Playlist track actions\"",
-        "id: format!(\"playlist-move-up-{playlist_id}-{position}\")",
-        "label: \"Move Up\"",
-        "a11y_label: \"Move track up\"",
-        "disabled: !self.can_move_up()",
-        "id: format!(\"playlist-move-down-{playlist_id}-{position}\")",
-        "label: \"Move Down\"",
-        "a11y_label: \"Move track down\"",
-        "disabled: !self.can_move_down()",
-        "id: format!(\"playlist-remove-{playlist_id}-{position}\")",
-        "label: \"Remove\"",
-        "a11y_label: \"Remove track from playlist\"",
-        "destructive: true",
+        "let row_id = format!(\"playlist-actions-{playlist_id}-{}\", self.position);",
+        "move_up: self.can_move_up(),",
+        "move_down: self.can_move_down(),",
+        "remove_from_playlist: true,",
         // ADR 0084 Decision 10, packet 025: selection mode hides the drag
         // handle, the drop target and the row menu.
         "pub(crate) reorder_visible: bool",
@@ -9503,11 +9493,23 @@ fn playlist_reorder_display_contract_uses_drag_handle_and_menu_fallbacks() {
         );
     }
 
+    let release_page_source = read_source(&manifest_path("src/view_models/release_page.rs"));
+    for required in [
+        "const TRACK_MENU_MOVE_UP_LABEL: &str = \"Move up\";",
+        "const TRACK_MENU_MOVE_DOWN_LABEL: &str = \"Move down\";",
+        "const TRACK_MENU_REMOVE_FROM_PLAYLIST_LABEL: &str = \"Remove from playlist\";",
+        "destructive: action == TrackRowMenuAction::Remove,",
+    ] {
+        assert!(
+            release_page_source.contains(required),
+            "Playlist row menu contract must include `{required}`"
+        );
+    }
+
     let playlist_shell_source = read_source(&manifest_path("src/ui/shells/playlist.rs"));
     for required in [
         "Icon::new(IconName::DragHandle)",
-        "ContextMenu::new(",
-        "ContextMenuScope::PlaylistTrack",
+        "row_menu_parts(menu, menu_cell(cx), focused, window, cx)",
         ".can_drop(",
         ".drag_over(",
         ".on_drop(",
@@ -12230,40 +12232,40 @@ fn adr_0076_tag_update_checks_and_scans_write_no_tag() {
 
 /// Situational ADR 0076 Decision 7 (packet 003, operator decision
 /// 2026-09-24): the removal actions of a removed track reuse the existing
-/// removal flows. "Remove from library" is the ADR 0044 Library removal with
-/// its confirmation. "Remove from playlist" is the existing playlist entry
-/// removal. The playlist row actions come from the view model.
+/// removal flows. ADR 0083 task 007, decision D10: "Remove from Library…" of
+/// a Needs attention row is an item of the row menu, and it is the ADR 0044
+/// Library removal with its confirmation. "Remove from playlist" is the
+/// existing playlist entry removal. The playlist row actions come from the
+/// view model.
 #[test]
 fn adr_0076_route_readiness_removal_actions_reuse_existing_flows() {
-    const FIX: &str = "ADR 0076 Decision 7: the removal actions of a removed track reuse the existing flows. Dispatch \"Remove from library\" to LibraryApp::remove_track, which runs the ADR 0044 removal plan and its confirmation. Wire \"Remove from playlist\" to the on_remove slot of the row. Add no second removal path.";
+    const FIX: &str = "ADR 0076 Decision 7 and ADR 0083 task 007 D10: the removal actions of a removed track reuse the existing flows. Map the Remove item of the row menu to LibraryApp::remove_track_after_confirmation, which runs the ADR 0044 removal plan and its confirmation. Wire \"Remove from playlist\" to the on_remove slot of the row. Add no second removal path.";
     let app = read_source(&manifest_path("src/library/app_impl.rs"));
     let shell = read_source(&manifest_path("src/ui/shells/playlist.rs"));
     let mut violations = Vec::new();
 
     let dispatch = code_only(source_between(
         &app,
-        "pub(crate) fn run_content_list_row_action(",
+        "pub(crate) fn run_track_row_menu_action(",
         "fn confirm_removed_track(",
     ));
-    if !compact_source(&dispatch)
-        .contains("ContentListRowActionKind::RemoveFromLibrary{track_id}=>{self.remove_track(track_id,window,cx);")
-    {
+    if !compact_source(&dispatch).contains(
+        "TrackRowMenuAction::Remove=>{self.remove_track_after_confirmation(track_id,window,cx);",
+    ) {
         violations.push(format!(
-            "src/library/app_impl.rs: the RemoveFromLibrary row action must call self.remove_track(track_id, window, cx).\n  {FIX}"
+            "src/library/app_impl.rs: the Remove item of a list row menu must call self.remove_track_after_confirmation(track_id, window, cx).\n  {FIX}"
         ));
     }
     let remove_track = code_only(source_between(
         &app,
-        "pub(crate) fn remove_track(",
+        "pub(crate) fn remove_track_after_confirmation(",
         "fn request_library_removal(",
     ));
-    // ADR 0083 Decision 5 added the confirmation policy argument. The flow
-    // stays the one ADR 0044 removal plan.
     if !compact_source(&remove_track).contains(
-        "self.request_library_removal(LibraryRemovalIntent::TrackId(track_id),RemovalConfirmation::WhenReferenced,window,cx,)",
+        "self.request_library_removal(LibraryRemovalIntent::TrackId(track_id),RemovalConfirmation::Always,window,cx,)",
     ) {
         violations.push(format!(
-            "src/library/app_impl.rs: remove_track must request the ADR 0044 removal plan.\n  {FIX}"
+            "src/library/app_impl.rs: remove_track_after_confirmation must request the ADR 0044 removal plan.\n  {FIX}"
         ));
     }
     let removed_block = code_only(source_between(
@@ -12316,9 +12318,9 @@ fn adr_0065_readiness_rows_keep_state_labels_separate_from_actions() {
     let mut violations = Vec::new();
 
     for required in [
-        // ADR 0076 packet 003 (operator decision 2026-09-24) gives a removed
-        // track two row actions, so the row carries an action list.
-        "pub(crate) actions: Vec<ContentListRowActionDisplay>",
+        // ADR 0083 task 007, decision D10: a row carries at most its one
+        // main fix as a visible action.
+        "pub(crate) fix: Option<ContentListRowActionDisplay>",
         "pub(crate) activation: ContentListRowActivation",
         "ContentListRowActionKind::RepairBroadcastRoutes",
         "BROADCAST_ROUTE_REPAIR_AVAILABLE_LABEL",
@@ -12333,7 +12335,7 @@ fn adr_0065_readiness_rows_keep_state_labels_separate_from_actions() {
 
     for forbidden in [
         "\"Fix routes\"",
-        "\"Fixing...\"",
+        "\"Repairing\\u{2026}\"",
         "\"Publisher must add payment routes.\"",
     ] {
         if content_shell_source.contains(forbidden) {
@@ -12354,7 +12356,7 @@ fn adr_0065_readiness_rows_keep_state_labels_separate_from_actions() {
                 .to_string(),
         );
     }
-    if !render_row.contains("render_content_list_row_action(action, cx)") {
+    if !render_row.contains("render_content_list_row_action(fix, cx)") {
         violations.push(
             "src/ui/shells/library/content_list.rs: ADR 0065 readiness row actions must render through the explicit row action contract"
                 .to_string(),
@@ -12376,16 +12378,19 @@ fn adr_0065_readiness_rows_keep_state_labels_separate_from_actions() {
         }
     }
 
-    let render_action = source_between(
-        &content_shell_source,
-        "fn render_content_list_row_action(",
-        "fn render_content_list_load_more(",
-    );
+    // ADR 0083 task 007: the fix button renderer moved to the row actions
+    // module of the content list.
+    let row_actions_source = read_source(&manifest_path(
+        "src/ui/shells/library/content_list_row_actions.rs",
+    ));
+    let render_action = &row_actions_source[row_actions_source
+        .find("fn render_content_list_row_action(")
+        .expect("the fix button renderer exists")..];
     for required in [
         "action.label.clone()",
         "action.a11y_label.clone()",
         "action.disabled()",
-        "this.run_content_list_row_action(kind, window, cx)",
+        "this.run_content_list_row_action(kind, cx)",
     ] {
         if !render_action.contains(required) {
             violations.push(format!(
@@ -21873,6 +21878,174 @@ fn adr_0083_row_actions_r83_6_14_track_row_has_no_always_visible_actions() {
     assert!(
         violations.is_empty(),
         "ADR 0083 Decision 6: a row shows its actions on hover and on keyboard focus, not at all times. Fix:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R83-7-10 (ADR 0083 Decision 6, task 007). Situational: delete this
+/// guard when ADR 0083 is superseded. The "Remove" item of a Tracks or Needs
+/// attention row menu reaches `remove_track_after_confirmation`. The fix
+/// buttons reach `run_content_list_row_action` with their typed actions.
+#[test]
+fn adr_0083_list_row_actions_r83_7_10_menu_and_fix_commands() {
+    let app = code_only(&read_source(&manifest_path("src/library/app_impl.rs")));
+    let row_actions = code_only(&read_source(&manifest_path(
+        "src/ui/shells/library/content_list_row_actions.rs",
+    )));
+    let mut violations = Vec::new();
+
+    let content_menu = compact_source(source_between(
+        &app,
+        "pub(crate) fn run_content_list_menu_action(",
+        "pub(crate) fn run_playlist_row_menu_action(",
+    ));
+    if !content_menu.contains("self.run_track_row_menu_action(track_id,action,window,cx);") {
+        violations.push(
+            "src/library/app_impl.rs: `run_content_list_menu_action` must run each item through `run_track_row_menu_action`"
+                .to_string(),
+        );
+    }
+    let track_menu = compact_source(source_between(
+        &app,
+        "pub(crate) fn run_track_row_menu_action(",
+        "fn confirm_removed_track(",
+    ));
+    if !track_menu.contains(
+        "TrackRowMenuAction::Remove=>{self.remove_track_after_confirmation(track_id,window,cx);",
+    ) {
+        violations.push(
+            "src/library/app_impl.rs: the `Remove` item must call `remove_track_after_confirmation`, so \"Remove from Library…\" always asks for confirmation"
+                .to_string(),
+        );
+    }
+    let fix = compact_source(source_between(
+        &app,
+        "pub(crate) fn run_content_list_row_action(",
+        "pub(crate) fn run_content_list_menu_action(",
+    ));
+    for required in [
+        "ContentListRowActionKind::RepairBroadcastRoutes{track_id}=>{self.repair_broadcast_routes_for_track(track_id,cx);",
+        "ContentListRowActionKind::ConfirmRemovedFromFeed{track_id}=>{self.confirm_removed_track(track_id,cx);",
+    ] {
+        if !fix.contains(required) {
+            violations.push(format!(
+                "src/library/app_impl.rs: `run_content_list_row_action` must keep the fix path `{required}`"
+            ));
+        }
+    }
+    if !row_actions.contains("this.run_content_list_menu_action(&row_id, item, window, cx);") {
+        violations.push(
+            "src/ui/shells/library/content_list_row_actions.rs: each row menu item must go to `run_content_list_menu_action`"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0083 task 007 D10: a Needs attention row keeps its fix as a button, and \"Remove from Library…\" is a menu item with a confirmation. Fix:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R83-7-13 (ADR 0083 Decision 6, task 007). Situational: delete this
+/// guard when ADR 0083 is superseded. A content list row makes one button
+/// only, the fix. The playlist row and the content list row build their
+/// menu through `track_row_menu.rs`, and the right-click handler attaches
+/// only when the view model gives a menu.
+#[test]
+fn adr_0083_list_row_actions_r83_7_13_rows_use_the_shared_menu() {
+    let content = code_only(production_source(&read_source(&manifest_path(
+        "src/ui/shells/library/content_list.rs",
+    ))));
+    let row_actions = code_only(production_source(&read_source(&manifest_path(
+        "src/ui/shells/library/content_list_row_actions.rs",
+    ))));
+    // The playlist shell has `#[cfg(test)]` lines inside its production
+    // code, so the guard reads the whole file.
+    let playlist = code_only(&read_source(&manifest_path("src/ui/shells/playlist.rs")));
+    let list_row = code_only(production_source(&read_source(&manifest_path(
+        "src/ui/composites/list_row.rs",
+    ))));
+    let mut violations = Vec::new();
+
+    let render_row = source_between(
+        &content,
+        "fn render_content_list_row(",
+        "fn render_content_list_tile(",
+    );
+    if render_row.contains("UiButton")
+        || render_row
+            .matches("render_content_list_row_action(")
+            .count()
+            != 1
+    {
+        violations.push(
+            "src/ui/shells/library/content_list.rs: `render_content_list_row` must make one button only, from `row.fix`, through `render_content_list_row_action(fix, cx)`"
+                .to_string(),
+        );
+    }
+    if !render_row.contains("list_row.menu_cell(content_list_row_menu(row, context, cx))") {
+        violations.push(
+            "src/ui/shells/library/content_list.rs: give the row menu to the `ListRow` menu cell"
+                .to_string(),
+        );
+    }
+    if row_actions.matches("UiButton::styled(").count() != 1
+        || !row_actions.contains("let menu = row.menu.clone()?;")
+    {
+        violations.push(
+            "src/ui/shells/library/content_list_row_actions.rs: make one fix button, and give no menu when the view model gives none"
+                .to_string(),
+        );
+    }
+    for (file, source) in [
+        ("src/ui/shells/library/content_list.rs", &content),
+        (
+            "src/ui/shells/library/content_list_row_actions.rs",
+            &row_actions,
+        ),
+        ("src/ui/shells/playlist.rs", &playlist),
+    ] {
+        for forbidden in [
+            "ContextMenu::new(",
+            "ContextMenuItem::new(",
+            "MouseButton::Right",
+        ] {
+            if source.contains(forbidden) {
+                violations.push(format!(
+                    "{file}: `{forbidden}` is not permitted. Build the row menu through `row_menu_parts` and `track_row_menu.rs`"
+                ));
+            }
+        }
+    }
+    for required in [
+        "row_menu_parts(menu, menu_cell(cx), focused, window, cx)",
+        "menu_cell: TrackRowMenuCell,",
+        "row = menu_root.attach(row);",
+    ] {
+        if !playlist.contains(required) {
+            violations.push(format!(
+                "src/ui/shells/playlist.rs: the playlist row must build its menu through `row_menu_parts`; missing `{required}`"
+            ));
+        }
+    }
+    let gate = list_row.find("if let Some(state) = self.state {");
+    let right_click = list_row.find("MouseButton::Right");
+    let gated = matches!((gate, right_click), (Some(gate), Some(click)) if gate < click)
+        && list_row.matches("MouseButton::Right").count() == 1
+        && list_row.contains("return (menu_cell, RowMenuRoot::empty());")
+        && list_row.contains("track_row_menu_items(&menu, &playlists, &handlers, &state)")
+        && list_row.contains("track_row_pointer_menu(");
+    if !gated {
+        violations.push(
+            "src/ui/composites/list_row.rs: `row_menu_parts` must build the items with `track_row_menu_items`, and `RowMenuRoot::attach` must attach the right-click handler only when the row has a menu"
+                .to_string(),
+        );
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0083 Decision 6: the right-click menu holds the same items as the \"⋯\" menu, and a row shows its actions on hover and on keyboard focus. Fix:\n{}",
         violations.join("\n")
     );
 }

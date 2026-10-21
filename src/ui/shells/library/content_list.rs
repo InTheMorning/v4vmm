@@ -4,6 +4,10 @@
 //! music. This shell owns only GPUI layout and interaction wiring; row labels,
 //! state labels, load-more labels, and empty/error copy come from the view
 //! model.
+//!
+//! ADR 0083 task 007: a Tracks row and a Needs attention row show "⋯" on a
+//! hover and on the keyboard focus, and a right-click opens the same menu.
+//! A Needs attention row keeps its one main fix as a visible button.
 
 #![warn(clippy::pedantic)]
 
@@ -27,18 +31,23 @@ use crate::ui::primitives::{
     Button as UiButton, Checkbox, CheckboxState, Image as ImagePrimitive, ImageSize, Label,
     Skeleton,
 };
+pub(crate) use crate::ui::shells::library::content_list_row_actions::ContentListMenuContext;
+use crate::ui::shells::library::content_list_row_actions::{
+    content_list_row_menu, render_content_list_row_action,
+};
 use crate::ui::shells::library::content_list_scroll::attach_content_list_scroll;
 use crate::ui::tokens::{color, ArtworkShadow, FontSize, Radius, SemanticColor, Size, Spacing};
 use crate::view_models::detail_selection::{discover_rows_with_selection, DetailSelection};
 use crate::view_models::library::{
     ContentListEntityKind, ContentListLoadMoreDisplay, ContentListLoadingStateDisplay,
-    ContentListPageStateDisplay, ContentListPageVm, ContentListRowActionDisplay,
-    ContentListRowDisplay, ContentListSelectionTarget,
+    ContentListPageStateDisplay, ContentListPageVm, ContentListRowDisplay,
+    ContentListSelectionTarget,
 };
 use crate::view_models::workspace::{ContentViewMode, ContentViewModeControlDisplay};
 
 struct ContentListRenderState {
     visible_rows: Vec<ContentListRowDisplay>,
+    menu: Option<ContentListMenuContext>,
     loading_display: Option<ContentListLoadingStateDisplay>,
     state_display: Option<ContentListPageStateDisplay>,
     load_more_display: Option<ContentListLoadMoreDisplay>,
@@ -48,16 +57,19 @@ struct ContentListRenderState {
 /// Renders the Music content-list page. `rows` is the page's visible
 /// rows, with the Decision 10 checkbox facts of the selection that
 /// `routing` names. The focused row carries the scroll probe of `routing`.
+/// `menu` gives each row a menu cell. `None` gives no menu cell.
 pub(crate) fn render_library_content_list(
     page: &ContentListPageVm,
     rows: Vec<ContentListRowDisplay>,
     thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
     scroll_handle: &ScrollHandle,
     routing: (ContentListSelectionTarget, Option<AnyElement>),
+    menu: Option<ContentListMenuContext>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let render_state = ContentListRenderState {
         visible_rows: rows,
+        menu,
         routing,
         loading_display: page.loading_display(),
         state_display: page.page_state_display(),
@@ -111,7 +123,8 @@ pub(crate) fn render_discover_new_releases_detail(
         selection,
     );
     let routing = (ContentListSelectionTarget::DetailColumn, Some(probe));
-    let body = render_library_content_list(page, rows, thumbnails, scroll_handle, routing, cx);
+    let body =
+        render_library_content_list(page, rows, thumbnails, scroll_handle, routing, None, cx);
 
     div()
         .flex()
@@ -159,7 +172,13 @@ fn render_content_list_rows(
         .children(render_state.visible_rows.into_iter().map(|row| {
             let thumbnail = thumbnails.get(&row.id).cloned().flatten();
             let probe = probe.take_if(|_| row.selection.focused);
-            render_content_list_row(&row, thumbnail, (target, probe), cx)
+            render_content_list_row(
+                &row,
+                thumbnail,
+                (target, probe),
+                render_state.menu.as_ref(),
+                cx,
+            )
         }))
         .children((0..pending_rows).map(|index| {
             SkeletonTrackRow::new(ContentListPageVm::skeleton_row_id(index))
@@ -243,6 +262,7 @@ fn render_content_list_row(
     row: &ContentListRowDisplay,
     thumbnail: Option<Arc<Image>>,
     (target, probe): (ContentListSelectionTarget, Option<AnyElement>),
+    menu_context: Option<&ContentListMenuContext>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let row_id = row.id.clone();
@@ -262,8 +282,16 @@ fn render_content_list_row(
         .child(Thumbnail::new(entity_kind, ThumbnailSize::Sm).image(thumbnail))
         .child(render_content_list_row_text(row, entity_kind, cx));
 
-    for action in &row.actions {
-        list_row = list_row.child(render_content_list_row_action(action, cx));
+    // ADR 0083 task 007, decision D10: the one main fix of a Needs
+    // attention row shows at all times, before the menu cell.
+    if let Some(fix) = &row.fix {
+        list_row = list_row.child(render_content_list_row_action(fix, cx));
+    }
+
+    // ADR 0083 task 007, decisions D9 and D10: the menu cell and the
+    // right-click menu exist only when the view model gives a menu.
+    if let Some(context) = menu_context {
+        list_row = list_row.menu_cell(content_list_row_menu(row, context, cx));
     }
 
     list_row
@@ -313,8 +341,8 @@ fn render_content_list_tile(
         })
         .child(render_content_list_tile_badges(row, entity_kind, cx));
 
-    for action in &row.actions {
-        tile = tile.child(render_content_list_row_action(action, cx));
+    if let Some(fix) = &row.fix {
+        tile = tile.child(render_content_list_row_action(fix, cx));
     }
 
     if row.accepts_row_click() {
@@ -493,24 +521,6 @@ fn render_content_list_row_text(
     }));
 
     text.child(status).into_any_element()
-}
-
-fn render_content_list_row_action(
-    action: &ContentListRowActionDisplay,
-    cx: &mut Context<LibraryApp>,
-) -> AnyElement {
-    let kind = action.kind;
-    UiButton::styled(
-        SharedString::from(action.id.clone()),
-        ControlStyle::Secondary,
-    )
-    .label(action.label.clone())
-    .a11y_label(action.a11y_label.clone())
-    .disabled(action.disabled())
-    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-        this.run_content_list_row_action(kind, window, cx);
-    }))
-    .into_any_element()
 }
 
 fn render_content_list_state(display: ContentListPageStateDisplay, cx: &App) -> AnyElement {

@@ -55,6 +55,9 @@ use crate::view_models::recent_feeds::{
     RecentFeedResultRow, RecentFeedsPageState, RecentFeedsPageVm,
 };
 use crate::view_models::release_kind::ReleaseKind;
+use crate::view_models::release_page::{
+    LibraryTrackMenuAvailability, TrackRowMenuFacts, TrackRowMenuVm, TrackRowRemoveLabel,
+};
 use crate::view_models::search_results::{
     FeedResultDisplay, IndexDetailDisplay, SearchResultOrigin, TrackResultDisplay,
 };
@@ -75,7 +78,7 @@ use crate::views::{FeedMetadataFacts, LocalIdentityFacts, TrackRef};
 const UPDATE_AVAILABLE_LABEL: &str = "Update available";
 const NEW_RELEASE_LABEL: &str = "New";
 const BROADCAST_ROUTE_REPAIR_AVAILABLE_LABEL: &str = "Fix routes";
-const BROADCAST_ROUTE_REPAIR_WORKING_LABEL: &str = "Fixing...";
+const BROADCAST_ROUTE_REPAIR_WORKING_LABEL: &str = "Repairing\u{2026}";
 const BROADCAST_ROUTE_REPAIRING_STATE_LABEL: &str = "Repairing routes";
 const BROADCAST_ROUTE_PUBLISHER_DETAIL: &str = "The feed owner must add payment routes.";
 /// ADR 0085 Decision 1: the fixed phrase of
@@ -90,7 +93,6 @@ const BROADCAST_ROUTE_NEEDS_PAYMENT_ROUTES_LABEL: &str = "payment routes from th
 const BROADCAST_ROUTE_OUT_OF_DATE_DETAIL: &str =
     "Payment route in file is out of date. The \"Update n file(s)\" button writes the stored route.";
 const BROADCAST_REMOVED_CONFIRM_LABEL: &str = "Confirm";
-const BROADCAST_REMOVED_REMOVE_FROM_LIBRARY_LABEL: &str = "Remove from library";
 
 /// Rendered-line threshold before descriptions start collapsed.
 pub(crate) const DESCRIPTION_AUTO_COLLAPSE_LINES: usize = 5;
@@ -991,12 +993,6 @@ pub(crate) enum ContentListRowActionKind {
         /// Local track database id.
         track_id: i64,
     },
-    /// Remove a track from the library through the ADR 0044 removal flow and
-    /// its confirmation (ADR 0076 Decision 7, operator decision 2026-09-24).
-    RemoveFromLibrary {
-        /// Local track database id.
-        track_id: i64,
-    },
 }
 
 /// Typed availability for a mixed Music content row action.
@@ -1064,16 +1060,6 @@ impl ContentListRowActionDisplay {
             a11y_label: format!(
                 "Confirm that the show plays {title}, which was removed from its feed"
             ),
-            availability: ContentListRowActionAvailability::Available,
-        }
-    }
-
-    fn remove_from_library(track_id: i64, title: &str) -> Self {
-        Self {
-            kind: ContentListRowActionKind::RemoveFromLibrary { track_id },
-            id: format!("broadcast-readiness-remove-from-library-{track_id}"),
-            label: BROADCAST_REMOVED_REMOVE_FROM_LIBRARY_LABEL.to_owned(),
-            a11y_label: format!("Remove {title} from the library"),
             availability: ContentListRowActionAvailability::Available,
         }
     }
@@ -1200,9 +1186,18 @@ pub(crate) struct ContentListRowDisplay {
     pub(crate) state_label: Option<&'static str>,
     /// Whole-row activation behavior.
     pub(crate) activation: ContentListRowActivation,
-    /// Explicit row actions, in display order. A row can have no action.
-    /// ADR 0076 Decision 7 gives a removed track two actions.
-    pub(crate) actions: Vec<ContentListRowActionDisplay>,
+    /// The one main fix of a Needs attention row. It shows at all times,
+    /// outside the menu (ADR 0083 task 007, decision D10). `None` for each
+    /// other row and in selection mode.
+    pub(crate) fix: Option<ContentListRowActionDisplay>,
+    /// The "⋯" menu and the right-click menu of a Tracks or Needs attention
+    /// row (ADR 0083 task 007, decisions D9 and D10).
+    /// [`LibraryViewModel::content_list_rows_with_selection`] fills it.
+    /// `None` in selection mode.
+    pub(crate) menu: Option<TrackRowMenuVm>,
+    /// The readiness state of a Needs attention row. `None` for each other
+    /// row.
+    pub(crate) readiness_state: Option<BroadcastReadinessState>,
     /// The checkbox facts of the row (ADR 0084 Decision 10). Every row
     /// constructs with no selection; [`LibraryViewModel::content_list_rows_with_selection`]
     /// fills it for the Tracks and Needs attention lists.
@@ -1306,7 +1301,8 @@ impl ContentListRowDisplay {
         let mut row = Self::from_track_result(display);
         row.state_label = Some(broadcast_readiness_row_state_label(track.state, repairing));
         row.activation = ContentListRowActivation::None;
-        row.actions = broadcast_readiness_row_actions(track, repairing);
+        row.fix = broadcast_readiness_row_actions(track, repairing);
+        row.readiness_state = Some(track.state);
         row
     }
 
@@ -1373,7 +1369,9 @@ impl ContentListRowDisplay {
             state_label: row_state_label_for_source(source),
             activation: ContentListRowActivation::OpenContentRow,
             kind,
-            actions: Vec::new(),
+            fix: None,
+            menu: None,
+            readiness_state: None,
             selection: RowSelectionVm::none(),
         }
     }
@@ -1394,7 +1392,7 @@ impl ContentListRowDisplay {
     }
 
     fn has_available_broadcast_route_repair(&self, track_id: i64) -> bool {
-        self.actions.iter().any(|action| {
+        self.fix.as_ref().is_some_and(|action| {
             action.kind == (ContentListRowActionKind::RepairBroadcastRoutes { track_id })
                 && !action.disabled()
         })
@@ -1405,12 +1403,13 @@ impl ContentListRowDisplay {
             return;
         }
         let repair = ContentListRowActionKind::RepairBroadcastRoutes { track_id };
-        let Some(index) = self.actions.iter().position(|action| action.kind == repair) else {
+        if self.fix.as_ref().is_none_or(|action| action.kind != repair) {
             return;
-        };
+        }
         let title = self.title().to_owned();
-        self.actions[index] =
-            ContentListRowActionDisplay::repair_broadcast_routes(track_id, &title, repairing);
+        self.fix = Some(ContentListRowActionDisplay::repair_broadcast_routes(
+            track_id, &title, repairing,
+        ));
         self.state_label = Some(if repairing {
             BROADCAST_ROUTE_REPAIRING_STATE_LABEL
         } else {
@@ -1445,28 +1444,66 @@ const fn broadcast_readiness_row_state_label(
 fn broadcast_readiness_row_actions(
     track: &BroadcastReadinessTrack,
     repairing: bool,
-) -> Vec<ContentListRowActionDisplay> {
+) -> Option<ContentListRowActionDisplay> {
     // ADR 0076: a RouteOutOfDate row has no repair action, because packet
-    // 004 owns that file write. The operator decided on 2026-09-24 that a
-    // removed track has Confirm and "Remove from library".
+    // 004 owns that file write. ADR 0083 task 007, decision D10: a row
+    // shows at most its one main fix. "Remove from Library…" of a removed
+    // track is an item of the row menu.
     match track.state {
         BroadcastReadinessState::NoRouteTag => {
-            vec![ContentListRowActionDisplay::repair_broadcast_routes(
+            Some(ContentListRowActionDisplay::repair_broadcast_routes(
                 track.track_id,
                 &track.title,
                 repairing,
-            )]
+            ))
         }
-        BroadcastReadinessState::RemovedFromFeed => vec![
+        BroadcastReadinessState::RemovedFromFeed => Some(
             ContentListRowActionDisplay::confirm_removed_from_feed(track.track_id, &track.title),
-            ContentListRowActionDisplay::remove_from_library(track.track_id, &track.title),
-        ],
+        ),
         BroadcastReadinessState::Ready
         | BroadcastReadinessState::NoRoutesUpstream
         | BroadcastReadinessState::NotDownloaded
         | BroadcastReadinessState::FileMissing
-        | BroadcastReadinessState::RouteOutOfDate => Vec::new(),
+        | BroadcastReadinessState::RouteOutOfDate => None,
     }
+}
+
+/// The menu of a Library track row of the Tracks list or of the Needs
+/// attention list (ADR 0083 task 007).
+///
+/// - A Tracks list row gets the items of task 006 decision D2 (D9).
+/// - A Needs attention row gets "Inspect sources", and "Remove from
+///   Library…" when its state is `RemovedFromFeed` (D10). The menu never
+///   holds the fix of the row.
+///
+/// "Remove…" shows only for a downloaded track with no work in progress
+/// (D7).
+#[must_use]
+pub(crate) fn content_list_track_menu(
+    row_id: &str,
+    title: &str,
+    track: &TrackRow,
+    work: TrackRowWork,
+    readiness_state: Option<BroadcastReadinessState>,
+) -> Option<TrackRowMenuVm> {
+    let availability = LibraryTrackMenuAvailability::of(track, work);
+    let row_id = format!("content-list-{row_id}");
+    let facts = match readiness_state {
+        None => TrackRowMenuFacts {
+            add_to_playlist: true,
+            download: availability.download,
+            inspect_sources: true,
+            remove: availability.remove.then_some(TrackRowRemoveLabel::Remove),
+            ..TrackRowMenuFacts::new(&row_id, title, false)
+        },
+        Some(state) => TrackRowMenuFacts {
+            inspect_sources: true,
+            remove: (state == BroadcastReadinessState::RemovedFromFeed && availability.remove)
+                .then_some(TrackRowRemoveLabel::RemoveFromLibrary),
+            ..TrackRowMenuFacts::new(&row_id, title, false)
+        },
+    };
+    TrackRowMenuVm::project(&facts)
 }
 
 /// Empty-state display for the content-list frame.
@@ -3203,10 +3240,62 @@ impl LibraryViewModel {
                         focused,
                         selecting,
                     );
+                    // ADR 0083 task 007, decision D12: selection mode shows
+                    // no menu and no fix button.
+                    if !selecting {
+                        row.menu = self.content_list_row_menu(&row);
+                    }
+                }
+                if selecting {
+                    row.menu = None;
+                    row.fix = None;
                 }
                 row
             })
             .collect()
+    }
+
+    /// The menu of a Library track row of the Tracks or Needs attention
+    /// list (ADR 0083 task 007, decisions D9 and D10). The work of the row
+    /// comes from [`BusyItems`]. A row whose track is not in the tree gets
+    /// no menu.
+    fn content_list_row_menu(&self, row: &ContentListRowDisplay) -> Option<TrackRowMenuVm> {
+        let track_id: i64 = row.id.parse().ok()?;
+        let album = self.album_for_track_id(track_id)?;
+        let track = album.tracks.iter().find(|track| track.id == track_id)?;
+        let work = self.busy.track_row_work(album, track);
+        content_list_track_menu(&row.id, row.title(), track, work, row.readiness_state)
+    }
+
+    /// The work in progress on each Library track that has work, by track
+    /// id (ADR 0083 task 007). The playlist page reads it one time for each
+    /// render. A track that is absent has no work.
+    #[must_use]
+    pub(crate) fn library_track_works(&self) -> BTreeMap<i64, TrackRowWork> {
+        self.snapshot
+            .tree
+            .artists
+            .iter()
+            .flat_map(|artist| artist.albums.iter())
+            .flat_map(|album| {
+                album
+                    .tracks
+                    .iter()
+                    .map(move |track| (track.id, self.busy.track_row_work(album, track)))
+            })
+            .filter(|(_, work)| *work != TrackRowWork::Idle)
+            .collect()
+    }
+
+    /// The track key of the Library track `track_id`, when the tree holds
+    /// it. "Inspect sources" of a list row opens this track page.
+    #[must_use]
+    pub(crate) fn library_track_key(&self, track_id: i64) -> Option<TrackKey> {
+        self.album_for_track_id(track_id)?
+            .tracks
+            .iter()
+            .find(|track| track.id == track_id)
+            .map(TrackRow::track_key)
     }
 
     /// The action bar of the Tracks or Needs attention list selection
@@ -4908,15 +4997,34 @@ pub(crate) struct PlaylistTrackRowVm<'a> {
     track: &'a TrackRow,
     position: usize,
     last_position: usize,
+    /// The work in progress on the track. The host gives it from
+    /// [`BusyItems`] (ADR 0083 task 007).
+    work: TrackRowWork,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct PlaylistTrackMenuItemDisplay {
-    pub(crate) id: String,
-    pub(crate) label: &'static str,
-    pub(crate) a11y_label: &'static str,
-    pub(crate) destructive: bool,
-    pub(crate) disabled: bool,
+/// The "Add to playlist" choices of a playlist row: each playlist but the
+/// open playlist (ADR 0083 task 007, decision D8). The bar of packet 025
+/// uses the same rule.
+#[must_use]
+pub(crate) fn playlist_row_add_choices(
+    playlists: &[db::Playlist],
+    open_playlist_id: i64,
+) -> Vec<crate::view_models::PlaylistOptionDisplayVm> {
+    crate::view_models::playlist_option_displays(playlists)
+        .into_iter()
+        .filter(|option| option.id != open_playlist_id)
+        .collect()
+}
+
+/// When a row cell shows (ADR 0083 Decision 6). A hidden cell keeps its
+/// width.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RowCellVisibility {
+    /// The cell shows at all times.
+    Always,
+    /// The cell shows on a hover of the row and on the keyboard focus of
+    /// the row.
+    OnHover,
 }
 
 /// What the playlist row's play control shows (ADR 0083 Decision 10).
@@ -4948,20 +5056,21 @@ pub(crate) struct PlaylistTrackControlsDisplay {
     pub(crate) row_body_id: String,
     pub(crate) drag_handle_id: String,
     pub(crate) drag_handle_a11y_label: &'static str,
-    pub(crate) actions_menu_id: String,
-    pub(crate) actions_menu_a11y_label: &'static str,
     pub(crate) play_button_id: String,
     pub(crate) play_affordance: PlaylistPlayAffordance,
     pub(crate) play_a11y_label: &'static str,
     pub(crate) play_enabled: bool,
-    pub(crate) move_up_menu_item: PlaylistTrackMenuItemDisplay,
-    pub(crate) move_down_menu_item: PlaylistTrackMenuItemDisplay,
-    pub(crate) remove_menu_item: PlaylistTrackMenuItemDisplay,
+    /// When the play cell shows. "Repair playback" shows at all times,
+    /// and the Play icon shows on hover (ADR 0083 task 007, decision D4).
+    pub(crate) play_visibility: RowCellVisibility,
+    /// The "⋯" menu and the right-click menu of the row (ADR 0083 task
+    /// 007, decision D5). `None` in selection mode.
+    pub(crate) menu: Option<TrackRowMenuVm>,
     /// The id of the row checkbox of selection mode (packet 025).
     pub(crate) checkbox_id: String,
-    /// The drag handle, the drop target and the row menu show (ADR 0084
-    /// Decision 10, packet 025). True in `Normal` only. In `Selecting`,
-    /// the checkbox takes the place of the drag handle.
+    /// The drag handle and the drop target show (ADR 0084 Decision 10,
+    /// packet 025). True in `Normal` only. In `Selecting`, the checkbox
+    /// takes the place of the drag handle.
     pub(crate) reorder_visible: bool,
 }
 
@@ -4986,10 +5095,13 @@ pub(crate) struct PlaylistTrackRowDisplay {
 impl PlaylistTrackRowDisplay {
     /// Applies the selection facts of the row (packet 025). In
     /// `Selecting`, the checkbox shows, and the drag handle, the drop
-    /// target and the row menu hide.
+    /// target and the row menu hide (ADR 0083 task 007, decision D12).
     #[must_use]
     pub(crate) fn with_selection(mut self, selection: RowSelectionVm) -> Self {
         self.controls.reorder_visible = !selection.checkbox_visible;
+        if selection.checkbox_visible {
+            self.controls.menu = None;
+        }
         self.selection = selection;
         self
     }
@@ -5060,6 +5172,9 @@ impl<'a> PlaylistTrackRowVm<'a> {
         if display.controls.play_enabled && availability.is_err() {
             display.controls.play_affordance = PlaylistPlayAffordance::RepairPlayback;
             display.controls.play_a11y_label = "Repair playback for this playlist track";
+            // ADR 0083 task 007, decision D4: "Repair playback" tells the
+            // operator that playback does not work, so it always shows.
+            display.controls.play_visibility = RowCellVisibility::Always;
         }
         display
     }
@@ -5076,7 +5191,16 @@ impl<'a> PlaylistTrackRowVm<'a> {
             track,
             position,
             last_position,
+            work: TrackRowWork::Idle,
         }
+    }
+
+    /// The row with the work in progress on its track (ADR 0083 task 007).
+    /// The work selects "Download" and "Remove from Library…" of the menu.
+    #[must_use]
+    pub(crate) const fn with_work(mut self, work: TrackRowWork) -> Self {
+        self.work = work;
+        self
     }
 
     #[must_use]
@@ -5169,36 +5293,37 @@ impl<'a> PlaylistTrackRowVm<'a> {
             row_body_id: format!("playlist-row-body-{playlist_id}-{position}"),
             drag_handle_id: format!("playlist-drag-handle-{playlist_id}-{position}"),
             drag_handle_a11y_label: "Drag to reorder playlist track",
-            actions_menu_id: format!("playlist-actions-{playlist_id}-{position}"),
-            actions_menu_a11y_label: "Playlist track actions",
             play_button_id: format!("playlist-play-{playlist_id}-{position}"),
             play_affordance: PlaylistPlayAffordance::Play,
             play_a11y_label: "Play this playlist track",
             play_enabled: self.can_play(),
-            move_up_menu_item: PlaylistTrackMenuItemDisplay {
-                id: format!("playlist-move-up-{playlist_id}-{position}"),
-                label: "Move Up",
-                a11y_label: "Move track up",
-                destructive: false,
-                disabled: !self.can_move_up(),
-            },
-            move_down_menu_item: PlaylistTrackMenuItemDisplay {
-                id: format!("playlist-move-down-{playlist_id}-{position}"),
-                label: "Move Down",
-                a11y_label: "Move track down",
-                destructive: false,
-                disabled: !self.can_move_down(),
-            },
-            remove_menu_item: PlaylistTrackMenuItemDisplay {
-                id: format!("playlist-remove-{playlist_id}-{position}"),
-                label: "Remove",
-                a11y_label: "Remove track from playlist",
-                destructive: true,
-                disabled: false,
-            },
+            play_visibility: RowCellVisibility::OnHover,
+            menu: self.menu(playlist_id),
             checkbox_id: format!("playlist-checkbox-{playlist_id}-{position}"),
             reorder_visible: true,
         }
+    }
+
+    /// The row menu in the order of ADR 0083 task 007 decision D5. An item
+    /// that cannot act is absent. "Remove from playlist" is not
+    /// destructive (decision D6). "Remove from Library…" is last and
+    /// destructive (decision D7).
+    fn menu(&self, playlist_id: i64) -> Option<TrackRowMenuVm> {
+        let row_id = format!("playlist-actions-{playlist_id}-{}", self.position);
+        let title = self.title();
+        let availability = LibraryTrackMenuAvailability::of(self.track, self.work);
+        TrackRowMenuVm::project(&TrackRowMenuFacts {
+            add_to_playlist: true,
+            download: availability.download,
+            inspect_sources: true,
+            move_up: self.can_move_up(),
+            move_down: self.can_move_down(),
+            remove_from_playlist: true,
+            remove: availability
+                .remove
+                .then_some(TrackRowRemoveLabel::RemoveFromLibrary),
+            ..TrackRowMenuFacts::new(&row_id, &title, false)
+        })
     }
 
     #[must_use]
@@ -5391,11 +5516,7 @@ impl<'a> PlaylistDetailVm<'a> {
         let last_position = self.tracks.len().saturating_sub(1);
         self.visible_tracks()
             .into_iter()
-            .map(|(position, track)| PlaylistTrackRowVm {
-                track,
-                position,
-                last_position,
-            })
+            .map(|(position, track)| PlaylistTrackRowVm::new(track, position, last_position))
             .collect()
     }
 
@@ -6840,6 +6961,7 @@ mod tests {
         let mut restored = unavailable;
         restored.controls.play_affordance = ready.controls.play_affordance;
         restored.controls.play_a11y_label = ready.controls.play_a11y_label;
+        restored.controls.play_visibility = ready.controls.play_visibility;
         assert_eq!(restored, ready);
     }
 
@@ -6857,24 +6979,35 @@ mod tests {
         assert!(!rows[2].can_move_down());
     }
 
+    fn playlist_menu_actions(
+        controls: &PlaylistTrackControlsDisplay,
+    ) -> Vec<crate::view_models::release_page::TrackRowMenuAction> {
+        controls
+            .menu
+            .as_ref()
+            .map(|menu| menu.items.iter().map(|item| item.action).collect())
+            .unwrap_or_default()
+    }
+
     #[test]
     fn playlist_track_row_vm_reorder_menu_availability_tracks_boundaries() {
+        use crate::view_models::release_page::TrackRowMenuAction::{MoveDown, MoveUp};
         let pl = playlist("Mix");
         let tracks = [row(), row(), row()];
         let vm = PlaylistDetailVm::new(&pl, &tracks);
         let rows = vm.track_rows();
 
-        let first = rows[0].controls_display(pl.id);
-        assert!(first.move_up_menu_item.disabled);
-        assert!(!first.move_down_menu_item.disabled);
+        let first = playlist_menu_actions(&rows[0].controls_display(pl.id));
+        assert!(!first.contains(&MoveUp));
+        assert!(first.contains(&MoveDown));
 
-        let middle = rows[1].controls_display(pl.id);
-        assert!(!middle.move_up_menu_item.disabled);
-        assert!(!middle.move_down_menu_item.disabled);
+        let middle = playlist_menu_actions(&rows[1].controls_display(pl.id));
+        assert!(middle.contains(&MoveUp));
+        assert!(middle.contains(&MoveDown));
 
-        let last = rows[2].controls_display(pl.id);
-        assert!(!last.move_up_menu_item.disabled);
-        assert!(last.move_down_menu_item.disabled);
+        let last = playlist_menu_actions(&rows[2].controls_display(pl.id));
+        assert!(last.contains(&MoveUp));
+        assert!(!last.contains(&MoveDown));
     }
 
     #[test]
@@ -6890,49 +7023,29 @@ mod tests {
         let vm = PlaylistDetailVm::new(&pl, &tracks);
         let rows = vm.track_rows();
 
+        let controls = rows[0].controls_display(7);
+        assert_eq!(controls.row_id, "playlist-track-42-0");
+        assert_eq!(controls.row_body_id, "playlist-row-body-7-0");
+        assert_eq!(controls.drag_handle_id, "playlist-drag-handle-7-0");
         assert_eq!(
-            rows[0].controls_display(7),
-            PlaylistTrackControlsDisplay {
-                row_id: "playlist-track-42-0".into(),
-                row_body_id: "playlist-row-body-7-0".into(),
-                drag_handle_id: "playlist-drag-handle-7-0".into(),
-                drag_handle_a11y_label: "Drag to reorder playlist track",
-                actions_menu_id: "playlist-actions-7-0".into(),
-                actions_menu_a11y_label: "Playlist track actions",
-                play_button_id: "playlist-play-7-0".into(),
-                play_affordance: PlaylistPlayAffordance::Play,
-                play_a11y_label: "Play this playlist track",
-                play_enabled: true,
-                move_up_menu_item: PlaylistTrackMenuItemDisplay {
-                    id: "playlist-move-up-7-0".into(),
-                    label: "Move Up",
-                    a11y_label: "Move track up",
-                    destructive: false,
-                    disabled: true,
-                },
-                move_down_menu_item: PlaylistTrackMenuItemDisplay {
-                    id: "playlist-move-down-7-0".into(),
-                    label: "Move Down",
-                    a11y_label: "Move track down",
-                    destructive: false,
-                    disabled: false,
-                },
-                remove_menu_item: PlaylistTrackMenuItemDisplay {
-                    id: "playlist-remove-7-0".into(),
-                    label: "Remove",
-                    a11y_label: "Remove track from playlist",
-                    destructive: true,
-                    disabled: false,
-                },
-                checkbox_id: "playlist-checkbox-7-0".into(),
-                reorder_visible: true,
-            }
+            controls.drag_handle_a11y_label,
+            "Drag to reorder playlist track"
         );
+        assert_eq!(controls.play_button_id, "playlist-play-7-0");
+        assert_eq!(controls.play_affordance, PlaylistPlayAffordance::Play);
+        assert_eq!(controls.play_a11y_label, "Play this playlist track");
+        assert!(controls.play_enabled);
+        assert_eq!(controls.play_visibility, RowCellVisibility::OnHover);
+        assert_eq!(controls.checkbox_id, "playlist-checkbox-7-0");
+        assert!(controls.reorder_visible);
+        let menu = controls.menu.expect("a row in Normal has a menu");
+        assert_eq!(menu.id, "playlist-actions-7-0-menu");
 
         let second = rows[1].controls_display(7);
         assert!(!second.play_enabled);
-        assert!(!second.move_up_menu_item.disabled);
-        assert!(second.move_down_menu_item.disabled);
+        let actions = playlist_menu_actions(&second);
+        assert!(actions.contains(&crate::view_models::release_page::TrackRowMenuAction::MoveUp));
+        assert!(!actions.contains(&crate::view_models::release_page::TrackRowMenuAction::MoveDown));
     }
 
     #[test]
@@ -6949,7 +7062,8 @@ mod tests {
         t.local_path = Some(crate::library_path::LibraryRelativePath::for_test("x"));
         let tracks = [t, row()];
         let vm = PlaylistDetailVm::new(&pl, &tracks);
-        let display = vm.track_rows()[0].display(pl.id);
+        let rows = vm.track_rows();
+        let display = rows[0].display(pl.id);
 
         assert_eq!(
             display,
@@ -6963,41 +7077,7 @@ mod tests {
                 removed_from_feed: None,
                 duration_label: "2:05".into(),
                 thumb_url: Some("track".into()),
-                controls: PlaylistTrackControlsDisplay {
-                    row_id: "playlist-track-42-0".into(),
-                    row_body_id: "playlist-row-body-7-0".into(),
-                    drag_handle_id: "playlist-drag-handle-7-0".into(),
-                    drag_handle_a11y_label: "Drag to reorder playlist track",
-                    actions_menu_id: "playlist-actions-7-0".into(),
-                    actions_menu_a11y_label: "Playlist track actions",
-                    play_button_id: "playlist-play-7-0".into(),
-                    play_affordance: PlaylistPlayAffordance::Play,
-                    play_a11y_label: "Play this playlist track",
-                    play_enabled: true,
-                    move_up_menu_item: PlaylistTrackMenuItemDisplay {
-                        id: "playlist-move-up-7-0".into(),
-                        label: "Move Up",
-                        a11y_label: "Move track up",
-                        destructive: false,
-                        disabled: true,
-                    },
-                    move_down_menu_item: PlaylistTrackMenuItemDisplay {
-                        id: "playlist-move-down-7-0".into(),
-                        label: "Move Down",
-                        a11y_label: "Move track down",
-                        destructive: false,
-                        disabled: false,
-                    },
-                    remove_menu_item: PlaylistTrackMenuItemDisplay {
-                        id: "playlist-remove-7-0".into(),
-                        label: "Remove",
-                        a11y_label: "Remove track from playlist",
-                        destructive: true,
-                        disabled: false,
-                    },
-                    checkbox_id: "playlist-checkbox-7-0".into(),
-                    reorder_visible: true,
-                },
+                controls: rows[0].controls_display(pl.id),
                 selection: RowSelectionVm::none(),
             }
         );
@@ -7275,6 +7355,368 @@ mod tests {
         );
     }
 
+    // ADR 0083 task 007: the list and playlist row actions.
+
+    fn menu_items(
+        menu: Option<&TrackRowMenuVm>,
+    ) -> Vec<crate::view_models::release_page::TrackRowMenuAction> {
+        menu.map(|menu| menu.items.iter().map(|item| item.action).collect())
+            .unwrap_or_default()
+    }
+
+    fn downloaded_track(id: i64, title: &str) -> TrackRow {
+        let mut track = row();
+        track.id = id;
+        track.track_title = Some(title.into());
+        track.is_in_library = true;
+        track.local_path = Some(crate::library_path::LibraryRelativePath::for_test("x"));
+        track
+    }
+
+    const ALL_WORK: [TrackRowWork; 4] = [
+        TrackRowWork::Idle,
+        TrackRowWork::Queued,
+        TrackRowWork::Downloading,
+        TrackRowWork::Removing,
+    ];
+
+    /// R83-7-01 (ADR 0083 Decision 6, task 007 decision D5): a downloaded
+    /// idle track in the middle of a playlist gives each item in order.
+    #[test]
+    fn adr_0083_list_row_actions_r83_7_01_playlist_menu_order() {
+        use crate::view_models::release_page::TrackRowMenuAction::{
+            AddToPlaylist, InspectSources, MoveDown, MoveUp, Remove, RemoveFromPlaylist,
+        };
+        let track = downloaded_track(42, "Face Pale");
+        let controls = PlaylistTrackRowVm::new(&track, 1, 2).controls_display(7);
+        assert_eq!(
+            menu_items(controls.menu.as_ref()),
+            vec![
+                AddToPlaylist,
+                InspectSources,
+                MoveUp,
+                MoveDown,
+                RemoveFromPlaylist,
+                Remove
+            ]
+        );
+        let labels: Vec<_> = controls
+            .menu
+            .expect("a row in Normal has a menu")
+            .items
+            .iter()
+            .map(|item| item.label)
+            .collect();
+        assert_eq!(
+            labels,
+            vec![
+                "Add to playlist",
+                "Inspect sources",
+                "Move up",
+                "Move down",
+                "Remove from playlist",
+                "Remove from Library\u{2026}",
+            ]
+        );
+    }
+
+    /// R83-7-02 (decision D5): the first row has no "Move up", the last row
+    /// has no "Move down", and a track that is not downloaded gives
+    /// "Download" and no "Remove from Library…".
+    #[test]
+    fn adr_0083_list_row_actions_r83_7_02_playlist_menu_absent_items() {
+        use crate::view_models::release_page::TrackRowMenuAction::{
+            Download, MoveDown, MoveUp, Remove,
+        };
+        let track = downloaded_track(42, "Face Pale");
+        let first = menu_items(
+            PlaylistTrackRowVm::new(&track, 0, 2)
+                .controls_display(7)
+                .menu
+                .as_ref(),
+        );
+        assert!(!first.contains(&MoveUp));
+        assert!(first.contains(&MoveDown));
+        let last = menu_items(
+            PlaylistTrackRowVm::new(&track, 2, 2)
+                .controls_display(7)
+                .menu
+                .as_ref(),
+        );
+        assert!(last.contains(&MoveUp));
+        assert!(!last.contains(&MoveDown));
+
+        let mut remote = row();
+        remote.id = 43;
+        remote.track_title = Some("Remote".into());
+        let remote = menu_items(
+            PlaylistTrackRowVm::new(&remote, 1, 2)
+                .controls_display(7)
+                .menu
+                .as_ref(),
+        );
+        assert!(remote.contains(&Download));
+        assert!(!remote.contains(&Remove));
+    }
+
+    /// R83-7-03 (decisions D6 and D7): "Remove from playlist" is not
+    /// destructive. "Remove from Library…" is last and destructive, and
+    /// its accessibility label names the track.
+    #[test]
+    fn adr_0083_list_row_actions_r83_7_03_remove_items() {
+        use crate::view_models::release_page::TrackRowMenuAction::{Remove, RemoveFromPlaylist};
+        let track = downloaded_track(42, "Face Pale");
+        let menu = PlaylistTrackRowVm::new(&track, 1, 2)
+            .controls_display(7)
+            .menu
+            .expect("a row in Normal has a menu");
+        let from_playlist = menu
+            .items
+            .iter()
+            .find(|item| item.action == RemoveFromPlaylist)
+            .expect("\"Remove from playlist\" shows");
+        assert!(!from_playlist.destructive);
+        assert!(!from_playlist.label.ends_with('\u{2026}'));
+        let last = menu.items.last().expect("the menu has items");
+        assert_eq!(last.action, Remove);
+        assert!(last.destructive);
+        assert!(last.label.ends_with('\u{2026}'));
+        assert_eq!(last.a11y_label, "Remove Face Pale from the Library\u{2026}");
+        assert_eq!(
+            menu.items.iter().filter(|item| item.destructive).count(),
+            1,
+            "only \"Remove from Library…\" is destructive"
+        );
+    }
+
+    /// R83-7-04 (decision D7): "Remove from Library…" and "Download" are
+    /// absent while a job or a removal runs.
+    #[test]
+    fn adr_0083_list_row_actions_r83_7_04_work_hides_download_and_remove() {
+        use crate::view_models::release_page::TrackRowMenuAction::{Download, Remove};
+        let downloaded = downloaded_track(42, "Face Pale");
+        let mut remote = row();
+        remote.id = 43;
+        for work in [
+            TrackRowWork::Queued,
+            TrackRowWork::Downloading,
+            TrackRowWork::Removing,
+        ] {
+            for track in [&downloaded, &remote] {
+                let items = menu_items(
+                    PlaylistTrackRowVm::new(track, 1, 2)
+                        .with_work(work)
+                        .controls_display(7)
+                        .menu
+                        .as_ref(),
+                );
+                assert!(!items.contains(&Download), "{work:?}");
+                assert!(!items.contains(&Remove), "{work:?}");
+            }
+        }
+    }
+
+    /// R83-7-05 (decision D8): the "Add to playlist" choices of a playlist
+    /// row do not hold the open playlist.
+    #[test]
+    fn adr_0083_list_row_actions_r83_7_05_choices_leave_out_open_playlist() {
+        let mut open = playlist("Open");
+        open.id = 7;
+        let mut other = playlist("Other");
+        other.id = 8;
+        let ids: Vec<_> = playlist_row_add_choices(&[open, other], 7)
+            .into_iter()
+            .map(|option| option.id)
+            .collect();
+        assert_eq!(ids, vec![8]);
+    }
+
+    /// R83-7-06 (decision D4): "Repair playback" shows at all times, and
+    /// the Play icon shows on hover.
+    #[test]
+    fn adr_0083_list_row_actions_r83_7_06_play_visibility() {
+        let track = downloaded_track(42, "Face Pale");
+        let vm = PlaylistTrackRowVm::new(&track, 0, 1);
+        let ready = vm.display_with_playback(7, Ok(()));
+        assert_eq!(ready.controls.play_affordance, PlaylistPlayAffordance::Play);
+        assert_eq!(ready.controls.play_visibility, RowCellVisibility::OnHover);
+        let repair = vm.display_with_playback(
+            7,
+            Err(
+                crate::application::capability::ExecutionUnavailable::configured(
+                    crate::application::capability::Dependency::Playback,
+                ),
+            ),
+        );
+        assert_eq!(
+            repair.controls.play_affordance,
+            PlaylistPlayAffordance::RepairPlayback
+        );
+        assert_eq!(repair.controls.play_visibility, RowCellVisibility::Always);
+    }
+
+    /// R83-7-07 (decision D12): in `Selecting`, the playlist row has no
+    /// menu and no drag handle. In `Normal`, it has a menu.
+    #[test]
+    fn adr_0083_list_row_actions_r83_7_07_selection_mode_hides_the_menu() {
+        let track = downloaded_track(42, "Face Pale");
+        let display = || PlaylistTrackRowVm::new(&track, 0, 1).display(7);
+        let selecting =
+            display().with_selection(RowSelectionVm::for_row("Face Pale", true, false, true));
+        assert!(selecting.controls.menu.is_none());
+        assert!(!selecting.controls.reorder_visible);
+        let normal =
+            display().with_selection(RowSelectionVm::for_row("Face Pale", false, false, false));
+        assert!(normal.controls.menu.is_some());
+        assert!(normal.controls.reorder_visible);
+    }
+
+    /// R83-7-08 (decision D9): a Tracks list row gives the items of task
+    /// 006 decision D2 for each pair of `is_in_library` and the work. A row
+    /// with no track key gives no menu.
+    #[test]
+    fn adr_0083_list_row_actions_r83_7_08_tracks_list_menu() {
+        use crate::view_models::release_page::TrackRowMenuAction::{
+            AddToPlaylist, Download, InspectSources, Remove,
+        };
+        for in_library in [true, false] {
+            for work in ALL_WORK {
+                let mut track = downloaded_track(42, "Face Pale");
+                track.is_in_library = in_library;
+                let menu = content_list_track_menu("42", "Face Pale", &track, work, None);
+                let idle = work == TrackRowWork::Idle;
+                let mut expected = vec![AddToPlaylist];
+                if !in_library && idle {
+                    expected.push(Download);
+                }
+                expected.push(InspectSources);
+                if in_library && idle {
+                    expected.push(Remove);
+                }
+                assert_eq!(
+                    menu_items(menu.as_ref()),
+                    expected,
+                    "in_library {in_library}, {work:?}"
+                );
+                if let Some(remove) = menu
+                    .iter()
+                    .flat_map(|menu| &menu.items)
+                    .find(|item| item.action == Remove)
+                {
+                    assert_eq!(remove.label, "Remove\u{2026}");
+                    assert!(remove.destructive);
+                }
+            }
+        }
+
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+        vm.content_list_page = ContentListPageVm::new(vec![
+            ContentListRowDisplay::from_track(&vm.tree().artists[0].albums[0].tracks[0]),
+            ContentListRowDisplay::from_release_result(release_result(
+                "index-feed:saw-guid",
+                "Release",
+                SearchResultOrigin::Index,
+            )),
+        ]);
+        let rows =
+            vm.content_list_rows_with_selection(&ListSelection::new(), SelectionMode::Normal);
+        assert!(rows[0].menu.is_some(), "a Library track row has a menu");
+        assert!(
+            rows[1].menu.is_none(),
+            "a row with no track key has no menu"
+        );
+        assert!(rows.iter().all(|row| row.fix.is_none()));
+    }
+
+    /// R83-7-09 (decision D10): each Needs attention row gives its one fix
+    /// and its menu. The menu never holds a fix.
+    #[test]
+    fn adr_0083_list_row_actions_r83_7_09_needs_attention_fix_and_menu() {
+        use crate::application::queries::broadcast::BroadcastReadinessState as State;
+        use crate::view_models::release_page::TrackRowMenuAction::{InspectSources, Remove};
+        let track = downloaded_track(9, "Gone Song");
+        for state in [
+            State::Ready,
+            State::NoRouteTag,
+            State::NoRoutesUpstream,
+            State::NotDownloaded,
+            State::FileMissing,
+            State::RouteOutOfDate,
+            State::RemovedFromFeed,
+        ] {
+            let row = ContentListRowDisplay::from_broadcast_readiness_track(
+                &broadcast_readiness_track(9, "Gone Song", state, "Reason."),
+                false,
+            );
+            let fix = row.fix.as_ref().map(|fix| (fix.kind, fix.label.as_str()));
+            let expected_fix = match state {
+                State::NoRouteTag => Some((
+                    ContentListRowActionKind::RepairBroadcastRoutes { track_id: 9 },
+                    "Fix routes",
+                )),
+                State::RemovedFromFeed => Some((
+                    ContentListRowActionKind::ConfirmRemovedFromFeed { track_id: 9 },
+                    "Confirm",
+                )),
+                _ => None,
+            };
+            assert_eq!(fix, expected_fix, "{state:?}");
+
+            let menu = content_list_track_menu(
+                &row.id,
+                row.title(),
+                &track,
+                TrackRowWork::Idle,
+                Some(state),
+            );
+            let expected_menu = if state == State::RemovedFromFeed {
+                vec![InspectSources, Remove]
+            } else {
+                vec![InspectSources]
+            };
+            assert_eq!(menu_items(menu.as_ref()), expected_menu, "{state:?}");
+            if let Some(remove) = menu
+                .iter()
+                .flat_map(|menu| &menu.items)
+                .find(|item| item.action == Remove)
+            {
+                assert_eq!(remove.label, "Remove from Library\u{2026}");
+                assert!(remove.destructive);
+            }
+        }
+    }
+
+    /// R83-7-11 (decision D12): in `Selecting`, each Tracks and Needs
+    /// attention row has no menu and no fix.
+    #[test]
+    fn adr_0083_list_row_actions_r83_7_11_selection_mode_hides_menu_and_fix() {
+        use crate::application::queries::broadcast::BroadcastReadinessState as State;
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+        let rhubarb = vm.tree().artists[0].albums[0].tracks[0].clone();
+        let cliffs = vm.tree().artists[0].albums[0].tracks[1].clone();
+        let mut needs_attention = ContentListRowDisplay::from_broadcast_readiness_track(
+            &broadcast_readiness_track(cliffs.id, "Cliffs", State::NoRouteTag, "Reason."),
+            false,
+        );
+        needs_attention.source = ContentListRowSource::Library;
+        vm.content_list_page = ContentListPageVm::new(vec![
+            ContentListRowDisplay::from_track(&rhubarb),
+            needs_attention,
+        ]);
+        let normal =
+            vm.content_list_rows_with_selection(&ListSelection::new(), SelectionMode::Normal);
+        assert!(normal.iter().all(|row| row.menu.is_some()));
+        assert!(normal[1].fix.is_some());
+        let selecting =
+            vm.content_list_rows_with_selection(&ListSelection::new(), SelectionMode::Selecting);
+        for row in &selecting {
+            assert!(row.menu.is_none(), "{}", row.id);
+            assert!(row.fix.is_none(), "{}", row.id);
+        }
+    }
+
     #[test]
     fn library_view_model_starts_with_default_sort() {
         let vm = LibraryViewModel::new();
@@ -7346,11 +7788,11 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].title(), "Missing Routes");
         assert_eq!(rows[0].state_label, Some("Missing routes"));
-        assert!(!rows[0].actions.is_empty());
+        assert!(rows[0].fix.is_some());
         assert!(!rows[0].accepts_row_click());
         assert_eq!(rows[1].title(), "Missing File");
         assert_eq!(rows[1].state_label, Some("Missing file"));
-        assert!(rows[1].actions.is_empty());
+        assert!(rows[1].fix.is_none());
         assert!(!rows[1].accepts_row_click());
     }
 
@@ -7367,8 +7809,8 @@ mod tests {
         );
 
         let action = row
-            .actions
-            .first()
+            .fix
+            .as_ref()
             .expect("NoRouteTag row carries a repair action");
         assert_eq!(
             action.kind,
@@ -7381,10 +7823,12 @@ mod tests {
         assert!(!row.accepts_row_click());
     }
 
-    /// R3-10 and R3-12: the row of a removed track exposes a typed confirm
-    /// action and a typed "Remove from library" action, each with an
-    /// accessibility label. The row of a `RouteOutOfDate` track exposes no
-    /// repair action, and it names the "Update n file(s)" button.
+    /// R3-10: the row of a removed track exposes a typed confirm action
+    /// with an accessibility label. ADR 0083 task 007, decision D10: the
+    /// confirm action is the one fix button, and "Remove from Library…"
+    /// is an item of the row menu. The row of a `RouteOutOfDate` track
+    /// exposes no repair action, and it names the "Update n file(s)"
+    /// button.
     #[test]
     fn adr_0076_route_readiness_rows_expose_confirm_and_no_repair() {
         use crate::application::queries::broadcast::BroadcastReadinessState;
@@ -7399,7 +7843,7 @@ mod tests {
             false,
         );
         assert_eq!(removed.state_label, Some("Removed from feed"));
-        let confirm = removed.actions.first().expect("confirm action");
+        let confirm = removed.fix.as_ref().expect("confirm action");
         assert_eq!(
             confirm.kind,
             ContentListRowActionKind::ConfirmRemovedFromFeed { track_id: 9 }
@@ -7411,17 +7855,6 @@ mod tests {
             "Confirm that the show plays Gone Song, which was removed from its feed"
         );
         assert!(!confirm.disabled());
-        // R3-12: the second action is "Remove from library".
-        assert_eq!(removed.actions.len(), 2);
-        let remove = &removed.actions[1];
-        assert_eq!(
-            remove.kind,
-            ContentListRowActionKind::RemoveFromLibrary { track_id: 9 }
-        );
-        assert_eq!(remove.id, "broadcast-readiness-remove-from-library-9");
-        assert_eq!(remove.label, "Remove from library");
-        assert_eq!(remove.a11y_label, "Remove Gone Song from the library");
-        assert!(!remove.disabled());
         assert!(removed
             .secondary_text()
             .contains("Removed from feed on 2026-09-24"));
@@ -7437,7 +7870,7 @@ mod tests {
             false,
         );
         assert_eq!(old.state_label, Some("Route out of date"));
-        assert!(old.actions.is_empty());
+        assert!(old.fix.is_none());
         assert!(old
             .secondary_text()
             .contains("Payment route in file is out of date."));
@@ -7457,7 +7890,7 @@ mod tests {
         );
 
         assert_eq!(row.state_label, Some("No upstream routes"));
-        assert!(row.actions.is_empty());
+        assert!(row.fix.is_none());
         assert!(
             row.secondary_text()
                 .contains("The feed owner must add payment routes."),
@@ -7491,11 +7924,9 @@ mod tests {
 
         let rows = vm.content_list_page.visible_rows();
         assert_eq!(rows[0].state_label, Some("Repairing routes"));
-        let action = rows[0]
-            .actions
-            .first()
-            .expect("repair action remains visible");
-        assert_eq!(action.label, "Fixing...");
+        let action = rows[0].fix.as_ref().expect("repair action remains visible");
+        // ADR 0083 task 007, decision D11: the working label.
+        assert_eq!(action.label, "Repairing\u{2026}");
         assert!(action.disabled());
         assert_eq!(vm.status(), "Repairing payment routes for track 7...");
         assert!(

@@ -16,29 +16,41 @@
 //! click of packet 018, and the page scrolls with the held detail column
 //! handle.
 //!
+//! ADR 0083 task 007: each row has a "⋯" menu and the same right-click
+//! menu. The right-click menu gives the focus back to the detail column.
+//!
 //! [`PagedTrackListActor`]: crate::application::paged_track_list::PagedTrackListActor
 
 #![warn(clippy::pedantic)]
 
 use std::collections::BTreeMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{AnyElement, ClickEvent, Context, Entity, Image, ScrollHandle};
+use gpui::{
+    AnyElement, App, ClickEvent, Context, Entity, FocusHandle, Image, ScrollHandle, Window,
+};
 use gpui_component::input::InputState;
 
 use crate::application::capability::ExecutionUnavailable;
-use crate::db::{PlaylistEntryKey, TrackRow};
+use crate::db::{self, PlaylistEntryKey, TrackRow};
 use crate::library::PlaylistActorState;
 use crate::library::{LibraryApp, LibraryAppEvent, PlaylistDetail};
 use crate::runtime::PlaylistRssCheckSnapshot;
-use crate::ui::composites::CollectionArtImage;
+use crate::ui::composites::list_row::RowMenu;
+use crate::ui::composites::{
+    CollectionArtImage, PlaylistOption, PlaylistOptionDisplay, TrackRowMenuHandlers,
+};
 use crate::ui::shells::library::detail::DetailRowSlot;
 use crate::ui::shells::library::thumbnail::render_album_thumb;
 use crate::ui::shells::playlist::{
     click_slot, command_slot, render_playlist_detail_shell, reorder_slot,
     PlaylistDetailBehaviorSlots, PlaylistShellReadyRow, PlaylistShellRow, PlaylistTrackRowSlot,
 };
-use crate::view_models::library::{LibraryChromeDisplay, PlaylistDetailVm, PlaylistTrackRowVm};
+use crate::view_models::library::{
+    playlist_row_add_choices, LibraryChromeDisplay, PlaylistDetailVm, PlaylistTrackRowVm,
+    TrackRowWork,
+};
 use crate::view_models::playlist_detail::PlaylistDetailPageVm;
 use crate::view_models::playlist_rss_check::removed_from_feed_row;
 use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
@@ -59,6 +71,14 @@ pub(crate) struct LibraryPlaylistPage<'a> {
     pub(crate) row_slots: Vec<DetailRowSlot>,
     /// The held scroll handle of the detail column.
     pub(crate) scroll: &'a ScrollHandle,
+    /// Each playlist, for the "Add to playlist" level of the row menu.
+    pub(crate) playlists: &'a [db::Playlist],
+    /// The work in progress on each Library track that has work (ADR 0083
+    /// task 007).
+    pub(crate) track_works: BTreeMap<i64, TrackRowWork>,
+    /// The focus that the right-click menu of a row gives back (decision
+    /// D15).
+    pub(crate) detail_focus: &'a FocusHandle,
 }
 
 /// The facts that each row of one render shares.
@@ -68,6 +88,16 @@ struct PlaylistRowContext<'a> {
     album_thumbs: &'a BTreeMap<String, Option<Arc<Image>>>,
     playback_availability: Result<(), ExecutionUnavailable>,
     playlist_rss_check: Option<&'a PlaylistRssCheckSnapshot>,
+    menu: &'a PlaylistRowMenuContext<'a>,
+}
+
+/// The facts of the row menus that each row of one render shares (ADR
+/// 0083 task 007).
+struct PlaylistRowMenuContext<'a> {
+    /// The playlist choices, with no open playlist (decision D8).
+    playlists: Rc<Vec<PlaylistOption>>,
+    track_works: &'a BTreeMap<i64, TrackRowWork>,
+    detail_focus: FocusHandle,
 }
 
 pub(crate) fn render_library_playlist_detail(
@@ -85,8 +115,27 @@ pub(crate) fn render_library_playlist_detail(
         playlist_rss_check,
         row_slots,
         scroll,
+        playlists,
+        track_works,
+        detail_focus,
     } = input;
     let playlist_id = detail.playlist.id;
+    let menu = PlaylistRowMenuContext {
+        playlists: Rc::new(
+            playlist_row_add_choices(playlists, playlist_id)
+                .into_iter()
+                .map(|option| {
+                    PlaylistOption::new(PlaylistOptionDisplay {
+                        id: option.id,
+                        name: option.name.into(),
+                        a11y_label: option.a11y_label.into(),
+                    })
+                })
+                .collect(),
+        ),
+        track_works: &track_works,
+        detail_focus: detail_focus.clone(),
+    };
     let page = PlaylistDetailVm::new(&detail.playlist, &detail.tracks)
         .with_rss_check(playlist_rss_check)
         .page(chrome.playlist_detail_scroll_id);
@@ -101,6 +150,7 @@ pub(crate) fn render_library_playlist_detail(
             album_thumbs,
             chrome,
             playlist_rss_check,
+            &menu,
             &mut take_slot,
             cx,
         )
@@ -111,6 +161,7 @@ pub(crate) fn render_library_playlist_detail(
             album_thumbs,
             playback_availability: chrome.playback_availability,
             playlist_rss_check,
+            menu: &menu,
         };
         page.track_rows()
             .iter()
@@ -214,12 +265,17 @@ fn remove_from_all_playlists_slot(
     }))
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the paged path takes each value that the eager path reads"
+)]
 fn render_paged_rows(
     detail: &PlaylistDetail,
     state: &PlaylistActorState,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     chrome: &LibraryChromeDisplay,
     playlist_rss_check: Option<&PlaylistRssCheckSnapshot>,
+    menu: &PlaylistRowMenuContext<'_>,
     take_slot: &mut impl FnMut(usize) -> Option<DetailRowSlot>,
     cx: &mut Context<LibraryApp>,
 ) -> Vec<PlaylistShellRow> {
@@ -264,6 +320,7 @@ fn render_paged_rows(
                     album_thumbs,
                     playback_availability: chrome.playback_availability,
                     playlist_rss_check,
+                    menu,
                 };
                 let slot = take_slot(position);
                 track_rows.push(render_ready_playlist_row(
@@ -285,8 +342,6 @@ fn render_ready_playlist_row(
     let playlist_id = context.playlist_id;
     let track_key_for_select = track.track_key();
     let position_i64 = i64::try_from(position).unwrap_or(i64::MAX);
-    let prev_position_i64 = position_i64 - 1;
-    let next_position_i64 = position_i64 + 1;
     let thumbnail = track
         .track_image_href
         .as_deref()
@@ -297,7 +352,14 @@ fn render_ready_playlist_row(
     let (selection, scroll_probe) = selection_slot
         .map(|slot| (Some(slot.selection), slot.probe))
         .unwrap_or_default();
+    let work = context
+        .menu
+        .track_works
+        .get(&track.id)
+        .copied()
+        .unwrap_or_default();
     let mut display = PlaylistTrackRowVm::new(track, position, context.last_position)
+        .with_work(work)
         .display_with_playback(playlist_id, context.playback_availability);
     if let Some(selection) = selection {
         display = display.with_selection(selection);
@@ -339,12 +401,16 @@ fn render_ready_playlist_row(
             },
         ))),
         on_play,
-        on_move_up: Some(command_slot(cx.listener(move |this, (), _, cx| {
-            this.move_playlist_track(playlist_id, position_i64, prev_position_i64, cx);
-        }))),
-        on_move_down: Some(command_slot(cx.listener(move |this, (), _, cx| {
-            this.move_playlist_track(playlist_id, position_i64, next_position_i64, cx);
-        }))),
+        menu: display.controls.menu.clone().map(|menu| RowMenu {
+            menu,
+            playlists: Rc::clone(&context.menu.playlists),
+            handlers: playlist_row_menu_handlers(
+                (playlist_id, position_i64),
+                original_track_id,
+                cx,
+            ),
+            return_focus: context.menu.detail_focus.clone(),
+        }),
         on_remove: Some(command_slot(cx.listener(move |this, (), _, cx| {
             this.remove_playlist_track_at(playlist_id, position_i64, cx);
         }))),
@@ -355,4 +421,48 @@ fn render_ready_playlist_row(
         scroll_probe,
     };
     PlaylistShellRow::Ready(Box::new(PlaylistShellReadyRow { display, slot }))
+}
+
+/// The handlers of the row menu of the playlist entry `entry` (ADR 0083
+/// task 007, "The commands"). Each item goes to
+/// `LibraryApp::run_playlist_row_menu_action`. "Add to playlist" adds the
+/// track to the chosen playlist.
+fn playlist_row_menu_handlers(
+    entry: (i64, i64),
+    track_id: i64,
+    cx: &mut Context<LibraryApp>,
+) -> TrackRowMenuHandlers {
+    let entity = cx.entity().downgrade();
+    let action = {
+        let entity = entity.clone();
+        Rc::new(move |item, window: &mut Window, cx: &mut App| {
+            if let Some(entity) = entity.upgrade() {
+                entity.update(cx, |this, cx| {
+                    this.run_playlist_row_menu_action(entry, track_id, item, window, cx);
+                });
+            }
+        })
+    };
+    let select_playlist = {
+        let entity = entity.clone();
+        Rc::new(move |playlist_id: &i64, _: &mut Window, cx: &mut App| {
+            if let Some(entity) = entity.upgrade() {
+                entity.update(cx, |this, cx| {
+                    this.add_track_to_playlist(track_id, *playlist_id, cx);
+                });
+            }
+        })
+    };
+    let create_playlist = Rc::new(move |name: &String, _: &mut Window, cx: &mut App| {
+        if let Some(entity) = entity.upgrade() {
+            entity.update(cx, |this, cx| {
+                this.create_playlist_and_add_track(name, track_id, cx);
+            });
+        }
+    });
+    TrackRowMenuHandlers {
+        action,
+        select_playlist,
+        create_playlist,
+    }
 }

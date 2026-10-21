@@ -1,6 +1,6 @@
 # ADR 0083 Task 007: List And Playlist Row Actions
 
-Status: Ready - 2026-10-20. It starts after task 006 is implemented.
+Status: Implemented - 2026-10-20. Cases R83-7-01 to R83-7-14 pass. Mechanical checks are Green. V1 to V11 are open, in the final walk of the run.
 
 ## Goal
 
@@ -237,6 +237,15 @@ Revert the commit. This packet adds no migration and no stored data. V5, V8 and 
 
 - D10: the operator decided that each Needs attention row keeps its main fix as a visible button.
 
+## Orchestrator Review - 2026-10-20
+
+Pass, after one fix. The orchestrator made the fix in the same change.
+
+- `ContextMenuScope::PlaylistTrack` had no production user after this task. The orchestrator deleted it, and changed its two tests and the shared context menu guard (AGENTS.md: delete dead code).
+- The deviations agree with the packet. The menu cell is 44 px, the hit area of a `Button`.
+- A Needs attention row whose track is not in the Library tree gets no menu. An Index row in the Tracks list gets an empty menu cell. The orchestrator accepts both, because each row has no action that can act.
+- The orchestrator added `content_list_row_actions.rs` to the source map.
+
 ## Prompt for lower-context coding model
 
 You are implementing one bounded task from a larger plan.
@@ -294,3 +303,144 @@ Stop and report the problem, and do not guess, when:
 - An `invisible()` drag handle cannot start a drag after hover makes it visible.
 - `TrackRowWork` of a Tracks list row needs an `AlbumNode` that the view model cannot find.
 - A change needs a file in "Do not touch".
+
+## Implementation Result - 2026-10-20
+
+### Files Changed
+
+- `src/view_models/release_page.rs`:
+  - `TrackRowMenuAction` has the new variants `MoveUp`, `MoveDown` and `RemoveFromPlaylist` (D13). Their labels are named constants.
+  - New `TrackRowRemoveLabel` selects "Remove…" or "Remove from Library…".
+  - `TrackRowMenuFacts` and `TrackRowMenuVm::project` are `pub(crate)`. Each item has a fact. The order is the order of D5.
+  - New `LibraryTrackMenuAvailability` gives the "Download" and "Remove…" facts of a Library track. The release page rows use it too.
+- `src/view_models/library.rs`:
+  - `PlaylistTrackControlsDisplay` has `menu` and `play_visibility`. `actions_menu_id`, `actions_menu_a11y_label` and the three menu item fields are deleted. `PlaylistTrackMenuItemDisplay` is deleted.
+  - New `RowCellVisibility`, `PlaylistTrackRowVm::with_work` and `playlist_row_add_choices`.
+  - `with_selection` sets `menu` to `None` in `Selecting`.
+  - `ContentListRowDisplay` has `fix`, `menu` and `readiness_state` in place of `actions`.
+  - `broadcast_readiness_row_actions` gives at most one fix. `ContentListRowActionKind::RemoveFromLibrary` is deleted.
+  - New `content_list_track_menu`, `LibraryViewModel::library_track_works` and `LibraryViewModel::library_track_key`.
+  - `content_list_rows_with_selection` fills `menu`. It sets `menu` and `fix` to `None` in `Selecting`.
+  - The working label of "Fix routes" is "Repairing…" (D11).
+  - New tests R83-7-01 to R83-7-09 and R83-7-11. The playlist row and readiness tests use the new fields with the same meaning.
+- `src/ui/composites/list_row.rs`:
+  - `ListRow::menu_cell` adds one menu cell. The cell is the last fixed column, with the width of `TrackRowColumn::Menu` (44 px at the medium scale). With a menu cell, the row root is the hover group.
+  - New `RowMenu`, `RowMenuRoot`, `row_menu_parts` and `menu_cell`. The playlist row uses them too.
+  - New GPUI layout test R83-7-12.
+- `src/ui/shells/playlist.rs`:
+  - New component `PlaylistTrackRowElement`. It reads the keyed menu state at render time.
+  - The row root is the hover group. The drag handle cell and the Play cell use the hover rule.
+  - The menu cell is a `TrackRowMenuCell`. `render_playlist_track_actions_menu` and `menu_item` are deleted.
+  - `PlaylistTrackRowSlot` has `menu` in place of `on_move_up` and `on_move_down`.
+  - New GPUI test: the hidden drag handle starts a drag when the pointer is on it.
+- `src/ui/shells/library/playlist_detail.rs`: builds the row menu with the playlist choices, the work of each track and the detail column focus.
+- `src/ui/shells/library/detail.rs`: gives the playlists, the track works and the detail column focus to the playlist page.
+- `src/ui/shells/library/content_list.rs`: draws the fix button and gives the menu to the `ListRow` menu cell.
+- `src/ui/shells/library/content_list_row_actions.rs` (new): `ContentListMenuContext`, `content_list_row_menu` and the fix button renderer `render_content_list_row_action`.
+- `src/ui/shells/library/mod.rs`: registers the new module.
+- `src/library/app_impl.rs`:
+  - New `run_content_list_menu_action`, `run_playlist_row_menu_action`, `run_track_row_menu_action`, `add_content_row_to_playlist` and `create_playlist_for_content_row`.
+  - `run_content_list_row_action` takes no window. `remove_track` is deleted, because no caller was left.
+  - The list column gives the playlists and `list_column_focus` to the content list.
+- `tests/architecture_tests.rs`:
+  - New situational guards R83-7-10 and R83-7-13. Each one cites ADR 0083 Decision 6.
+  - `playlist_reorder_display_contract_uses_drag_handle_and_menu_fallbacks`, `adr_0084_playlist_selection_r25_11_selection_mode_row_accepts_no_drop`, `adr_0076_route_readiness_removal_actions_reuse_existing_flows` and `adr_0065_readiness_rows_keep_state_labels_separate_from_actions` use the new fields with the same meaning.
+
+### Behavior Changed
+
+- A playlist row always shows the position, the cover, the title, the artist, the availability badge, the "removed from feed" block and the duration.
+- The drag handle, the Play icon and "⋯" of a playlist row show on a hover and on the keyboard focus of the row. A hidden cell keeps its width.
+- "Repair playback" shows at all times when the player is not available.
+- The playlist row menu holds "Add to playlist", "Download", "Inspect sources", "Move up", "Move down" and "Remove from playlist". Then it holds a divider and "Remove from Library…". An item that cannot act is absent.
+  - "Remove from playlist" has no danger color and opens no confirmation.
+  - "Remove from Library…" always asks for confirmation.
+  - The "Add to playlist" choices do not hold the open playlist.
+- A right-click on a playlist row opens the same menu. Its dismissal gives the focus to the detail column.
+- A Tracks list row shows "⋯" on a hover and on the keyboard focus. The menu holds "Add to playlist", "Download", "Inspect sources", a divider and "Remove…".
+- A Needs attention row shows its one fix button at all times: "Fix routes" or "Confirm". The "Remove from library" button is gone.
+  - "⋯" holds "Inspect sources". A removed track also has a divider and "Remove from Library…".
+  - During a route repair, the fix button shows "Repairing…".
+- A right-click on a Tracks or Needs attention row opens the same menu. Its dismissal gives the focus to the list column.
+- In selection mode, no row of the three lists shows "⋯" or a right-click menu. A Needs attention row shows no fix button.
+
+### Checks - 2026-10-20
+
+| Check | Result |
+|---|---|
+| `cargo test --lib adr_0083_list_row_actions_` | Green, 12 tests |
+| `cargo test --lib adr_0083_row_actions_` | Green, 13 tests |
+| `cargo test --lib adr_0084_playlist_selection_` | Green, 12 tests |
+| `cargo test --lib adr_0084_detail_selection_` | Green, 9 tests |
+| `cargo test` | Green, 2094 unit tests and 350 guards. Ten documentation examples stay ignored |
+| `cargo test --test architecture_tests` | Green, 350 guards |
+| `cargo fmt -- --check` | Green |
+| `cargo clippy -- -D warnings` | Green |
+| `cargo clippy --all-targets -- -D warnings` | Green |
+| `cargo check --all-targets` | Green, no warning |
+| `cargo build --bin v4vmm` | Green |
+
+No application launch and no production-data change occurred.
+
+### Deviations From The Task
+
+1. The packet gives the menu cell the width of `Size::PointerHitTarget`. The cell has the width of `TrackRowColumn::Menu`, which is `Size::MinHitTarget` (44 px). The orchestrator review of task 006 set this width, so no hover fill is cut.
+2. The right-click menu needs keyed state, and keyed state needs the window. Thus the playlist row is the component `PlaylistTrackRowElement`, and `render_playlist_track_row` takes the menu parts.
+3. `content_list.rs` exceeded the 500-line ceiling of the screen surface guard. Thus the fix button renderer and the menu wiring are in the new module `content_list_row_actions.rs`. The ADR 0065 guard reads the fix button renderer from that module.
+4. `PlaylistTrackRowVm` gets the work through the new builder `with_work`. The host reads the work of each track from `library_track_works`, one tree pass for each render.
+5. The R83-7-10 command proof is a source guard, because the commands need a `LibraryApp` with a database. The view model tests prove the items, and the guard proves the mapping.
+6. The present working label "Fixing..." changed to "Repairing…" (D11).
+7. A tile of the content list keeps the fix button and gets no menu. The Needs attention list always uses the list mode, and a Tracks row has no fix.
+
+### Unresolved Concerns
+
+1. V1 to V11 need the operator. No test proves a rendered hover, a menu position or the danger color.
+2. `ContextMenuScope::PlaylistTrack` has no production user now. Only its own tests use it. This packet does not change `context_menu.rs`.
+3. The new file `src/ui/shells/library/content_list_row_actions.rs` is not in `docs/architecture/source-map.md`. V1 to V11 are not in `docs/pending-human-checks.md`. The task instructions named only this packet as a document to edit.
+4. The GPUI test of the hidden drag handle also passes with no hover step. The test harness moves the pointer before a mouse press. Thus the test proves that a drag starts from the handle, but not that the handle is hidden before a hover. V1 examines that.
+5. A Needs attention row whose track is not in the Library tree gets no menu. A Tracks list row of an Index track gets an empty menu cell.
+
+## Operator Visual Check
+
+This check needs a Linux desktop session and this checkout. It also needs these items:
+
+- A test playlist with three or more tracks. One track must be downloaded, and one track must not be downloaded.
+- A second playlist.
+- One Needs attention row with missing routes, if the Library has one. One Needs attention row of a track removed from its feed, if the Library has one.
+
+V5 changes a playlist. "Remove from Library…" removes an audio file. Use a test playlist and a track that you can download again.
+
+1. Build the app: `cargo build --bin v4vmm`. Then start `target/debug/v4vmm` from a desktop session.
+2. V1: open Music, then open the test playlist. Move the pointer onto a row.
+   - Correct: the drag handle, the Play icon and "⋯" show on that row. They hide when the pointer leaves the row.
+   - Wrong: a control shows on a row with no pointer, or a part of the row moves when the controls show or hide.
+3. V2: click a playlist row, then press the Up arrow and the Down arrow.
+   - Correct: the focused row shows the drag handle, the Play icon and "⋯". The other rows do not.
+4. V3: stop the player so that playback is not available. For example, stop the mpv service that the app uses. Open the playlist again.
+   - Correct: each row shows "Repair playback" at all times, with no hover.
+5. V4: click "⋯" on the downloaded middle track, then right-click the same row.
+   - Correct: each menu shows "Add to playlist", "Inspect sources", "Move up", "Move down" and "Remove from playlist". Then each menu shows a divider and "Remove from Library…".
+   - Correct: only "Remove from Library…" has the danger color. The first row has no "Move up", and the last row has no "Move down".
+   - Correct: a track that is not downloaded shows "Download" and no "Remove from Library…".
+   - Correct: "Add to playlist" shows the second playlist and not the open playlist.
+6. V5: select "Move down", then "Move up", then "Remove from playlist" on one row.
+   - Correct: the page changes in place. No navigation occurs, and no confirmation opens.
+7. V6: open the Tracks list. Move the pointer onto a row, then right-click the row.
+   - Correct: only "⋯" shows on hover. The "⋯" menu and the right-click menu show the same items.
+8. V7: open Needs attention.
+   - Correct: a missing routes row shows "Fix routes", and a removed track row shows "Confirm", with no hover.
+   - Correct: "⋯" shows "Inspect sources". For a removed track, it also shows a divider and "Remove from Library…". No menu holds "Fix routes" or "Confirm".
+9. V8: click "Fix routes" on one row.
+   - Correct: the button shows "Repairing…" in its place. After the repair, the row changes or leaves the list, with no navigation.
+10. V9: select "Inspect sources" in a playlist row menu and in a Tracks row menu.
+    - Correct: the track page opens with the "Inspect sources" disclosure open.
+11. V10: click "Select" in the playlist, the Tracks list and Needs attention. Then click "Done".
+    - Correct: "Select" hides "⋯", the right-click menu and the fix buttons. "Done" shows them again.
+12. V11: change to the Light theme and to the Dark theme. Make the window narrow. Set a larger type size in Settings.
+    - Wrong: clipped text, or one column on top of another column.
+
+### Cleanup
+
+1. Put back the removed playlist entries with "Add to playlist".
+2. Download again each track that you removed from the Library.
+3. Start the player service again, if you stopped it in step 4.
+4. Set the theme, the window width and the type size back to your values.

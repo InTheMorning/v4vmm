@@ -43,6 +43,12 @@ const TRACK_MENU_ADD_TO_PLAYLIST_LABEL: &str = "Add to playlist";
 const TRACK_MENU_DOWNLOAD_LABEL: &str = "Download";
 const TRACK_MENU_INSPECT_SOURCES_LABEL: &str = "Inspect sources";
 const TRACK_MENU_REMOVE_LABEL: &str = "Remove\u{2026}";
+/// The menu item labels of a playlist row and of a Needs attention row
+/// (ADR 0083 task 007, decisions D5 to D7).
+const TRACK_MENU_MOVE_UP_LABEL: &str = "Move up";
+const TRACK_MENU_MOVE_DOWN_LABEL: &str = "Move down";
+const TRACK_MENU_REMOVE_FROM_PLAYLIST_LABEL: &str = "Remove from playlist";
+const TRACK_MENU_REMOVE_FROM_LIBRARY_LABEL: &str = "Remove from Library\u{2026}";
 /// The tooltip of the "⋯" button of a track row.
 const TRACK_MENU_TRIGGER_TOOLTIP: &str = "More actions";
 /// The labels of the "Add to playlist" level of the track row menu.
@@ -535,13 +541,21 @@ impl DownloadSlotVm {
     }
 }
 
-/// One action of the track row menu (decision D2).
+/// One action of the track row menu (decision D2). `MoveUp`, `MoveDown`
+/// and `RemoveFromPlaylist` are items of a playlist row only (ADR 0083
+/// task 007, decision D13).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TrackRowMenuAction {
     /// Opens the playlist level of the menu.
     AddToPlaylist,
     Download,
     InspectSources,
+    MoveUp,
+    MoveDown,
+    /// Removes the entry from the open playlist. The track stays in the
+    /// Library (task 007, decision D6).
+    RemoveFromPlaylist,
+    /// Removes the track from the Library, after a confirmation.
     Remove,
 }
 
@@ -551,7 +565,7 @@ impl TrackRowMenuAction {
     #[must_use]
     pub(crate) const fn command(self, index: usize) -> Option<ReleasePageCommand> {
         match self {
-            Self::AddToPlaylist => None,
+            Self::AddToPlaylist | Self::MoveUp | Self::MoveDown | Self::RemoveFromPlaylist => None,
             Self::Download => Some(ReleasePageCommand::DownloadTrack(index)),
             Self::InspectSources => Some(ReleasePageCommand::InspectSources(index)),
             Self::Remove => Some(ReleasePageCommand::RemoveTrack(index)),
@@ -600,24 +614,98 @@ pub(crate) struct TrackRowMenuVm {
     pub(crate) playlist_level: TrackRowPlaylistLevelVm,
 }
 
-/// The facts that select the menu items of a track row.
+/// The label of the destructive "Remove" item of a track row menu.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TrackRowRemoveLabel {
+    /// "Remove…", on a release page row and on a Tracks list row (task
+    /// 006, decision D2).
+    Remove,
+    /// "Remove from Library…", on a playlist row and on a Needs attention
+    /// row (task 007, decision D7).
+    RemoveFromLibrary,
+}
+
+impl TrackRowRemoveLabel {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Remove => TRACK_MENU_REMOVE_LABEL,
+            Self::RemoveFromLibrary => TRACK_MENU_REMOVE_FROM_LIBRARY_LABEL,
+        }
+    }
+}
+
+/// The facts that select the menu items of a track row. An item with a
+/// false fact is absent (decision D2).
 #[expect(
     clippy::struct_excessive_bools,
     reason = "each field is one independent availability fact of the menu"
 )]
-struct TrackRowMenuFacts<'a> {
-    row_id: &'a str,
-    title: &'a str,
-    download: bool,
-    inspect_sources: bool,
-    remove: bool,
-    selecting: bool,
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct TrackRowMenuFacts<'a> {
+    pub(crate) row_id: &'a str,
+    pub(crate) title: &'a str,
+    pub(crate) add_to_playlist: bool,
+    pub(crate) download: bool,
+    pub(crate) inspect_sources: bool,
+    pub(crate) move_up: bool,
+    pub(crate) move_down: bool,
+    pub(crate) remove_from_playlist: bool,
+    /// The label of "Remove…". `None` gives no "Remove…" item.
+    pub(crate) remove: Option<TrackRowRemoveLabel>,
+    pub(crate) selecting: bool,
+}
+
+impl<'a> TrackRowMenuFacts<'a> {
+    /// The facts of a row with no item. Each host sets the items that it
+    /// gives.
+    #[must_use]
+    pub(crate) const fn new(row_id: &'a str, title: &'a str, selecting: bool) -> Self {
+        Self {
+            row_id,
+            title,
+            add_to_playlist: false,
+            download: false,
+            inspect_sources: false,
+            move_up: false,
+            move_down: false,
+            remove_from_playlist: false,
+            remove: None,
+            selecting,
+        }
+    }
+}
+
+/// The availability of "Download" and "Remove…" of a Library track row
+/// (task 006, decisions D2 and D5).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct LibraryTrackMenuAvailability {
+    /// The track is not downloaded, and no job or removal runs.
+    pub(crate) download: bool,
+    /// The track is downloaded, and no job or removal runs.
+    pub(crate) remove: bool,
+}
+
+impl LibraryTrackMenuAvailability {
+    /// The availability of the items of `track` with the work `work`.
+    #[must_use]
+    pub(crate) fn of(track: &TrackRow, work: TrackRowWork) -> Self {
+        // The primary action of the track page selects "Remove…": it is an
+        // enabled "Remove" only for a downloaded row with no work in
+        // progress (ADR 0083 task 006, decision D5).
+        let action = LibraryTrackRowVm::new(track, None).primary_action_vm(work);
+        Self {
+            download: !track.is_in_library && work == TrackRowWork::Idle,
+            remove: action.kind == EntityActionKind::Remove && action.enabled,
+        }
+    }
 }
 
 impl TrackRowMenuVm {
     /// The menu of a row. `None` in selection mode (decision D9). An item
-    /// that cannot act is absent (decision D2).
-    fn project(facts: &TrackRowMenuFacts<'_>) -> Option<Self> {
+    /// that cannot act is absent (decision D2). The items keep the order
+    /// of task 007 decision D5. The destructive item is last.
+    #[must_use]
+    pub(crate) fn project(facts: &TrackRowMenuFacts<'_>) -> Option<Self> {
         if facts.selecting {
             return None;
         }
@@ -632,11 +720,14 @@ impl TrackRowMenuVm {
                 destructive: action == TrackRowMenuAction::Remove,
             }
         };
-        let mut items = vec![item(
-            TrackRowMenuAction::AddToPlaylist,
-            TRACK_MENU_ADD_TO_PLAYLIST_LABEL,
-            format!("Add {title} to a playlist"),
-        )];
+        let mut items = Vec::new();
+        if facts.add_to_playlist {
+            items.push(item(
+                TrackRowMenuAction::AddToPlaylist,
+                TRACK_MENU_ADD_TO_PLAYLIST_LABEL,
+                format!("Add {title} to a playlist"),
+            ));
+        }
         if facts.download {
             items.push(item(
                 TrackRowMenuAction::Download,
@@ -651,10 +742,31 @@ impl TrackRowMenuVm {
                 format!("Inspect the sources of {title}"),
             ));
         }
-        if facts.remove {
+        if facts.move_up {
+            items.push(item(
+                TrackRowMenuAction::MoveUp,
+                TRACK_MENU_MOVE_UP_LABEL,
+                format!("Move {title} up"),
+            ));
+        }
+        if facts.move_down {
+            items.push(item(
+                TrackRowMenuAction::MoveDown,
+                TRACK_MENU_MOVE_DOWN_LABEL,
+                format!("Move {title} down"),
+            ));
+        }
+        if facts.remove_from_playlist {
+            items.push(item(
+                TrackRowMenuAction::RemoveFromPlaylist,
+                TRACK_MENU_REMOVE_FROM_PLAYLIST_LABEL,
+                format!("Remove {title} from this playlist"),
+            ));
+        }
+        if let Some(remove) = facts.remove {
             items.push(item(
                 TrackRowMenuAction::Remove,
-                TRACK_MENU_REMOVE_LABEL,
+                remove.label(),
                 format!("Remove {title} from the Library\u{2026}"),
             ));
         }
@@ -745,11 +857,7 @@ impl ReleaseTrackRowVm {
     ) -> Self {
         let vm = LibraryTrackRowVm::new(track, mb);
         let display = vm.row_display();
-        // The primary action of the track page selects "Remove…": it is an
-        // enabled "Remove" only for a downloaded row with no work in
-        // progress (ADR 0083 task 006, decision D5).
-        let action = vm.primary_action_vm(work);
-        let remove = action.kind == EntityActionKind::Remove && action.enabled;
+        let availability = LibraryTrackMenuAvailability::of(track, work);
         let track_view = TrackView::from_local(track.clone());
         let row = TrackDetailVm::new(&track_view, TrackDetailSurfaceContext::Library).row();
         let download = DownloadSlotVm::project(
@@ -774,12 +882,11 @@ impl ReleaseTrackRowVm {
         // ADR 0083 task 006, decision D5: "Remove…" is absent while a job
         // or a removal of the row runs.
         let menu = TrackRowMenuVm::project(&TrackRowMenuFacts {
-            row_id: &display.row_id,
-            title: &row.title,
+            add_to_playlist: true,
             download: download.available,
             inspect_sources: true,
-            remove,
-            selecting: selection.checkbox_visible,
+            remove: availability.remove.then_some(TrackRowRemoveLabel::Remove),
+            ..TrackRowMenuFacts::new(&display.row_id, &row.title, selection.checkbox_visible)
         });
         Self {
             row_id: display.row_id,
@@ -834,12 +941,9 @@ impl ReleaseTrackRowVm {
             work,
         );
         let menu = TrackRowMenuVm::project(&TrackRowMenuFacts {
-            row_id: &row_id,
-            title: &row.title,
+            add_to_playlist: true,
             download: download.available,
-            inspect_sources: false,
-            remove: false,
-            selecting: selection.checkbox_visible,
+            ..TrackRowMenuFacts::new(&row_id, &row.title, selection.checkbox_visible)
         });
         Self {
             row_id,
