@@ -184,6 +184,7 @@ The operator asked on 2026-10-08 for a later phase that tunes how fast the app r
 15. 2026-10-20: the first show of the Artists list or the Playlists list starts one logo composition for each row at the same time. They run on the command runner (`FetchLogoMosaic` in `src/application/queries/images.rs`, ADR 0084 packet 011). The rows show the entity color until each image arrives.
 16. 2026-10-21: one render computes the merge of the Releases list in "Everything" more than one time: for the header action, for the rows and for the selection keys (`src/view_models/releases_everything.rs`, ADR 0084 packet 016). With many loaded pages, this can slow the render. No measurement confirms it.
 17. 2026-10-21: a search sends one `GET /v1/artist-names?from=<key>&limit=1` check for each MusicIndex candidate name, one after the other, before it shows the name rows (`src/application/queries/search.rs`, ADR 0084 packet 017 decision D15). Several candidates add their waits. No measurement confirms a delay.
+18. 2026-10-21: one render of the search list builds the rows of the open tab more than one time: for the header action, for the bar and for the rows. Each row finds its Library album with a scan of the tree, and each call of `search_lookup` reads the whole tree again. A large Library makes this slow (`with_search_results_list` in `src/app.rs`, `LibrarySearchLookup` in `src/view_models/library.rs`, ADR 0084 packet 010).
 
 ## Visual Requirements Moved From Pending Checks - 2026-10-07
 

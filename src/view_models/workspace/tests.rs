@@ -1,12 +1,11 @@
 use super::{
     release_download_updates_open_page, resolve_release_page_source, resolve_track_page_source,
     track_download_updates_open_page, track_release_download_updates_open_page, BreadcrumbDisplay,
-    BreadcrumbTruncation, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
-    DiscoverView, FilterChipStripDisplay, FilterChipStripWidthClass, FrameNavigationEntry,
-    FrameNavigationState, FrameShellDisplay, MusicColumns, MusicDestination, ReleaseKey,
-    ReleasePageSource, TrackKey, TrackPageSource, WorkspaceFrameConfig, WorkspaceFrameId,
-    WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout, WorkspaceLayoutConfig,
-    WorkspaceModelError,
+    BreadcrumbTruncation, ContentViewMode, ContentViewModeControlDisplay, DiscoverView,
+    FrameNavigationEntry, FrameNavigationState, FrameShellDisplay, MusicColumns, MusicDestination,
+    ReleaseKey, ReleasePageSource, TrackKey, TrackPageSource, WorkspaceFrameConfig,
+    WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+    WorkspaceLayoutConfig, WorkspaceModelError,
 };
 use crate::view_models::artist_identity::ArtistNameKey;
 
@@ -151,89 +150,6 @@ fn content_view_mode_control_projects_content_list_options() {
 }
 
 #[test]
-fn search_filter_chip_strip_defaults_use_standard_option_order() {
-    let search_inspector =
-        FilterChipStripDisplay::default_for_search_inspector(ContentFilter::All, true);
-
-    let search_values: Vec<_> = search_inspector
-        .options
-        .iter()
-        .map(|option| option.value)
-        .collect();
-
-    assert_eq!(
-        search_values,
-        [
-            ContentFilter::All,
-            ContentFilter::Library,
-            ContentFilter::Index
-        ],
-        "search-inspector filters should keep the ADR 0047 option order"
-    );
-}
-
-#[test]
-fn search_filter_chip_strip_defaults_round_trip_selected_filter() {
-    let search_inspector =
-        FilterChipStripDisplay::default_for_search_inspector(ContentFilter::Index, true);
-
-    assert_eq!(
-        search_inspector.selected,
-        ContentFilter::Index,
-        "search-inspector filter display should preserve the selected filter"
-    );
-}
-
-#[test]
-fn search_filter_chip_strip_defaults_pass_through_narrow_collapse() {
-    let expanded = FilterChipStripDisplay::default_for_search_inspector(ContentFilter::All, false);
-    let collapsed = FilterChipStripDisplay::default_for_search_inspector(ContentFilter::All, true);
-
-    assert!(
-        !expanded.narrow_collapse_to_pulldown,
-        "search-inspector filter display should preserve expanded narrow-mode preference"
-    );
-    assert!(
-        collapsed.narrow_collapse_to_pulldown,
-        "search-inspector filter display should preserve collapsed narrow-mode preference"
-    );
-}
-
-#[test]
-fn search_filter_chip_strip_width_class_projects_normal_and_narrow_layouts() {
-    let normal = FilterChipStripDisplay::default_for_search_inspector_width_class(
-        ContentFilter::All,
-        FilterChipStripWidthClass::Normal,
-    );
-    let narrow = FilterChipStripDisplay::default_for_search_inspector_width_class(
-        ContentFilter::All,
-        FilterChipStripWidthClass::Narrow,
-    );
-
-    assert_eq!(
-        normal
-            .options
-            .iter()
-            .map(|option| option.value)
-            .collect::<Vec<_>>(),
-        [
-            ContentFilter::All,
-            ContentFilter::Library,
-            ContentFilter::Index
-        ],
-        "ADR 0047 search-inspector content-filter reachability guard: all chip options must be exposed"
-    );
-    assert!(
-        !normal.narrow_collapse_to_pulldown,
-        "ADR 0047 search-inspector content-filter reachability guard: normal width must not collapse"
-    );
-    assert!(
-        narrow.narrow_collapse_to_pulldown,
-        "ADR 0047 search-inspector content-filter reachability guard: narrow width keeps the pull-down"
-    );
-}
-
-#[test]
 fn frame_shell_display_disables_empty_history_navigation() {
     let frame = frame(7, WorkspaceFrameKind::Detail);
     let nav = FrameNavigationState::new(track(42));
@@ -343,33 +259,12 @@ fn frame_shell_display_passes_through_header_text_and_slot_id() {
         "transitional workspace must not expose multi-frame actions before real frame content owners exist"
     );
     assert_eq!(
-        display.filter_chip_strip, None,
-        "filter chips are opt-in frame chrome"
-    );
-    assert_eq!(
         display.view_mode_control, None,
         "view-mode controls are opt-in frame chrome"
     );
     assert_eq!(
         display.breadcrumb, None,
         "breadcrumbs are opt-in frame chrome"
-    );
-}
-
-#[test]
-fn frame_shell_display_accepts_optional_filter_chip_strip() {
-    let frame = frame(7, WorkspaceFrameKind::ContentList);
-    let nav = FrameNavigationState::new(FrameNavigationEntry::PlaylistDetail(1));
-    let filters =
-        FilterChipStripDisplay::default_for_search_inspector(ContentFilter::Library, true);
-
-    let display =
-        FrameShellDisplay::from_frame(&frame, &nav, true).with_filter_chip_strip(filters.clone());
-
-    assert_eq!(
-        display.filter_chip_strip,
-        Some(filters),
-        "frame shell should carry optional frame-local filters without applying them"
     );
 }
 

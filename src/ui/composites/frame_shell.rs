@@ -20,8 +20,8 @@ use gpui::{
 };
 
 use crate::ui::composites::{
-    filter_chip_strip, view_mode_control, BreadcrumbTrail, FilterChipStripSlots, Segment,
-    SegmentDisplay, SegmentedControl, ViewModeControlSlots,
+    view_mode_control, BreadcrumbTrail, Segment, SegmentDisplay, SegmentedControl,
+    ViewModeControlSlots,
 };
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::icons::IconName;
@@ -31,14 +31,12 @@ use crate::ui::primitives::{
 use crate::ui::tokens::{resolve_color, Appearance, FontSize, SemanticColor, Spacing};
 use crate::view_models::index_name_list::{MusicListScope, MusicScopeControlDisplay};
 use crate::view_models::workspace::{
-    ContentFilter, ContentViewMode, ContentViewModeControlDisplay, FilterChipStripDisplay,
-    FrameChromeButtonDisplay, FrameChromeMenuItemDisplay, FrameHeaderActionDisplay,
-    FrameNavigationEntry, FrameShellDisplay,
+    ContentViewMode, ContentViewModeControlDisplay, FrameChromeButtonDisplay,
+    FrameChromeMenuItemDisplay, FrameHeaderActionDisplay, FrameNavigationEntry, FrameShellDisplay,
 };
 
 type FrameButtonHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 type FrameMenuSelectHandler = Rc<dyn Fn(SharedString, &mut Window, &mut App) + 'static>;
-type FrameFilterSelectHandler = Rc<dyn Fn(ContentFilter, &mut Window, &mut App) + 'static>;
 type FrameViewModeSelectHandler = Rc<dyn Fn(ContentViewMode, &mut Window, &mut App) + 'static>;
 type FrameScopeSelectHandler = Rc<dyn Fn(MusicListScope, &mut Window, &mut App) + 'static>;
 type FrameBreadcrumbSelectHandler =
@@ -54,7 +52,6 @@ pub(crate) struct FrameShellSlots {
     on_close: Option<FrameButtonHandler>,
     on_menu_select: Option<FrameMenuSelectHandler>,
     on_header_action: Option<FrameButtonHandler>,
-    on_filter_select: Option<FrameFilterSelectHandler>,
     on_view_mode_select: Option<FrameViewModeSelectHandler>,
     on_scope_select: Option<FrameScopeSelectHandler>,
     on_breadcrumb_select: Option<FrameBreadcrumbSelectHandler>,
@@ -92,15 +89,6 @@ impl FrameShellSlots {
         handler: impl Fn(&mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_header_action = Some(Rc::new(handler));
-        self
-    }
-
-    /// Supplies the frame-local content-filter selection callback.
-    pub(crate) fn on_filter_select(
-        mut self,
-        handler: impl Fn(ContentFilter, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.on_filter_select = Some(Rc::new(handler));
         self
     }
 
@@ -231,7 +219,6 @@ fn render_chrome(
     cx: &App,
 ) -> impl IntoElement {
     let content_slot_id = display.content_slot_id.clone();
-    let filter_chip_strip_display = display.filter_chip_strip.clone();
     let view_mode_control_display = display.view_mode_control.clone();
     let scope_control_display = display.scope_control;
     let breadcrumb_display = display.breadcrumb.clone();
@@ -333,18 +320,13 @@ fn render_chrome(
         chrome = chrome.child(header);
     }
 
-    if filter_chip_strip_display.is_some()
-        || view_mode_control_display.is_some()
-        || scope_control_display.is_some()
-    {
+    if view_mode_control_display.is_some() || scope_control_display.is_some() {
         chrome = chrome.child(frame_filter_row(
             FrameFilterRowDisplays {
-                filter_chips: filter_chip_strip_display,
                 view_mode: view_mode_control_display,
                 scope: scope_control_display,
             },
             FrameFilterRowHandlers {
-                filter: slots.on_filter_select,
                 view_mode: slots.on_view_mode_select,
                 scope: slots.on_scope_select,
             },
@@ -374,14 +356,12 @@ fn render_chrome(
 
 /// The controls of the frame filter row.
 struct FrameFilterRowDisplays {
-    filter_chips: Option<FilterChipStripDisplay>,
     view_mode: Option<ContentViewModeControlDisplay>,
     scope: Option<MusicScopeControlDisplay>,
 }
 
 /// The callbacks of the frame filter row.
 struct FrameFilterRowHandlers {
-    filter: Option<FrameFilterSelectHandler>,
     view_mode: Option<FrameViewModeSelectHandler>,
     scope: Option<FrameScopeSelectHandler>,
 }
@@ -392,12 +372,10 @@ fn frame_filter_row(
     cx: &App,
 ) -> AnyElement {
     let FrameFilterRowDisplays {
-        filter_chips: filter_chip_display,
         view_mode: view_mode_display,
         scope: scope_display,
     } = displays;
     let FrameFilterRowHandlers {
-        filter: handler,
         view_mode: view_mode_handler,
         scope: scope_handler,
     } = handlers;
@@ -411,16 +389,6 @@ fn frame_filter_row(
     // leading edge of the row.
     if let Some(display) = scope_display {
         row = row.child(scope_control(display, scope_handler));
-    }
-
-    if let Some(display) = filter_chip_display {
-        let mut filter_slots = FilterChipStripSlots::new();
-        if let Some(handler) = handler {
-            filter_slots = filter_slots.on_select(move |filter, window, cx| {
-                handler(filter, window, cx);
-            });
-        }
-        row = row.child(filter_chip_strip(display, filter_slots));
     }
 
     row = row.child(div().flex_1().min_w_0());
@@ -580,7 +548,6 @@ mod tests {
         assert!(slots.on_menu_select.is_some());
         assert!(slots.on_view_mode_select.is_some());
         assert!(slots.on_breadcrumb_select.is_some());
-        assert!(slots.on_filter_select.is_none());
     }
 
     /// ADR 0084 Decision 10 Amendment: the frame shell accepts the
@@ -590,13 +557,6 @@ mod tests {
         let slots = FrameShellSlots::new().on_header_action(|_, _| {});
 
         assert!(slots.on_header_action.is_some());
-    }
-
-    #[test]
-    fn slots_accept_filter_selection_callback() {
-        let slots = FrameShellSlots::new().on_filter_select(|_, _, _| {});
-
-        assert!(slots.on_filter_select.is_some());
     }
 
     #[test]

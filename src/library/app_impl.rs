@@ -84,10 +84,10 @@ use crate::view_models::library::{
     BroadcastRouteRepairCompletion, BroadcastRouteRepairCompletionStatus, ContentListRowActionKind,
     ContentListSelectionTarget, DestinationListRowTarget, FeedCheckRouteRepairOutcome,
     FeedUpdateActionDisplay, FeedUpdateActionKind, FeedUpdateDisplay, FeedUpdatePhase,
-    InspectorPanelKind, LibraryTrackActionVm, LibraryTrackInspectorState, LibraryTrackRowVm,
-    LibraryViewModel, MbTrackStatus, PlaylistAppendIntent, PlaylistAppendOutcome,
-    PlaylistDetailActionsDisplay, ReleasesDisclosureStep, ReleasesListEntryVm, ReleasesRowId,
-    RemovalConfirmation, TrackSubscribeOutcome,
+    InspectorPanelKind, LibrarySearchLookup, LibraryTrackActionVm, LibraryTrackInspectorState,
+    LibraryTrackRowVm, LibraryViewModel, MbTrackStatus, PlaylistAppendIntent,
+    PlaylistAppendOutcome, PlaylistDetailActionsDisplay, ReleasesDisclosureStep,
+    ReleasesListEntryVm, ReleasesRowId, RemovalConfirmation, TrackSubscribeOutcome,
 };
 use crate::view_models::library::{
     releases_selection_rows, spring_load_navigation, SpringLoadGeneration,
@@ -721,6 +721,12 @@ impl LibraryApp {
     /// the names `keys`, from the current tree.
     pub(crate) fn other_identity_feed_guids(&self, keys: &[ArtistNameKey]) -> BTreeSet<String> {
         self.vm.other_identity_feed_guids(keys)
+    }
+
+    /// The Library facts of the search rows for one render (ADR 0084
+    /// packet 010), from the current tree.
+    pub(crate) fn search_lookup(&self) -> LibrarySearchLookup<'_> {
+        self.vm.search_lookup()
     }
 
     /// The Library facts that the artist rows of a search read (ADR 0084

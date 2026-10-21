@@ -15,17 +15,17 @@ use super::search_dispatch::feed_guid_from_view;
 use super::TopApp;
 use crate::application::library_removal::LibraryRemovalIntent;
 use crate::db::PlaylistEdge;
-use crate::library::{playlist_options, LibraryApp};
+use crate::library::{index_track_job, index_track_job_by_key, playlist_options, LibraryApp};
 use crate::ui::composites::{SelectionActionBar, SelectionActionBarPlaylists};
 use crate::view_models::detail_selection::{
     detail_header_action, feed_page_release_rows, index_release_track_rows, DetailListKind,
-    DetailPageRows, DetailRowKey, TileArrow,
+    DetailPageRows, DetailRowKey, DetailSelection, TileArrow,
 };
 use crate::view_models::list_selection::FocusStep;
 use crate::view_models::search_results::IndexDetailDisplay;
 use crate::view_models::selection_action_bar::{SelectionActionBarVm, SelectionActionKind};
 use crate::view_models::workspace::{
-    FrameHeaderActionDisplay, FrameNavigationEntry, ReleaseKey, ReleasePageSource,
+    FrameHeaderActionDisplay, FrameNavigationEntry, ReleaseKey, ReleasePageSource, TrackKey,
 };
 use crate::views::FeedView;
 
@@ -354,16 +354,11 @@ impl TopApp {
         let Some(rows) = self.detail_page_rows(cx) else {
             return;
         };
+        let selection = self.library.read(cx).detail_selection().clone();
         match kind {
-            SelectionActionKind::Download => self.download_detail_selection(&rows, cx),
+            SelectionActionKind::Download => self.download_selection(&rows, &selection, cx),
             SelectionActionKind::Remove => {
-                let (items, item_noun) = {
-                    let selection = self.library.read(cx).detail_selection();
-                    detail_removal_items(&rows, selection)
-                };
-                self.library.update(cx, |library, cx| {
-                    library.request_selection_removal(items, item_noun, window, cx);
-                });
+                self.request_selection_removal(&rows, &selection, window, cx);
             }
             SelectionActionKind::Clear => {
                 self.library.update(cx, LibraryApp::clear_detail_rows);
@@ -383,43 +378,40 @@ impl TopApp {
         cx.notify();
     }
 
-    /// "Download n tracks" and "Download n releases" of the detail bar.
-    /// Each item queues one job in the download queue of `LibraryApp`
-    /// (ADR 0084 Decision 10).
-    fn download_detail_selection(&mut self, rows: &DetailPageRows, cx: &mut Context<Self>) {
-        let selection = self.library.read(cx).detail_selection().clone();
+    /// "Download n tracks" and "Download n releases" of a bar. Each item
+    /// queues one job in the download queue of `LibraryApp` (ADR 0084
+    /// Decision 10). The detail column and the search list share this
+    /// function (packet 010): `rows` and `selection` are the rows and the
+    /// selection of the column that shows the bar.
+    pub(super) fn download_selection(
+        &mut self,
+        rows: &DetailPageRows,
+        selection: &DetailSelection,
+        cx: &mut Context<Self>,
+    ) {
         match rows {
             DetailPageRows::Tracks(_) => {
-                let selected = rows.selected_tracks(&selection);
+                let selected = rows.selected_tracks(selection);
                 let library_ids: Vec<i64> = selected
                     .iter()
                     .filter(|row| !row.downloaded)
                     .filter_map(|row| row.library_track_id)
                     .collect();
-                let index_keys: Vec<_> = selected
+                let index_rows: Vec<(TrackKey, String)> = selected
                     .iter()
                     .filter(|row| row.library_track_id.is_none() && !row.downloaded)
-                    .filter_map(|row| row.key.clone())
+                    .filter_map(|row| row.key.clone().map(|key| (key, row.title.clone())))
                     .collect();
                 self.library.update(cx, |library, cx| {
                     library.download_library_tracks(&library_ids, cx);
                 });
-                if index_keys.is_empty() {
+                if index_rows.is_empty() {
                     return;
                 }
-                let Some(feed) = self.index_release_page_feed(cx) else {
-                    return;
-                };
-                let feed_guid = feed_guid_from_view(&feed);
-                let index_rows = index_release_track_rows(feed_guid.as_deref(), &feed.tracks);
-                for (row, track) in index_rows.iter().zip(&feed.tracks) {
-                    if row.key.as_ref().is_some_and(|key| index_keys.contains(key)) {
-                        self.download_index_track(&feed, track, cx);
-                    }
-                }
+                self.download_index_track_keys(index_rows, cx);
             }
             DetailPageRows::Releases(_) => {
-                let selected = rows.selected_releases(&selection);
+                let selected = rows.selected_releases(selection);
                 let library_feed_ids: Vec<i64> = selected
                     .iter()
                     .filter_map(|row| row.library)
@@ -447,7 +439,7 @@ impl TopApp {
             // downloaded. One track can have two entries.
             DetailPageRows::PlaylistEntries { .. } => {
                 let mut track_ids: Vec<i64> = rows
-                    .selected_entries(&selection)
+                    .selected_entries(selection)
                     .iter()
                     .filter(|row| !row.downloaded)
                     .map(|row| row.key.track_id)
@@ -461,16 +453,67 @@ impl TopApp {
         }
     }
 
+    /// Queues one job for each Index track key. A track of the open Index
+    /// release page uses the feed of that page. Each other track, for
+    /// example a search row, queues a job that reads its feed in its own
+    /// slot (packet 010 decision D10).
+    fn download_index_track_keys(&mut self, keys: Vec<(TrackKey, String)>, cx: &mut Context<Self>) {
+        let feed = self.index_release_page_feed(cx);
+        let page_rows = feed.as_ref().map(|feed| {
+            index_release_track_rows(feed_guid_from_view(feed).as_deref(), &feed.tracks)
+        });
+        let mut jobs = Vec::new();
+        for (key, title) in keys {
+            let page_track = feed
+                .as_ref()
+                .zip(page_rows.as_ref())
+                .and_then(|(feed, rows)| {
+                    rows.iter()
+                        .zip(&feed.tracks)
+                        .find(|(row, _track)| row.key.as_ref() == Some(&key))
+                        .map(|(_row, track)| index_track_job(feed, track))
+                });
+            jobs.push(page_track.unwrap_or_else(|| index_track_job_by_key(&key, title)));
+        }
+        self.library
+            .update(cx, |library, cx| library.queue_downloads(jobs, cx));
+    }
+
+    /// "Remove n tracks…" and "Remove n releases…" of a bar. The detail
+    /// column and the search list share this function (packet 010).
+    pub(super) fn request_selection_removal(
+        &mut self,
+        rows: &DetailPageRows,
+        selection: &DetailSelection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (items, item_noun) = detail_removal_items(rows, selection);
+        self.library.update(cx, |library, cx| {
+            library.request_selection_removal(items, item_noun, window, cx);
+        });
+    }
+
     /// "Add n tracks to playlist" and "Add n releases to playlist" of the
     /// detail bar. Only a Library item goes into a playlist.
     fn add_detail_selection_to_playlist(&mut self, playlist_id: i64, cx: &mut Context<Self>) {
         let Some(rows) = self.detail_page_rows(cx) else {
             return;
         };
-        let (track_ids, feed_ids) = {
-            let selection = self.library.read(cx).detail_selection();
-            detail_library_ids(&rows, selection)
-        };
+        let selection = self.library.read(cx).detail_selection().clone();
+        self.add_selection_to_playlist(&rows, &selection, playlist_id, cx);
+    }
+
+    /// "Add to playlist" of a bar. The detail column and the search list
+    /// share this function (packet 010).
+    pub(super) fn add_selection_to_playlist(
+        &mut self,
+        rows: &DetailPageRows,
+        selection: &DetailSelection,
+        playlist_id: i64,
+        cx: &mut Context<Self>,
+    ) {
+        let (track_ids, feed_ids) = detail_library_ids(rows, selection);
         self.library.update(cx, |library, cx| match rows {
             DetailPageRows::Tracks(_) | DetailPageRows::PlaylistEntries { .. } => {
                 library.add_tracks_to_playlist(track_ids, playlist_id, cx);
@@ -487,10 +530,20 @@ impl TopApp {
         let Some(rows) = self.detail_page_rows(cx) else {
             return;
         };
-        let (track_ids, feed_ids) = {
-            let selection = self.library.read(cx).detail_selection();
-            detail_library_ids(&rows, selection)
-        };
+        let selection = self.library.read(cx).detail_selection().clone();
+        self.create_playlist_and_add_selection(&rows, &selection, name, cx);
+    }
+
+    /// The "New Playlist" create flow of a bar. The detail column and the
+    /// search list share this function (packet 010).
+    pub(super) fn create_playlist_and_add_selection(
+        &mut self,
+        rows: &DetailPageRows,
+        selection: &DetailSelection,
+        name: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let (track_ids, feed_ids) = detail_library_ids(rows, selection);
         self.library.update(cx, |library, cx| match rows {
             DetailPageRows::Tracks(_) | DetailPageRows::PlaylistEntries { .. } => {
                 library.create_playlist_and_add_tracks(name, track_ids, cx);
@@ -505,9 +558,9 @@ impl TopApp {
 /// The Library track ids and the Library feed ids of the selected rows,
 /// for "Add to playlist". A playlist page gives the track of each selected
 /// entry, in position order (packet 025).
-fn detail_library_ids(
+pub(super) fn detail_library_ids(
     rows: &DetailPageRows,
-    selection: &crate::view_models::detail_selection::DetailSelection,
+    selection: &DetailSelection,
 ) -> (Vec<i64>, Vec<i64>) {
     let track_ids = rows
         .selected_tracks(selection)
@@ -529,9 +582,9 @@ fn detail_library_ids(
 
 /// The removal items of "Remove n tracks…" and "Remove n releases…": each
 /// downloaded Library track, or each fully downloaded Library release.
-fn detail_removal_items(
+pub(super) fn detail_removal_items(
     rows: &DetailPageRows,
-    selection: &crate::view_models::detail_selection::DetailSelection,
+    selection: &DetailSelection,
 ) -> (Vec<(LibraryRemovalIntent, String)>, &'static str) {
     match rows {
         DetailPageRows::Tracks(_) => (

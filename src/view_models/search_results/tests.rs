@@ -1,24 +1,138 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use crate::db::TrackRow;
-use crate::runtime::paged_list_vm::RowSlot;
-use crate::view_models::workspace::{ContentFilter, FilterChipStripWidthClass};
+use crate::view_models::detail_selection::{DetailRowClick, DetailRowKey, LibraryReleaseFacts};
+use crate::view_models::release_kind::ReleaseKind;
+use crate::view_models::selection_action_bar::SelectionActionKind;
+use crate::view_models::workspace::{ReleaseKey, TrackKey};
 use crate::views::{FeedView, TrackView};
 
 use super::{
     ArtistResultDisplay, FeedResultDisplay, IndexDetailKind, IndexSearchResultRows,
-    SearchResultItemId, SearchResultOrigin, SearchResultsInspectorPageVm, SearchResultsPagedTab,
-    SearchResultsTab, TrackResultDisplay,
+    SearchLibraryLookup, SearchLibraryRelease, SearchLibraryTrack, SearchResultItemId,
+    SearchResultOrigin, SearchResultTarget, SearchResultsInspectorPageVm, SearchResultsTab,
+    SearchRowBadge, TrackResultDisplay,
 };
 
+/// Recorded Library facts for the search rows.
+#[derive(Default)]
+struct RecordedLibrary {
+    releases: BTreeMap<ReleaseKey, SearchLibraryRelease>,
+    tracks: BTreeMap<TrackKey, SearchLibraryTrack>,
+    artist_feeds: BTreeSet<String>,
+}
+
+impl SearchLibraryLookup for RecordedLibrary {
+    fn release(&self, key: &ReleaseKey) -> Option<SearchLibraryRelease> {
+        self.releases.get(key).cloned()
+    }
+
+    fn track(&self, key: &TrackKey) -> Option<SearchLibraryTrack> {
+        self.tracks.get(key).cloned()
+    }
+
+    fn is_artist_feed(&self, feed_guid: &str) -> bool {
+        self.artist_feeds.contains(feed_guid)
+    }
+}
+
+impl RecordedLibrary {
+    fn with_release(mut self, guid: &str, feed_id: i64, fully: bool, word: &str) -> Self {
+        self.releases.insert(
+            ReleaseKey::FeedGuid(guid.to_owned()),
+            SearchLibraryRelease {
+                facts: LibraryReleaseFacts {
+                    feed_id,
+                    fully_downloaded: fully,
+                    download_active: false,
+                },
+                state_word: word.to_owned(),
+                kind: ReleaseKind::Album,
+            },
+        );
+        self
+    }
+
+    fn with_track(
+        mut self,
+        feed_guid: &str,
+        item_guid: &str,
+        track_id: i64,
+        downloaded: bool,
+    ) -> Self {
+        self.tracks.insert(
+            track_key(feed_guid, item_guid),
+            SearchLibraryTrack {
+                track_id,
+                downloaded,
+                download_active: false,
+                state_word: if downloaded {
+                    "In Library"
+                } else {
+                    "Not downloaded"
+                }
+                .to_owned(),
+            },
+        );
+        self
+    }
+}
+
+fn track_key(feed_guid: &str, item_guid: &str) -> TrackKey {
+    TrackKey::from_index_track_target(Some(feed_guid), item_guid)
+}
+
 fn artist(id: SearchResultItemId, label: &str) -> ArtistResultDisplay {
-    ArtistResultDisplay::new(id.to_string(), label, SearchResultOrigin::Index)
+    ArtistResultDisplay::new(format!("index-artist:{label}"), label)
+        .with_thumbnail_href(format!("https://example.test/{id}.png"))
 }
 
-fn feed(id: SearchResultItemId, label: &str) -> FeedResultDisplay {
-    FeedResultDisplay::new(id.to_string(), label, SearchResultOrigin::Index)
+/// An Index release row, as `fetch_index_search_result_rows` builds it.
+fn index_release(
+    id: SearchResultItemId,
+    guid: &str,
+    label: &str,
+) -> (SearchResultItemId, FeedResultDisplay) {
+    (
+        id,
+        FeedResultDisplay::new(
+            format!("index-feed:{guid}"),
+            label,
+            SearchResultOrigin::Index,
+        )
+        .with_release_key(ReleaseKey::FeedGuid(guid.to_owned()), ReleaseKind::Album),
+    )
 }
 
-fn track(id: SearchResultItemId, label: &str) -> TrackResultDisplay {
-    TrackResultDisplay::new(id.to_string(), label, SearchResultOrigin::Index)
+/// An Index track row, as `fetch_index_search_result_rows` builds it.
+fn index_track(
+    id: SearchResultItemId,
+    feed_guid: Option<&str>,
+    item_guid: &str,
+    label: &str,
+) -> (SearchResultItemId, TrackResultDisplay) {
+    let row_id = feed_guid.map_or_else(
+        || format!("index-track:{item_guid}"),
+        |feed_guid| format!("index-track:{feed_guid}:{item_guid}"),
+    );
+    let mut row = TrackResultDisplay::new(row_id, label, SearchResultOrigin::Index);
+    if let Some(feed_guid) = feed_guid {
+        row = row.with_track_key(track_key(feed_guid, item_guid));
+    }
+    (id, row)
+}
+
+fn index_feed_page(
+    id: SearchResultItemId,
+    guid: &str,
+    label: &str,
+) -> (SearchResultItemId, ArtistResultDisplay) {
+    let mut row = ArtistResultDisplay::new(
+        format!("{}{guid}", super::INDEX_FEED_PAGE_RESULT_PREFIX),
+        label,
+    );
+    row.a11y_label = format!("Open the feed page {label}");
+    (id, row)
 }
 
 fn remote_track() -> TrackView {
@@ -48,129 +162,620 @@ fn local_track(id: i64, feed_id: i64, feed_title: &str, title: &str, artist: &st
     }
 }
 
+/// A Library track of the feed `feed_guid`, with the item GUID `item_guid`.
+fn local_guid_track(
+    id: i64,
+    feed_id: i64,
+    feed_guid: &str,
+    item_guid: &str,
+    title: &str,
+) -> TrackRow {
+    TrackRow {
+        feed_guid: Some(feed_guid.to_owned()),
+        item_guid: item_guid.to_owned(),
+        ..local_track(id, feed_id, "Library Release", title, "Haleen")
+    }
+}
+
+fn rows(
+    vm: &SearchResultsInspectorPageVm,
+    lookup: &RecordedLibrary,
+) -> Vec<super::SearchResultRowVm> {
+    vm.visible_rows(lookup)
+}
+
+fn no_index_rows() -> IndexSearchResultRows {
+    IndexSearchResultRows::default()
+}
+
+/// R10-01: the tabs are Releases, Artists and Tracks, in that order, with
+/// those labels. Releases is the default.
 #[test]
-fn tab_and_filter_state_are_independent() {
-    let mut vm = SearchResultsInspectorPageVm::new("jazz")
-        .with_artists(SearchResultsPagedTab::new(vec![1], Vec::new(), vec![1]))
-        .with_feeds(SearchResultsPagedTab::new(vec![2], vec![2], Vec::new()));
-
-    vm.set_filter(ContentFilter::Library);
-    vm.set_tab(SearchResultsTab::Feeds);
-
-    assert_eq!(vm.tab(), SearchResultsTab::Feeds);
-    assert_eq!(vm.filter(), ContentFilter::Library);
-    assert!(
-        !vm.is_empty(SearchResultsTab::Feeds, ContentFilter::Library),
-        "tab switch must not reset the selected content filter"
+fn adr_0084_search_list_r10_01_three_tabs_in_order() {
+    assert_eq!(
+        SearchResultsTab::ALL.map(SearchResultsTab::label),
+        ["Releases", "Artists", "Tracks"]
+    );
+    assert_eq!(SearchResultsTab::default(), SearchResultsTab::Releases);
+    assert_eq!(
+        SearchResultsInspectorPageVm::new("q").tab(),
+        SearchResultsTab::Releases
     );
 }
 
+/// R10-02: a Library release and an Index hit with one feed GUID give one
+/// release row with the Library state word. An Index-only hit gives a row
+/// with no state word.
 #[test]
-fn per_tab_paged_windows_operate_independently() {
-    let mut vm = SearchResultsInspectorPageVm::new("ambient")
-        .with_artists(SearchResultsPagedTab::new(
-            vec![10, 11],
-            Vec::new(),
-            vec![10, 11],
+fn adr_0084_search_list_r10_02_one_release_row_for_each_item() {
+    let local = [local_guid_track(10, 7, "g-library", "i1", "One")];
+    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        "q",
+        &local,
+        &super::ArtistSearchFacts::default(),
+    );
+    vm.replace_index_results(IndexSearchResultRows {
+        feeds: vec![
+            index_release(2_000_000_000, "g-library", "Library Release"),
+            index_release(2_000_000_001, "g-index", "Index Release"),
+        ],
+        ..no_index_rows()
+    });
+    let lookup = RecordedLibrary::default().with_release("g-library", 7, true, "In Library");
+    let rows = rows(&vm, &lookup);
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows[0].id, "7",
+        "the merged row keeps the place of its Library row"
+    );
+    assert_eq!(rows[0].state_word.as_deref(), Some("In Library"));
+    assert_eq!(rows[1].id, "index-feed:g-index");
+    assert_eq!(rows[1].state_word, None);
+    assert_eq!(
+        rows[1].badge,
+        Some(SearchRowBadge::Release(ReleaseKind::Album))
+    );
+    assert!(rows.iter().all(|row| !row.secondary_text.contains("Index")));
+}
+
+/// R10-03: an Index release hit whose GUID is a Library feed with no
+/// downloaded track gives a Library row with "Not downloaded".
+#[test]
+fn adr_0084_search_list_r10_03_index_hit_of_a_library_feed_is_a_library_row() {
+    let mut vm = SearchResultsInspectorPageVm::new("q");
+    vm.replace_index_results(IndexSearchResultRows {
+        feeds: vec![index_release(2_000_000_000, "g-stored", "Stored Release")],
+        ..no_index_rows()
+    });
+    let lookup = RecordedLibrary::default().with_release("g-stored", 3, false, "Not downloaded");
+    let rows = rows(&vm, &lookup);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].state_word.as_deref(), Some("Not downloaded"));
+    let selection_rows = vm
+        .selection_rows(&lookup)
+        .expect("the Releases tab selects");
+    let crate::view_models::detail_selection::DetailPageRows::Releases(release_rows) =
+        selection_rows
+    else {
+        panic!("the Releases tab gives release rows");
+    };
+    assert_eq!(release_rows[0].library.map(|facts| facts.feed_id), Some(3));
+}
+
+/// R10-04: a Library track and an Index hit with one `TrackKey` give one
+/// track row. The Library rows come before the Index rows.
+#[test]
+fn adr_0084_search_list_r10_04_one_track_row_for_each_item() {
+    let local = [local_guid_track(10, 7, "g1", "item-1", "One")];
+    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        "q",
+        &local,
+        &super::ArtistSearchFacts::default(),
+    );
+    vm.set_tab(SearchResultsTab::Tracks);
+    vm.replace_index_results(IndexSearchResultRows {
+        tracks: vec![
+            index_track(3_000_000_000, Some("g2"), "item-2", "Two"),
+            index_track(3_000_000_001, Some("g1"), "item-1", "One"),
+            index_track(3_000_000_002, None, "item-3", "Three"),
+        ],
+        ..no_index_rows()
+    });
+    let lookup = RecordedLibrary::default().with_track("g1", "item-1", 10, true);
+    let rows = rows(&vm, &lookup);
+    assert_eq!(
+        rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+        ["10", "index-track:g2:item-2", "index-track:item-3"]
+    );
+    assert_eq!(rows[0].state_word.as_deref(), Some("In Library"));
+    assert_eq!(rows[1].state_word, None);
+    assert_eq!(rows[0].badge, None, "a track row shows no badge");
+}
+
+/// R10-06: a feed row has the badge "Artist" when the Library Artists list
+/// has its GUID, else "Feed". No row label or accessibility label says
+/// "Publisher".
+#[test]
+fn adr_0084_search_list_r10_06_feed_row_badges() {
+    let mut vm = SearchResultsInspectorPageVm::new("libre");
+    vm.replace_index_results(IndexSearchResultRows {
+        artists: vec![
+            index_feed_page(
+                4_000_000_000,
+                "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+                "Sir Libre Records",
+            ),
+            index_feed_page(
+                4_000_000_001,
+                "c8ec3dba-ed28-5662-9509-094d769f9597",
+                "Kolomona Myer - AKA Sir Libre",
+            ),
+        ],
+        ..no_index_rows()
+    });
+    assert_eq!(vm.tab(), SearchResultsTab::Artists);
+    let mut lookup = RecordedLibrary::default();
+    lookup
+        .artist_feeds
+        .insert("c8ec3dba-ed28-5662-9509-094d769f9597".to_owned());
+    let rows = rows(&vm, &lookup);
+    assert_eq!(rows[0].badge, Some(SearchRowBadge::Feed));
+    assert_eq!(rows[1].badge, Some(SearchRowBadge::Artist));
+    for row in &rows {
+        assert!(!row.label.contains("Publisher"));
+        assert!(!row.a11y_label.contains("Publisher"));
+        assert!(!row
+            .badge
+            .is_some_and(|badge| badge.label().contains("Publisher")));
+        assert_eq!(row.state_word, None);
+    }
+}
+
+/// R10-06, the merge part: one feed GUID gives one row, and the Library
+/// row stays.
+#[test]
+fn adr_0084_search_list_r10_06_one_row_for_each_feed_guid() {
+    use crate::view_models::artist_identity::{name_feed_matches, NameFeedEntry};
+
+    let facts = super::ArtistSearchFacts {
+        matches: name_feed_matches([NameFeedEntry {
+            feed_guid: "haleen-guid".to_owned(),
+            title: Some("Haleen".to_owned()),
+            keys: ["haleen".to_owned()].into_iter().collect(),
+        }]),
+        name_level_keys: BTreeSet::new(),
+    };
+    let local = [local_track(10, 1, "Feed", "One", "Haleen")];
+    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks("haleen", &local, &facts);
+    vm.set_tab(SearchResultsTab::Artists);
+    vm.replace_index_results(IndexSearchResultRows {
+        artists: vec![index_feed_page(4_000_000_000, "haleen-guid", "Haleen")],
+        ..no_index_rows()
+    });
+    let rows = rows(&vm, &RecordedLibrary::default());
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].id, "artist-feed:haleen-guid");
+}
+
+/// R10-07: `SearchResultTarget::from_row_id` gives the correct target for
+/// each id form.
+#[test]
+fn adr_0084_search_list_r10_07_row_id_targets() {
+    let target = SearchResultTarget::from_row_id;
+    assert_eq!(
+        target(SearchResultsTab::Releases, "index-feed:g1"),
+        Some(SearchResultTarget::Release(ReleaseKey::FeedGuid(
+            "g1".to_owned()
+        )))
+    );
+    assert_eq!(
+        target(SearchResultsTab::Releases, "42"),
+        Some(SearchResultTarget::Release(ReleaseKey::LibraryFeed(42)))
+    );
+    assert_eq!(
+        target(SearchResultsTab::Tracks, "index-track:g1:t1"),
+        Some(SearchResultTarget::Track(track_key("g1", "t1")))
+    );
+    assert_eq!(
+        target(SearchResultsTab::Tracks, "index-track:t1"),
+        Some(SearchResultTarget::Track(
+            TrackKey::from_index_track_target(None, "t1")
         ))
-        .with_feeds(SearchResultsPagedTab::new(vec![20], vec![20], Vec::new()))
-        .with_tracks(SearchResultsPagedTab::new(vec![30], Vec::new(), vec![30]));
-
-    let artist_window = vm.artists_mut().window_mut(ContentFilter::All);
-    assert!(matches!(artist_window.row(0), RowSlot::Pending(_)));
-    let artist_requests = artist_window.drain_requests();
-    assert_eq!(artist_requests.len(), 1);
-    artist_window.fulfill_page(0, [(10, artist(10, "A")), (11, artist(11, "B"))]);
-
-    assert!(
-        vm.feeds_mut()
-            .window_mut(ContentFilter::All)
-            .drain_requests()
-            .is_empty(),
-        "reading the artist window must not enqueue feed requests"
     );
-    assert!(
-        vm.tracks_mut()
-            .window_mut(ContentFilter::All)
-            .drain_requests()
-            .is_empty(),
-        "reading the artist window must not enqueue track requests"
+    assert_eq!(
+        target(SearchResultsTab::Tracks, "10"),
+        Some(SearchResultTarget::LibraryTrack(10))
     );
-    assert!(matches!(
-        vm.artists().window(ContentFilter::All).peek_row(1),
-        RowSlot::Ready(_)
-    ));
+    assert_eq!(
+        target(SearchResultsTab::Artists, "index-feed-page:g9"),
+        Some(SearchResultTarget::FeedPage("g9".to_owned()))
+    );
+    assert_eq!(
+        target(SearchResultsTab::Artists, "artist-feed:g8"),
+        Some(SearchResultTarget::FeedPage("g8".to_owned()))
+    );
+    assert_eq!(
+        target(SearchResultsTab::Artists, "index-artist:Survival Guide"),
+        Some(SearchResultTarget::NameMatches("Survival Guide".to_owned()))
+    );
+    assert_eq!(
+        target(SearchResultsTab::Artists, "library-artist:Haleen"),
+        Some(SearchResultTarget::ArtistByName("Haleen".to_owned()))
+    );
+    assert_eq!(target(SearchResultsTab::Releases, "nonsense"), None);
+    assert_eq!(target(SearchResultsTab::Artists, "a1"), None);
 }
 
+fn selectable_page() -> (SearchResultsInspectorPageVm, RecordedLibrary) {
+    let local = [local_guid_track(10, 7, "g-library", "i1", "One")];
+    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        "q",
+        &local,
+        &super::ArtistSearchFacts::default(),
+    );
+    vm.replace_index_results(IndexSearchResultRows {
+        artists: vec![(1_000_000_000, artist(1, "Haleen"))],
+        feeds: vec![index_release(2_000_000_000, "g-index", "Index Release")],
+        tracks: vec![
+            index_track(3_000_000_000, Some("g-index"), "t1", "Index Track"),
+            index_track(3_000_000_001, None, "t2", "No Feed"),
+        ],
+    });
+    let lookup = RecordedLibrary::default()
+        .with_release("g-library", 7, true, "In Library")
+        .with_track("g-library", "i1", 10, true);
+    (vm, lookup)
+}
+
+/// R10-09: in `Normal`, no row shows a checkbox. In `Selecting`, each
+/// Releases row and each Tracks row with a key shows one. The Artists tab
+/// gives no header action.
 #[test]
-fn empty_state_tracks_active_tab_and_filter() {
-    let mut vm = SearchResultsInspectorPageVm::new("noise")
-        .with_artists(SearchResultsPagedTab::new(vec![1], Vec::new(), vec![1]))
-        .with_feeds(SearchResultsPagedTab::new(vec![2], vec![2], Vec::new()));
+fn adr_0084_search_list_r10_09_checkboxes_follow_the_mode() {
+    let (mut vm, lookup) = selectable_page();
+    assert!(rows(&vm, &lookup)
+        .iter()
+        .all(|row| !row.selection.checkbox_visible));
+    let action = vm
+        .header_action(&lookup)
+        .expect("Releases has a Select button");
+    assert_eq!(action.label, "Select");
+
+    vm.toggle_mode();
+    assert_eq!(
+        vm.header_action(&lookup).map(|action| action.label),
+        Some("Done")
+    );
+    assert!(rows(&vm, &lookup)
+        .iter()
+        .all(|row| row.selection.checkbox_visible));
+
+    vm.set_tab(SearchResultsTab::Tracks);
+    vm.toggle_mode();
+    let track_rows = rows(&vm, &lookup);
+    assert_eq!(
+        track_rows
+            .iter()
+            .map(|row| row.selection.checkbox_visible)
+            .collect::<Vec<_>>(),
+        [true, true, false],
+        "an Index track with no feed GUID has no checkbox"
+    );
 
     vm.set_tab(SearchResultsTab::Artists);
-    vm.set_filter(ContentFilter::Library);
-    let empty = vm.empty_state().expect("library artists should be empty");
-    assert_eq!(empty.title, "No artists results");
+    assert!(vm.header_action(&lookup).is_none());
+    assert!(vm.selection_rows(&lookup).is_none());
+    assert!(rows(&vm, &lookup)
+        .iter()
+        .all(|row| !row.selection.checkbox_visible));
+}
+
+/// R10-10: a tab change clears the selection and gives `Normal`. The
+/// arrival of the Index rows keeps a selected Library row selected.
+#[test]
+fn adr_0084_search_list_r10_10_tab_change_clears_and_index_arrival_keeps() {
+    let local = [local_guid_track(10, 7, "g-library", "i1", "One")];
+    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        "q",
+        &local,
+        &super::ArtistSearchFacts::default(),
+    );
+    vm.mark_index_loading();
+    let lookup = RecordedLibrary::default().with_release("g-library", 7, true, "In Library");
+    let library_key = DetailRowKey::Release(ReleaseKey::FeedGuid("g-library".to_owned()));
+    vm.toggle_row(&library_key);
+    assert_eq!(vm.selection().selected_count(), 1);
+
+    vm.replace_index_results(IndexSearchResultRows {
+        feeds: vec![
+            index_release(2_000_000_000, "g-library", "Library Release"),
+            index_release(2_000_000_001, "g-index", "Index Release"),
+        ],
+        ..no_index_rows()
+    });
+    assert!(vm.selection().mode().is_selecting());
+    assert_eq!(vm.selection().selected_count(), 1);
+    assert!(rows(&vm, &lookup)[0].selection.is_marked());
+
+    vm.set_tab(SearchResultsTab::Tracks);
+    assert!(!vm.selection().mode().is_selecting());
+    assert_eq!(vm.selection().selected_count(), 0);
+}
+
+/// R10-11: the two search bars give the counts of packet 018 R18-06 for
+/// recorded Library rows and Index rows.
+#[test]
+fn adr_0084_search_list_r10_11_bar_counts() {
+    let (mut vm, lookup) = selectable_page();
+    vm.select_all(&lookup);
+    let bar = vm.action_bar(&lookup).expect("Selecting shows a bar");
+    let label = |kind| bar.action(kind).map(|action| action.label.clone());
     assert_eq!(
-        empty.clear_filter_action_id,
-        Some("search-results.clear-filter")
+        label(SelectionActionKind::Download).as_deref(),
+        Some("Download 1 release")
+    );
+    assert_eq!(
+        label(SelectionActionKind::AddToPlaylist).as_deref(),
+        Some("Add 1 release to playlist")
+    );
+    assert_eq!(
+        label(SelectionActionKind::Remove).as_deref(),
+        Some("Remove 1 release\u{2026}")
     );
 
-    vm.set_filter(ContentFilter::Index);
-    assert!(
-        vm.empty_state().is_none(),
-        "index artists should have one result"
+    vm.set_tab(SearchResultsTab::Tracks);
+    vm.select_all(&lookup);
+    let bar = vm.action_bar(&lookup).expect("Selecting shows a bar");
+    let label = |kind| bar.action(kind).map(|action| action.label.clone());
+    assert_eq!(
+        label(SelectionActionKind::Download).as_deref(),
+        Some("Download 1 track")
     );
+    assert_eq!(
+        label(SelectionActionKind::AddToPlaylist).as_deref(),
+        Some("Add 1 track to playlist")
+    );
+    assert_eq!(
+        label(SelectionActionKind::Remove).as_deref(),
+        Some("Remove 1 track\u{2026}")
+    );
+}
 
-    vm.set_tab(SearchResultsTab::Feeds);
-    assert!(
-        vm.empty_state().is_some(),
-        "index feeds should be empty for the active filter"
+/// R10-13: a result for query A after the location changed to query B
+/// changes neither the rows nor the selection of query B.
+#[test]
+fn adr_0084_search_list_r10_13_stale_result_changes_nothing() {
+    let local = [local_guid_track(10, 7, "g-library", "i1", "One")];
+    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        "query b",
+        &local,
+        &super::ArtistSearchFacts::default(),
+    );
+    let lookup = RecordedLibrary::default();
+    let key = DetailRowKey::Release(ReleaseKey::FeedGuid("g-library".to_owned()));
+    vm.toggle_row(&key);
+    let rows_before = rows(&vm, &lookup);
+
+    let applied = vm.replace_index_results_for_query(
+        "query a",
+        IndexSearchResultRows {
+            feeds: vec![index_release(2_000_000_000, "g-other", "Other")],
+            ..no_index_rows()
+        },
+    );
+    assert!(!applied);
+    assert_eq!(rows(&vm, &lookup), rows_before);
+    assert_eq!(vm.selection().selected_count(), 1);
+    assert!(vm.selection().mode().is_selecting());
+
+    assert!(vm.replace_index_results_for_query("query b", no_index_rows()));
+}
+
+/// R10-14: this packet does not change the name row label. Packet 017
+/// gave the label "Releases that name <name>".
+#[test]
+fn adr_0084_search_list_r10_14_name_row_label_does_not_change() {
+    let local = [local_track(10, 1, "Feed", "One", "Survival Guide")];
+    let vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        "survival guide",
+        &local,
+        &name_level_facts(&["survival guide"]),
+    );
+    let mut vm = vm;
+    vm.set_tab(SearchResultsTab::Artists);
+    let rows = rows(&vm, &RecordedLibrary::default());
+    assert_eq!(rows[0].label, "Releases that name Survival Guide");
+    assert_eq!(rows[0].badge, None, "a name row has no badge");
+}
+
+/// A click in `Normal` opens the page. In `Selecting`, a plain click
+/// changes the selection and opens nothing.
+#[test]
+fn adr_0084_search_list_click_opens_in_normal_and_selects_in_selecting() {
+    let (mut vm, lookup) = selectable_page();
+    let key = DetailRowKey::Release(ReleaseKey::FeedGuid("g-index".to_owned()));
+    assert!(vm.click_row(&key, DetailRowClick::Plain, &lookup));
+    vm.toggle_mode();
+    assert!(!vm.click_row(&key, DetailRowClick::Plain, &lookup));
+    assert_eq!(vm.selection().selected_count(), 1);
+}
+
+/// Packet 010 decision D13: the empty state names the tab and the query.
+/// It has no clear-filter action.
+#[test]
+fn adr_0084_search_list_empty_state_names_the_tab_and_the_query() {
+    let vm = SearchResultsInspectorPageVm::new("bluegrass");
+    let empty = vm.empty_state().expect("no row gives an empty state");
+    assert_eq!(empty.title, "No releases");
+    assert_eq!(empty.secondary, "No releases matched \"bluegrass\".");
+}
+
+#[test]
+fn index_loading_suppresses_empty_state() {
+    let mut vm = SearchResultsInspectorPageVm::new("ambient");
+    vm.mark_index_loading();
+    assert!(vm.is_index_loading());
+    assert!(vm.empty_state().is_none());
+}
+
+#[test]
+fn index_results_auto_select_first_populated_tab_until_user_selects_tab() {
+    let mut vm = SearchResultsInspectorPageVm::new("delta");
+    vm.replace_index_results(IndexSearchResultRows {
+        tracks: vec![index_track(3_000_000_000, Some("g"), "t", "Remote Track")],
+        ..no_index_rows()
+    });
+    assert_eq!(vm.tab(), SearchResultsTab::Tracks);
+    assert!(vm.empty_state().is_none());
+
+    vm.set_tab(SearchResultsTab::Artists);
+    vm.replace_index_results(IndexSearchResultRows {
+        feeds: vec![index_release(2_000_000_000, "g", "Second Feed")],
+        ..no_index_rows()
+    });
+    assert_eq!(
+        vm.tab(),
+        SearchResultsTab::Artists,
+        "explicit user tab selection must not be overwritten by remote refresh"
+    );
+}
+
+/// ADR 0075 packet 047: the search page still reads a row's cached label
+/// for an opening row's placeholder title.
+#[test]
+fn row_label_uses_cached_result_rows() {
+    let mut vm = SearchResultsInspectorPageVm::new("delta");
+    vm.replace_index_results(IndexSearchResultRows {
+        feeds: vec![index_release(2_000_000_000, "feed-guid", "Remote Feed")],
+        tracks: vec![index_track(
+            3_000_000_000,
+            Some("feed-guid"),
+            "track-guid",
+            "Remote Track",
+        )],
+        ..no_index_rows()
+    });
+    assert_eq!(
+        vm.row_label(SearchResultsTab::Releases, "index-feed:feed-guid")
+            .as_deref(),
+        Some("Remote Feed")
+    );
+    assert_eq!(
+        vm.row_label(SearchResultsTab::Tracks, "index-track:feed-guid:track-guid")
+            .as_deref(),
+        Some("Remote Track")
     );
 }
 
 #[test]
-fn result_display_builders_project_accessible_labels() {
-    let artist = ArtistResultDisplay::new("a1", "Alice", SearchResultOrigin::Index)
-        .with_thumbnail_href("https://example.test/a.png");
-    let feed = feed(7, "Morning Show");
-    let track = track(9, "Theme");
-
-    assert_eq!(artist.a11y_label, "Artist: Alice");
-    assert_eq!(artist.secondary_text, "");
+fn visible_thumbnail_hrefs_follow_the_active_tab() {
+    let mut vm = SearchResultsInspectorPageVm::new("survival guide");
+    vm.replace_index_results(IndexSearchResultRows {
+        feeds: vec![(
+            2_000_000_000,
+            index_release(2_000_000_000, "g", "deathdreams")
+                .1
+                .with_thumbnail_href("https://example.test/deathdreams.jpg"),
+        )],
+        ..no_index_rows()
+    });
     assert_eq!(
-        artist.thumbnail_href.as_deref(),
-        Some("https://example.test/a.png")
+        vm.thumbnail_hrefs(),
+        vec!["https://example.test/deathdreams.jpg".to_string()]
     );
-    assert_eq!(feed.a11y_label, "Feed: Morning Show");
-    assert_eq!(track.a11y_label, "Track: Theme");
-    assert!(SearchResultOrigin::Index.matches_filter(ContentFilter::All));
-    assert!(!SearchResultOrigin::Index.matches_filter(ContentFilter::Library));
 }
 
 #[test]
-fn visible_thumbnail_hrefs_include_index_feed_rows() {
-    let mut feeds = SearchResultsPagedTab::empty();
-    feeds.replace_index_rows(vec![
-        (
-            20,
-            feed(20, "deathdreams").with_thumbnail_href("https://example.test/deathdreams.jpg"),
+fn local_library_tracks_populate_ready_rows() {
+    let rows_in = [
+        local_track(10, 1, "The Heycitizen Experience", "Opening", "HeyCitizen"),
+        local_track(
+            11,
+            2,
+            "HeyCitizen's Lo-Fi Hip-Hop Beats",
+            "Side B",
+            "HeyCitizen",
         ),
-        (
-            21,
-            feed(21, "Way to Go").with_thumbnail_href("https://example.test/way-to-go.jpg"),
-        ),
-    ]);
-    let vm = SearchResultsInspectorPageVm::new("survival guide").with_feeds(feeds);
-
-    assert_eq!(
-        vm.thumbnail_hrefs_for_scope(SearchResultsTab::Feeds, ContentFilter::Index),
-        vec![
-            "https://example.test/deathdreams.jpg".to_string(),
-            "https://example.test/way-to-go.jpg".to_string(),
-        ]
+    ];
+    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        "heycitizen",
+        &rows_in,
+        &name_level_facts(&["heycitizen"]),
     );
+    assert!(vm.empty_state().is_none());
+    assert_eq!(vm.artists().window().total(), 1);
+    assert_eq!(vm.releases().window().total(), 2);
+    assert_eq!(vm.tracks().window().total(), 2);
+
+    let lookup = RecordedLibrary::default();
+    let release_rows = rows(&vm, &lookup);
+    assert_eq!(
+        release_rows[0].a11y_label,
+        "Release: The Heycitizen Experience"
+    );
+    vm.set_tab(SearchResultsTab::Tracks);
+    let track_rows = rows(&vm, &lookup);
+    assert_eq!(track_rows[0].label, "Opening");
+    assert_eq!(track_rows[0].secondary_text, "HeyCitizen");
+}
+
+#[test]
+fn index_error_surfaces_when_the_tab_has_no_rows() {
+    let mut vm = SearchResultsInspectorPageVm::new("field recordings");
+    vm.mark_index_loading();
+    vm.set_index_error(
+        &crate::application::CommandError::Query("connection refused".into()),
+        "http://127.0.0.1:9",
+        std::time::SystemTime::UNIX_EPOCH,
+    );
+    let empty = vm.empty_state().expect("index error should surface");
+    assert_eq!(empty.title, "MusicIndex search unavailable");
+    assert!(empty
+        .secondary
+        .contains("App could not get search results from MusicIndex."));
+}
+
+#[test]
+fn adr_0066_search_failure_disclosure_resets_on_retry() {
+    use super::SearchFailureAction;
+    let mut vm = SearchResultsInspectorPageVm::new("runtime-retry");
+    vm.set_index_error(
+        &crate::application::CommandError::Query("connection refused".into()),
+        "http://127.0.0.1:9",
+        std::time::SystemTime::UNIX_EPOCH,
+    );
+    let report = vm
+        .activate_failure_action(SearchFailureAction::CopyReport)
+        .unwrap();
+    vm.activate_failure_action(SearchFailureAction::ToggleDetails);
+    assert_eq!(
+        vm.empty_state()
+            .unwrap()
+            .failure
+            .as_ref()
+            .unwrap()
+            .visible_report(),
+        Some(report.as_str())
+    );
+    vm.mark_index_loading();
+    assert!(vm.empty_state().is_none());
+    assert_eq!(
+        vm.activate_failure_action(SearchFailureAction::CopyReport),
+        None
+    );
+    vm.set_index_error(
+        &crate::application::CommandError::Query("another failure".into()),
+        "http://127.0.0.1:9",
+        std::time::SystemTime::UNIX_EPOCH,
+    );
+    assert!(vm
+        .empty_state()
+        .unwrap()
+        .failure
+        .as_ref()
+        .unwrap()
+        .visible_report()
+        .is_none());
 }
 
 /// ADR 0075 packet 047, Required Change 3: the loading state names the
@@ -232,297 +837,6 @@ fn index_detail_display_loaded_feed_and_track_carry_the_fetched_view() {
     );
 }
 
-#[test]
-fn local_library_tracks_populate_ready_artist_feed_and_track_results() {
-    let rows = [
-        local_track(10, 1, "The Heycitizen Experience", "Opening", "HeyCitizen"),
-        local_track(
-            11,
-            2,
-            "HeyCitizen's Lo-Fi Hip-Hop Beats",
-            "Side B",
-            "HeyCitizen",
-        ),
-    ];
-
-    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks(
-        "heycitizen",
-        &rows,
-        &name_level_facts(&["heycitizen"]),
-    );
-
-    assert!(
-        vm.empty_state().is_none(),
-        "default Artists/All tab should not show empty state when local artist rows exist"
-    );
-    assert_eq!(vm.artists().window(ContentFilter::All).total(), 1);
-    assert_eq!(vm.artists().window(ContentFilter::Library).total(), 1);
-    assert_eq!(vm.artists().window(ContentFilter::Index).total(), 0);
-    assert_eq!(vm.feeds().window(ContentFilter::All).total(), 2);
-    assert_eq!(vm.tracks().window(ContentFilter::All).total(), 2);
-
-    let RowSlot::Ready(artist) = vm.artists().window(ContentFilter::All).peek_row(0) else {
-        panic!("local artist row should be preloaded");
-    };
-    assert_eq!(artist.label, "Releases that name HeyCitizen");
-    assert_eq!(artist.secondary_text, "");
-
-    vm.set_tab(SearchResultsTab::Tracks);
-    let RowSlot::Ready(track) = vm.tracks().window(ContentFilter::All).peek_row(0) else {
-        panic!("local track row should be preloaded");
-    };
-    assert_eq!(track.label, "Opening");
-    assert_eq!(track.secondary_text, "HeyCitizen");
-}
-
-#[test]
-fn index_loading_suppresses_empty_state_for_index_and_all() {
-    let mut vm = SearchResultsInspectorPageVm::new("ambient");
-
-    vm.mark_index_loading();
-
-    assert!(vm.is_index_loading());
-    assert!(
-        vm.empty_state().is_none(),
-        "All filter should keep pending remote search visually pending"
-    );
-
-    vm.set_filter(ContentFilter::Index);
-    assert!(
-        vm.empty_state().is_none(),
-        "Index filter should keep pending remote search visually pending"
-    );
-
-    vm.set_filter(ContentFilter::Library);
-    assert!(
-        vm.empty_state().is_some(),
-        "Library filter is not waiting on remote Index results"
-    );
-}
-
-#[test]
-fn index_rows_populate_index_and_all_but_not_library() {
-    let local_rows = [local_track(
-        10,
-        1,
-        "Local Feed",
-        "Local Track",
-        "Local Artist",
-    )];
-    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks(
-        "mix",
-        &local_rows,
-        &name_level_facts(&["local artist"]),
-    );
-
-    vm.replace_index_results(IndexSearchResultRows {
-        artists: vec![(101, artist(101, "Remote Artist"))],
-        feeds: vec![(201, feed(201, "Remote Feed"))],
-        tracks: vec![(301, track(301, "Remote Track"))],
-    });
-
-    assert!(!vm.is_index_loading());
-    assert_eq!(vm.artists().window(ContentFilter::Index).total(), 1);
-    assert_eq!(vm.artists().window(ContentFilter::All).total(), 2);
-    assert_eq!(vm.artists().window(ContentFilter::Library).total(), 1);
-    assert_eq!(vm.feeds().window(ContentFilter::Index).total(), 1);
-    assert_eq!(vm.feeds().window(ContentFilter::All).total(), 2);
-    assert_eq!(vm.feeds().window(ContentFilter::Library).total(), 1);
-    assert_eq!(vm.tracks().window(ContentFilter::Index).total(), 1);
-    assert_eq!(vm.tracks().window(ContentFilter::All).total(), 2);
-    assert_eq!(vm.tracks().window(ContentFilter::Library).total(), 1);
-
-    let RowSlot::Ready(local_artist) = vm.artists().window(ContentFilter::All).peek_row(0) else {
-        panic!("local All artist row should stay cached after remote rows arrive");
-    };
-    assert_eq!(local_artist.label, "Releases that name Local Artist");
-
-    let RowSlot::Ready(remote_artist) = vm.artists().window(ContentFilter::All).peek_row(1) else {
-        panic!("remote All artist row should be cached after replacement");
-    };
-    assert_eq!(remote_artist.label, "Remote Artist");
-
-    let RowSlot::Ready(remote_feed) = vm.feeds().window(ContentFilter::All).peek_row(1) else {
-        panic!("remote All feed row should be cached after replacement");
-    };
-    assert_eq!(remote_feed.label, "Remote Feed");
-
-    let RowSlot::Ready(remote_track) = vm.tracks().window(ContentFilter::All).peek_row(1) else {
-        panic!("remote All track row should be cached after replacement");
-    };
-    assert_eq!(remote_track.label, "Remote Track");
-}
-
-#[test]
-fn index_results_auto_select_first_populated_tab_until_user_selects_tab() {
-    let mut vm = SearchResultsInspectorPageVm::new("delta");
-
-    vm.replace_index_results(IndexSearchResultRows {
-        artists: Vec::new(),
-        feeds: vec![(201, feed(201, "Remote Feed"))],
-        tracks: Vec::new(),
-    });
-
-    assert_eq!(
-        vm.tab(),
-        SearchResultsTab::Feeds,
-        "automatic search landing should move off an empty default tab"
-    );
-    assert!(
-        vm.empty_state().is_none(),
-        "populated remote feed rows should be visible after auto-tab selection"
-    );
-
-    vm.set_tab(SearchResultsTab::Artists);
-    vm.replace_index_results(IndexSearchResultRows {
-        artists: Vec::new(),
-        feeds: vec![(202, feed(202, "Second Feed"))],
-        tracks: Vec::new(),
-    });
-
-    assert_eq!(
-        vm.tab(),
-        SearchResultsTab::Artists,
-        "explicit user tab selection must not be overwritten by remote refresh"
-    );
-}
-
-/// ADR 0075 packet 047: the Index search page still reads a row's cached
-/// label for a nav breadcrumb and for an opening row's placeholder title.
-/// It no longer projects a cached row into a detail page; the detail-on-open
-/// fetch supplies that (`src/app/search_dispatch.rs`).
-#[test]
-fn index_label_projection_uses_cached_result_rows() {
-    let mut vm = SearchResultsInspectorPageVm::new("delta");
-    vm.replace_index_results(IndexSearchResultRows {
-        artists: Vec::new(),
-        feeds: vec![(
-            201,
-            FeedResultDisplay::new(
-                "index-feed:feed-guid",
-                "Remote Feed",
-                SearchResultOrigin::Index,
-            )
-            .with_secondary_text("Remote Artist - 6 tracks"),
-        )],
-        tracks: vec![(
-            301,
-            TrackResultDisplay::new(
-                "index-track:feed-guid:track-guid",
-                "Remote Track",
-                SearchResultOrigin::Index,
-            )
-            .with_secondary_text("Remote Artist"),
-        )],
-    });
-
-    assert_eq!(
-        vm.index_feed_label("index-feed:feed-guid").as_deref(),
-        Some("Remote Feed")
-    );
-    assert_eq!(
-        vm.index_track_label("index-track:feed-guid:track-guid")
-            .as_deref(),
-        Some("Remote Track")
-    );
-}
-
-#[test]
-fn index_error_surfaces_for_index_when_no_index_rows_exist() {
-    let mut vm = SearchResultsInspectorPageVm::new("field recordings");
-
-    vm.mark_index_loading();
-    vm.set_filter(ContentFilter::Index);
-    vm.set_index_error(
-        &crate::application::CommandError::Query("connection refused".into()),
-        "http://127.0.0.1:9",
-        std::time::SystemTime::UNIX_EPOCH,
-    );
-
-    let empty = vm
-        .empty_state()
-        .expect("index error should surface as empty-state display");
-    assert_eq!(empty.title, "MusicIndex search unavailable");
-    assert!(empty
-        .secondary
-        .contains("App could not get search results from MusicIndex."));
-    assert_eq!(empty.clear_filter_action_id, None);
-}
-
-#[test]
-fn adr_0066_search_failure_disclosure_respects_scope_and_resets_on_retry() {
-    use super::SearchFailureAction;
-    let mut vm = SearchResultsInspectorPageVm::new("runtime-retry");
-    vm.set_index_error(
-        &crate::application::CommandError::Query("connection refused".into()),
-        "http://127.0.0.1:9",
-        std::time::SystemTime::UNIX_EPOCH,
-    );
-    let report = vm
-        .activate_failure_action(SearchFailureAction::CopyReport)
-        .unwrap();
-    vm.activate_failure_action(SearchFailureAction::ToggleDetails);
-    assert_eq!(
-        vm.empty_state()
-            .unwrap()
-            .failure
-            .as_ref()
-            .unwrap()
-            .visible_report(),
-        Some(report.as_str())
-    );
-    vm.set_filter(ContentFilter::Library);
-    assert!(
-        vm.empty_state().unwrap().failure.is_none(),
-        "remote failures must not replace local empty states"
-    );
-    vm.set_filter(ContentFilter::Index);
-    assert_eq!(
-        vm.activate_failure_action(SearchFailureAction::CopyReport),
-        Some(report)
-    );
-    vm.mark_index_loading();
-    assert!(vm.empty_state().is_none());
-    assert_eq!(
-        vm.activate_failure_action(SearchFailureAction::CopyReport),
-        None
-    );
-    vm.set_index_error(
-        &crate::application::CommandError::Query("another failure".into()),
-        "http://127.0.0.1:9",
-        std::time::SystemTime::UNIX_EPOCH,
-    );
-    assert!(vm
-        .empty_state()
-        .unwrap()
-        .failure
-        .as_ref()
-        .unwrap()
-        .visible_report()
-        .is_none());
-}
-
-#[test]
-fn filter_chip_strip_uses_search_inspector_contract() {
-    let mut vm = SearchResultsInspectorPageVm::new("beats");
-    vm.set_filter(ContentFilter::Index);
-
-    let strip = vm.filter_chip_strip();
-
-    assert_eq!(strip.id, "workspace-search-inspector-filter");
-    assert_eq!(strip.selected, ContentFilter::Index);
-    assert!(
-        !strip.narrow_collapse_to_pulldown,
-        "search inspector filters should render expanded at normal widths"
-    );
-
-    let narrow = vm.filter_chip_strip_for_width_class(FilterChipStripWidthClass::Narrow);
-    assert!(
-        narrow.narrow_collapse_to_pulldown,
-        "search inspector filters should collapse in narrow detail frames"
-    );
-}
-
 /// The artist facts of a Library with a name level release for each of
 /// `keys`, and no artist feed.
 fn name_level_facts(keys: &[&str]) -> super::ArtistSearchFacts {
@@ -538,13 +852,7 @@ fn library_artist_rows(
     facts: &super::ArtistSearchFacts,
 ) -> Vec<super::ArtistResultDisplay> {
     let vm = SearchResultsInspectorPageVm::from_local_library_tracks("q", rows, facts);
-    let window = vm.artists().window(ContentFilter::Library);
-    (0..window.total())
-        .filter_map(|index| match window.peek_row(index) {
-            RowSlot::Ready(row) => Some(row.as_ref().clone()),
-            RowSlot::Pending(_) => None,
-        })
-        .collect()
+    vm.artists().rows()
 }
 
 /// R17-15: a search artist row of a `NoFeed` name with Library members has
@@ -615,21 +923,24 @@ fn adr_0084_name_level_r17_14_search_row_destinations() {
         title: Some("Haleen".to_owned()),
         keys: ["haleen".to_owned()].into_iter().collect(),
     }]);
+    let destination = |id: &str| {
+        SearchResultTarget::from_row_id(SearchResultsTab::Artists, id)?.artist_destination(&matches)
+    };
     for prefix in ["index-artist:", "library-artist:"] {
         assert_eq!(
-            super::artist_result_destination(&format!("{prefix}Survival Guide"), &matches),
+            destination(&format!("{prefix}Survival Guide")),
             Some(ArtistNameDestination::NameLevel(ArtistNameKey::from_text(
                 "Survival Guide"
             )))
         );
         assert_eq!(
-            super::artist_result_destination(&format!("{prefix}HALEEN"), &matches),
+            destination(&format!("{prefix}HALEEN")),
             Some(ArtistNameDestination::FeedPage("haleen-guid".to_owned()))
         );
     }
     assert_eq!(
-        super::artist_result_destination("artist-feed:haleen-guid", &matches),
+        destination("artist-feed:haleen-guid"),
         Some(ArtistNameDestination::FeedPage("haleen-guid".to_owned()))
     );
-    assert_eq!(super::artist_result_destination("a1", &matches), None);
+    assert_eq!(destination("a1"), None);
 }

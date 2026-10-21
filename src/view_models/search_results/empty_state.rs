@@ -2,8 +2,6 @@
 
 #![warn(clippy::pedantic)]
 
-use crate::view_models::workspace::ContentFilter;
-
 use super::failure::SearchFailureDisplay;
 use super::SearchResultsTab;
 
@@ -14,8 +12,6 @@ pub(crate) struct EmptyStateDisplay {
     pub(crate) title: String,
     /// Secondary empty-state explanation.
     pub(crate) secondary: String,
-    /// Optional command id that clears the active filter.
-    pub(crate) clear_filter_action_id: Option<&'static str>,
     /// Optional failure report; ordinary empty results have no diagnostic actions.
     pub(crate) failure: Option<SearchFailureDisplay>,
 }
@@ -23,37 +19,22 @@ pub(crate) struct EmptyStateDisplay {
 impl EmptyStateDisplay {
     /// Creates an empty-state display contract.
     #[must_use]
-    pub(crate) fn new(
-        title: impl Into<String>,
-        secondary: impl Into<String>,
-        clear_filter_action_id: Option<&'static str>,
-    ) -> Self {
+    pub(crate) fn new(title: impl Into<String>, secondary: impl Into<String>) -> Self {
         Self {
             title: title.into(),
             secondary: secondary.into(),
-            clear_filter_action_id,
             failure: None,
         }
     }
 }
 
-pub(super) fn empty_state_for(
-    tab: SearchResultsTab,
-    filter: ContentFilter,
-    query: &str,
-) -> EmptyStateDisplay {
-    let title = format!("No {} results", tab.label().to_lowercase());
-    let secondary = match filter {
-        ContentFilter::All => format!("No results matched \"{query}\"."),
-        ContentFilter::Library => format!("No library results matched \"{query}\"."),
-        ContentFilter::Index => format!("No index results matched \"{query}\"."),
-    };
-    EmptyStateDisplay::new(title, secondary, clear_filter_action_id(filter))
-}
-
-pub(super) const fn clear_filter_action_id(filter: ContentFilter) -> Option<&'static str> {
-    match filter {
-        ContentFilter::All => None,
-        ContentFilter::Library | ContentFilter::Index => Some("search-results.clear-filter"),
-    }
+/// The empty state of a tab (packet 010 decision D13). It names the tab
+/// and the query, for example `No releases matched "bluegrass".` It has
+/// no clear-filter action, because no filter stays.
+pub(super) fn empty_state_for(tab: SearchResultsTab, query: &str) -> EmptyStateDisplay {
+    let noun = tab.plural_noun();
+    EmptyStateDisplay::new(
+        format!("No {noun}"),
+        format!("No {noun} matched \"{query}\"."),
+    )
 }

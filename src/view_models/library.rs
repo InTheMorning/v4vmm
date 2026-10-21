@@ -74,7 +74,8 @@ use crate::view_models::releases_everything::{
     ReleaseStateWord, ReleasesDownloadPlan,
 };
 use crate::view_models::search_results::{
-    FeedResultDisplay, IndexDetailDisplay, SearchResultOrigin, TrackResultDisplay,
+    FeedResultDisplay, IndexDetailDisplay, SearchLibraryLookup, SearchLibraryRelease,
+    SearchLibraryTrack, SearchResultOrigin, TrackResultDisplay,
 };
 use crate::view_models::selection_action_bar::{
     SelectionActionBarInput, SelectionActionBarVm, SelectionActionCounts,
@@ -3868,6 +3869,42 @@ impl LibraryViewModel {
         name_feed_matches(feeds.into_values())
     }
 
+    /// The Library facts of the search rows for one render (ADR 0084
+    /// packet 010). It reads the artist feeds of the tree one time.
+    #[must_use]
+    pub(crate) fn search_lookup(&self) -> LibrarySearchLookup<'_> {
+        let artist_feeds = self
+            .snapshot
+            .tree
+            .artists
+            .iter()
+            .flat_map(|artist| {
+                artist
+                    .albums
+                    .iter()
+                    .map(move |album| album.artist_identity(&artist.name))
+            })
+            .filter_map(|identity| match identity {
+                ArtistIdentity::Publisher(feed_guid) => Some(feed_guid),
+                ArtistIdentity::Name(_) => None,
+            })
+            .collect();
+        let named_feeds = self
+            .snapshot
+            .tree
+            .artists
+            .iter()
+            .flat_map(|artist| &artist.albums)
+            .flat_map(|album| &album.named_feeds)
+            .map(|named| named.feed_guid.clone())
+            .collect();
+        LibrarySearchLookup {
+            vm: self,
+            artist_feeds,
+            named_feeds,
+        }
+    }
+
     /// The name keys that match exactly the feed `feed_guid`, in key
     /// order (ADR 0084 Decision 7, "Matched by name"). The label of each
     /// key follows the label rule of its Library releases.
@@ -5155,6 +5192,77 @@ impl<'a> LibraryAlbumDetailVm<'a> {
         } else {
             ReleaseMembershipState::RemoteOnly
         }
+    }
+}
+
+/// The Library facts of the search rows for one render (ADR 0084 packet
+/// 010). [`LibraryViewModel::search_lookup`] makes it.
+pub(crate) struct LibrarySearchLookup<'a> {
+    vm: &'a LibraryViewModel,
+    artist_feeds: BTreeSet<String>,
+    named_feeds: BTreeSet<String>,
+}
+
+impl LibrarySearchLookup<'_> {
+    /// True when one or more albums of the Library tree name the feed
+    /// `feed_guid`, with each role. A search feed row then opens its feed
+    /// page in the Library context (packet 010 Required Change 7).
+    #[must_use]
+    pub(crate) fn names_feed(&self, feed_guid: &str) -> bool {
+        self.named_feeds.contains(feed_guid)
+    }
+}
+
+impl SearchLibraryLookup for LibrarySearchLookup<'_> {
+    /// The state word of the release: the queue word while a job of its
+    /// key is queued or in flight, else the word of ADR 0084 Decision 4.
+    fn release(&self, key: &ReleaseKey) -> Option<SearchLibraryRelease> {
+        let album = self.vm.album_for_release_key(key)?;
+        let facts = self.vm.library_release_facts(key)?;
+        let state_word = match self.vm.busy.release_download_phase(album) {
+            Some(DownloadPhase::Queued) => "Queued".to_owned(),
+            Some(DownloadPhase::InFlight) => "Downloading".to_owned(),
+            None => {
+                let downloaded = album
+                    .tracks
+                    .iter()
+                    .filter(|track| track.is_in_library)
+                    .count();
+                ReleaseStateWord::of_tracks(downloaded, album.tracks.len()).label()
+            }
+        };
+        Some(SearchLibraryRelease {
+            facts,
+            state_word,
+            kind: album.release_kind(),
+        })
+    }
+
+    /// The state word of the track: the queue word while a job of the
+    /// track is queued or in flight, else "In Library" or "Not
+    /// downloaded".
+    fn track(&self, key: &TrackKey) -> Option<SearchLibraryTrack> {
+        let album = self.vm.album_for_release_key(key.release.as_ref()?)?;
+        let track = album
+            .tracks
+            .iter()
+            .find(|track| track.item_guid == key.item_guid)?;
+        let state_word = match self.vm.busy.track_row_work(album, track) {
+            TrackRowWork::Queued => "Queued",
+            TrackRowWork::Downloading => "Downloading",
+            TrackRowWork::Idle | TrackRowWork::Removing if track.is_in_library => "In Library",
+            TrackRowWork::Idle | TrackRowWork::Removing => "Not downloaded",
+        };
+        Some(SearchLibraryTrack {
+            track_id: track.id,
+            downloaded: track.is_in_library,
+            download_active: self.vm.busy.release_downloading(album),
+            state_word: state_word.to_owned(),
+        })
+    }
+
+    fn is_artist_feed(&self, feed_guid: &str) -> bool {
+        self.artist_feeds.contains(feed_guid)
     }
 }
 
@@ -9112,6 +9220,28 @@ mod tests {
     /// R17-03: the Haleen tree gives 3 name level members, the match
     /// `MatchedFeed`, no "Haleen · by name" row, and the feed row "6
     /// releases". The "3 vs 6" defect of 2026-10-18 goes.
+    /// Packet 010 Required Change 7: the Library context follows each
+    /// feed that the Library tree names, also a feed that is not an
+    /// artist identity, for example a label.
+    #[test]
+    fn adr_0084_search_list_feed_page_context_follows_named_feeds() {
+        let mut vm = LibraryViewModel::new();
+        let mut tree = haleen_tree();
+        tree.artists[0].albums[0] = with_named_feed(
+            tree.artists[0].albums[0].clone(),
+            "label-feed",
+            "A Label",
+            Some("label"),
+            Some("both"),
+        );
+        vm.replace_tree(tree);
+        let lookup = vm.search_lookup();
+
+        assert!(lookup.names_feed("haleen-feed"));
+        assert!(lookup.names_feed("label-feed"));
+        assert!(!lookup.names_feed("other-feed"));
+    }
+
     #[test]
     fn adr_0084_name_level_r17_03_haleen_tree() {
         let mut vm = LibraryViewModel::new();

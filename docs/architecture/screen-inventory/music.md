@@ -24,7 +24,7 @@ Two structures hold most Music screens together:
 | Screen | Reached by | Shell file | View model | Key composites |
 |---|---|---|---|---|
 | Toolbar Search | The search input and Search button in the app toolbar, on every tab | `src/app/tab_bar.rs` | `src/view_models/app_toolbar.rs` (`AppToolbarVm`) | gpui_component `Input`, `Button` |
-| Search Results (Feeds / Tracks / Artists) | A submitted toolbar query, or a restored `Search` breadcrumb | `src/ui/shells/search_results_inspector.rs`, `src/ui/shells/search_result_rows.rs` | `src/view_models/search_results/{mod,tabs,results,paged_tab,index_detail,empty_state,failure}.rs` | `SegmentedControl`, `FilterChipStrip`, `ListRow`, `Thumbnail`, `TagBadge` |
+| Search Results (Releases / Artists / Tracks) | A submitted toolbar query, or a restored `Search` breadcrumb | `src/ui/shells/search_results_inspector.rs`, `src/ui/shells/search_result_rows.rs` | `src/view_models/search_results/{mod,tabs,rows,results,paged_tab,index_detail,empty_state,failure}.rs` | `SegmentedControl`, `ListRow`, `Thumbnail`, `TagBadge` |
 | Name-match page | An Artists-tab row for an Index name candidate (`index-artist:` id) | `src/ui/shells/name_match_page.rs` | `src/view_models/name_match_page.rs` | `SectionHeader`, `ListRow`, `Thumbnail`, `TagBadge` |
 | Index Feed/Release page | A Feed row in Search Results, or a track's parent-feed link | `src/ui/shells/search_results_inspector.rs` + `src/ui/shells/entity.rs` | `src/view_models/entity_detail.rs` (`ReleaseDetailVm`) | `ReleaseDetailSurface`, `DetailHeader`, `DetailGrid`, `TrackRow`, `Thumbnail` |
 | Index Track page | A Track row in Search Results, a Name-match row, or a track row on the Feed page | `src/ui/shells/search_results_inspector.rs` + `src/ui/shells/track.rs` | `src/view_models/track_detail.rs` (`TrackDetailVm`) | `TrackDetailSurface`, `TrackHeader`, `DetailGrid` |
@@ -82,9 +82,9 @@ Two structures hold most Music screens together:
 2. **Owner files.** Shell: `src/ui/shells/search_results_inspector.rs`
    (`render_search_results_inspector`), row chrome in
    `src/ui/shells/search_result_rows.rs`. View models:
-   `src/view_models/search_results/{mod,tabs,results,paged_tab,
+   `src/view_models/search_results/{mod,tabs,rows,results,paged_tab,
    index_detail,empty_state,failure}.rs`. Frame chrome:
-   `src/ui/shells/workspace.rs`, `src/ui/composites/filter_chip_strip.rs`.
+   `src/ui/shells/workspace.rs`.
    Query: `src/application/queries/search.rs` (`FetchIndexSearchResults`).
 3. **Layout.** A breadcrumb ("Search: query") above the frame. A header
    row: the query text, the selected filter's name, and a three-way
@@ -272,8 +272,7 @@ Two structures hold most Music screens together:
    Sidebar: `src/ui/shells/library/sidebar.rs`. Frame chrome (filter and
    view-mode controls): `src/ui/composites/frame_shell.rs`. View models:
    `src/view_models/library.rs` (`LibraryViewModel`, `ContentListPageVm`),
-   `src/view_models/workspace/chrome.rs` (`ContentFilter`,
-   `ContentViewMode`).
+   `src/view_models/workspace/chrome.rs` (`ContentViewMode`).
 3. **Layout.** Frame header: back/forward, title, menu. Filter row: a
    Library/Index cycling button, then the Tiles/List toggle. Below, a
    resizable split: sidebar (playlist rows, then the artist/album/track

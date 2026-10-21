@@ -597,7 +597,6 @@ theme bridge. Do not hard-code it per screen.
 | `detail_header.rs` | Thumbnail + badge + title + subtitle header | `Thumbnail`, `ThumbnailSize::Lg`, `TagBadge` |
 | `disclosure_group.rs` | Collapsible section header | `SectionHeader::disclosure` |
 | `file_header.rs` | Embedded-tag file header (artwork, badge, actions, path) | `Thumbnail::Lg`, `TagBadge` |
-| `filter_chip_strip.rs` | Frame content-filter chips (segmented or menu) | `SegmentedControl` |
 | `frame_shell.rs` | Workspace frame chrome (title, history, close, menu) | `Spacing`, `SemanticColor` |
 | `identity_action.rs` | Website/Nostr identity action buttons | `ControlStyle` |
 | `library_filter_control.rs` | Library-membership tri-state filter | `SegmentedControl` |
@@ -674,7 +673,7 @@ A redesign must keep these green (`cargo test --test architecture_tests`):
 | `playlist_rows_scale_through_design_tokens` | ADR 0044 | Playlist rows must scale through tokens, not fixed pixels |
 | `release_detail_surface_uses_scale_aware_spacing_tokens` | — | `release_detail_surface.rs` must use scale-aware `Spacing`, not legacy fixed constants |
 | `playlist_popover_menu_rows_use_leading_alignment_and_token_padding` | — | Popover menu rows must use `Spacing::SM` padding |
-| Several screen-local `rgb(`/`gpui::rgb(` forbids (e.g. `adr_0047_phase_d_filter_controls_render_through_frame_shell`, `adr_0047_task_013_frame_shell_renders_breadcrumb_chrome`, `adr_0047_task_014_search_results_inspector_shell_contract`) | ADR 0047 | Situational per-screen bans on raw color literals, tied to specific migrations |
+| Several screen-local `rgb(`/`gpui::rgb(` forbids (e.g. `adr_0084_search_list_filter_chips_are_deleted`, `adr_0047_task_013_frame_shell_renders_breadcrumb_chrome`, `adr_0047_task_014_search_results_inspector_shell_contract`) | ADR 0047 | Situational per-screen bans on raw color literals, tied to specific migrations |
 | `dark_palette_meets_wcag` / `light_palette_meets_wcag` (contrast.rs) | — | Every pair in `REQUIRED_PAIRS` must clear 4.5:1 (text) or 3:1 (large/graphic) |
 | `high_contrast_dark_profile_meets_wcag` / `high_contrast_light_profile_meets_wcag` | — | Same, for the two high-contrast profiles |
 | `pressable_button_token_pairs_meet_wcag` | — | Filled/destructive/plain/tinted button foreground-on-background pairs, including the two tint alpha steps, must clear WCAG |

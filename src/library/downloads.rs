@@ -34,6 +34,7 @@ use crate::view_models::detail_selection::index_track_guid;
 use crate::view_models::download_progress::{DownloadProgressDisplay, FeedKey};
 use crate::view_models::library::LibraryTrackRowVm;
 use crate::view_models::release_page::index_feed_guid;
+use crate::view_models::workspace::{ReleaseKey, TrackKey};
 use crate::views::{FeedView, TrackView};
 
 const UNTITLED_RELEASE: &str = "Untitled release";
@@ -228,8 +229,24 @@ impl LibraryApp {
             DownloadJob::IndexTrack {
                 feed_guid,
                 track_guid,
-                context,
+                context: Some(context),
             } => self.run_index_track_job(identity, feed_guid, track_guid, context, cx),
+            DownloadJob::IndexTrack {
+                feed_guid: Some(feed_guid),
+                track_guid,
+                context: None,
+            } => self.read_index_track_job(identity, feed_guid, track_guid, cx),
+            DownloadJob::IndexTrack {
+                feed_guid: None,
+                context: None,
+                ..
+            } => self.finish_download(
+                &identity,
+                DownloadOutcome::Failed {
+                    error: "the app has no feed GUID to read the track from MusicIndex.".to_owned(),
+                },
+                cx,
+            ),
             DownloadJob::IndexRelease {
                 feed_guid,
                 feed_url,
@@ -266,7 +283,7 @@ impl LibraryApp {
         let finished_job = DownloadJob::IndexTrack {
             feed_guid,
             track_guid,
-            context: context.clone(),
+            context: Some(context.clone()),
         };
         let failed_job = finished_job.clone();
         let failed_identity = identity.clone();
@@ -378,6 +395,69 @@ impl LibraryApp {
         );
     }
 
+    /// An Index track job with no context (ADR 0084 packet 010): it reads
+    /// the feed of the track from `MusicIndex` in its own slot, finds the
+    /// track by its GUID, then downloads it. The progress item shows the
+    /// read, the same as for a release job with no feed.
+    fn read_index_track_job(
+        &mut self,
+        identity: JobIdentity,
+        feed_guid: String,
+        track_guid: String,
+        cx: &mut Context<Self>,
+    ) {
+        let failed_identity = identity.clone();
+        let failed_job = DownloadJob::IndexTrack {
+            feed_guid: Some(feed_guid.clone()),
+            track_guid: track_guid.clone(),
+            context: None,
+        };
+        let missing_job = failed_job.clone();
+        let command =
+            FetchIndexFeedDetail::new(self.musicindex_endpoint.clone(), feed_guid.clone());
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, feed, cx| {
+                let Some(track) = feed
+                    .tracks
+                    .iter()
+                    .find(|track| index_track_guid(track).as_deref() == Some(track_guid.as_str()))
+                else {
+                    let outcome = DownloadOutcome::Failed {
+                        error: format!(
+                            "MusicIndex gave the release {feed_guid} with no track {track_guid}."
+                        ),
+                    };
+                    this.finish_index_download(&identity, missing_job, outcome, cx);
+                    return;
+                };
+                if let Some(title) = track.title.as_deref() {
+                    this.download_queue.rename(&identity, title);
+                }
+                let context = TrackContext::new(
+                    api_track_from_view(&feed, track),
+                    Some(api_feed_from_view(&feed)),
+                );
+                this.run_index_track_job(
+                    identity,
+                    Some(feed_guid),
+                    track_guid,
+                    Box::new(context),
+                    cx,
+                );
+            },
+            move |this, error, cx| {
+                let outcome = DownloadOutcome::Failed {
+                    error: format!("the app could not read the track from MusicIndex. {error}"),
+                };
+                this.finish_index_download(&failed_identity, failed_job, outcome, cx);
+            },
+        );
+    }
+
     /// Records an Index completion, then sends it to `TopApp`, which
     /// updates its open pages in place.
     fn finish_index_download(
@@ -422,6 +502,24 @@ pub(crate) fn index_release_job_by_guid(
 ) -> Result<QueuedJob, DownloadRefusal> {
     let label = label.unwrap_or_else(|| UNTITLED_RELEASE.to_owned());
     QueuedJob::index_release(Some(feed_guid), None, None, label)
+}
+
+/// The download job of an Index track that the search found with no feed
+/// (ADR 0084 packet 010 decision D10). The job reads the feed in its own
+/// slot. `label` names the track until the read gives its title.
+///
+/// # Errors
+///
+/// Refuses a key with no feed GUID or no track GUID.
+pub(crate) fn index_track_job_by_key(
+    key: &TrackKey,
+    label: String,
+) -> Result<QueuedJob, DownloadRefusal> {
+    let feed_guid = match &key.release {
+        Some(ReleaseKey::FeedGuid(feed_guid)) => feed_guid.as_str(),
+        Some(ReleaseKey::LibraryFeed(_)) | None => "",
+    };
+    QueuedJob::index_track_by_guid(feed_guid, &key.item_guid, label)
 }
 
 /// The download job of an Index track, from its `FeedView` and its

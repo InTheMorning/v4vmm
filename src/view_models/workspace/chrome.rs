@@ -11,34 +11,6 @@ use super::{
 };
 use crate::view_models::index_name_list::MusicScopeControlDisplay;
 
-/// Content source filter for a frame-local content surface.
-///
-/// Invalid filter states are unrepresentable. Renderers map these variants to
-/// frame-local controls, while workspace view-models pass the selected value
-/// through without importing UI framework types.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) enum ContentFilter {
-    /// Show content from every available source.
-    #[default]
-    All,
-    /// Show content already present in the local library.
-    Library,
-    /// Show content available from the remote index.
-    Index,
-}
-
-impl ContentFilter {
-    /// Returns the visible label for this filter.
-    #[must_use]
-    pub(crate) const fn label(self) -> &'static str {
-        match self {
-            Self::All => "All",
-            Self::Library => "Library",
-            Self::Index => "Index",
-        }
-    }
-}
-
 /// Presentation mode for content rows.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -129,108 +101,6 @@ impl ContentViewModeControlDisplay {
             label: mode.label(),
             a11y_label: mode.content_list_a11y_label(),
         }
-    }
-}
-
-/// Width class for projecting frame-local filter chrome.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) enum FilterChipStripWidthClass {
-    /// Normal frame width; render every chip directly.
-    #[default]
-    Normal,
-    /// Narrow frame width; collapse chips into the pull-down control.
-    Narrow,
-}
-
-impl FilterChipStripWidthClass {
-    const fn narrow_collapse_to_pulldown(self) -> bool {
-        matches!(self, Self::Narrow)
-    }
-}
-
-/// Display contract for one frame-local filter chip option.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct FilterChipOption {
-    /// Filter selected when this option is activated.
-    pub(crate) value: ContentFilter,
-    /// Visible chip label.
-    pub(crate) label: &'static str,
-    /// Accessibility label for assistive technologies and tooltips.
-    pub(crate) a11y_label: &'static str,
-    /// Whether this option should render unavailable.
-    pub(crate) disabled: bool,
-}
-
-/// Display contract for a frame-local filter chip strip.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct FilterChipStripDisplay {
-    /// Stable element identifier for the filter strip.
-    pub(crate) id: String,
-    /// Ordered filter options.
-    pub(crate) options: Vec<FilterChipOption>,
-    /// Currently selected filter.
-    pub(crate) selected: ContentFilter,
-    /// Whether narrow frame chrome should collapse chips into a pull-down.
-    pub(crate) narrow_collapse_to_pulldown: bool,
-}
-
-impl FilterChipStripDisplay {
-    /// Creates the default search-inspector filter strip display.
-    #[must_use]
-    pub(crate) fn default_for_search_inspector(
-        selected: ContentFilter,
-        narrow_collapse_to_pulldown: bool,
-    ) -> Self {
-        Self::with_standard_options(
-            "workspace-search-inspector-filter",
-            selected,
-            narrow_collapse_to_pulldown,
-        )
-    }
-
-    /// Creates the default search-inspector filter display for a width class.
-    #[must_use]
-    pub(crate) fn default_for_search_inspector_width_class(
-        selected: ContentFilter,
-        width_class: FilterChipStripWidthClass,
-    ) -> Self {
-        Self::default_for_search_inspector(selected, width_class.narrow_collapse_to_pulldown())
-    }
-
-    fn with_standard_options(
-        id: impl Into<String>,
-        selected: ContentFilter,
-        narrow_collapse_to_pulldown: bool,
-    ) -> Self {
-        Self {
-            id: id.into(),
-            options: Self::standard_options(),
-            selected,
-            narrow_collapse_to_pulldown,
-        }
-    }
-
-    fn standard_options() -> Vec<FilterChipOption> {
-        vec![
-            FilterChipOption {
-                value: ContentFilter::All,
-                label: "All",
-                a11y_label: "Show library and index content",
-                disabled: false,
-            },
-            FilterChipOption {
-                value: ContentFilter::Library,
-                label: "Library",
-                a11y_label: "Show library content only",
-                disabled: false,
-            },
-            FilterChipOption {
-                value: ContentFilter::Index,
-                label: "Index",
-                a11y_label: "Show index content only",
-                disabled: false,
-            },
-        ]
     }
 }
 
@@ -338,8 +208,6 @@ pub(crate) struct FrameShellDisplay {
     /// The Music list column's "Select" and "Done" button is the first
     /// caller.
     pub(crate) header_action: Option<FrameHeaderActionDisplay>,
-    /// Optional frame-local content filter strip.
-    pub(crate) filter_chip_strip: Option<FilterChipStripDisplay>,
     /// Optional frame-local content view-mode control.
     pub(crate) view_mode_control: Option<ContentViewModeControlDisplay>,
     /// Optional scope control of the Music Releases or Artists list (ADR
@@ -391,7 +259,6 @@ impl FrameShellDisplay {
             }),
             action_menu_items: Vec::new(),
             header_action: None,
-            filter_chip_strip: None,
             view_mode_control: None,
             scope_control: None,
             breadcrumb: None,
@@ -405,13 +272,6 @@ impl FrameShellDisplay {
     #[must_use]
     pub(crate) fn with_header_action(mut self, display: FrameHeaderActionDisplay) -> Self {
         self.header_action = Some(display);
-        self
-    }
-
-    /// Returns this shell display with frame-local filter chips attached.
-    #[must_use]
-    pub(crate) fn with_filter_chip_strip(mut self, display: FilterChipStripDisplay) -> Self {
-        self.filter_chip_strip = Some(display);
         self
     }
 

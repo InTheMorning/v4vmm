@@ -31,7 +31,6 @@ use crate::runtime::{
     BroadcastServiceWatchPace, BroadcastServiceWatchSnapshot,
 };
 use crate::theme_profile::ThemeProfile;
-use crate::ui::layouts as layout;
 use crate::ui::shells::search_results_inspector::{
     render_search_results_inspector, SearchResultsHeaderMode, SearchResultsInspectorSlots,
 };
@@ -46,10 +45,9 @@ use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchRes
 use crate::view_models::settings::{SettingsAction, SettingsVm};
 use crate::view_models::show::{EventSectionInput, ShowCommandState, ShowPageVm};
 use crate::view_models::workspace::{
-    ContentFilter, ContentViewMode, DiscoverView, FilterChipStripWidthClass, FrameNavigationEntry,
-    FrameNavigationState, MusicDestination, NavigationPathStart, ReleasePageSource,
-    TrackPageSource, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
-    WorkspaceLayoutConfig,
+    ContentViewMode, DiscoverView, FrameNavigationEntry, FrameNavigationState, MusicDestination,
+    NavigationPathStart, ReleasePageSource, TrackPageSource, WorkspaceFrameId, WorkspaceFrameKind,
+    WorkspaceFrameState, WorkspaceLayout, WorkspaceLayoutConfig,
 };
 
 mod capabilities;
@@ -69,6 +67,7 @@ mod publisher_dispatch;
 mod queue_now_playing;
 mod resize;
 mod search_dispatch;
+mod search_selection;
 mod show;
 mod tab_bar;
 
@@ -101,14 +100,6 @@ enum WorkspaceScreenMount {
     Music,
     Show,
     Settings,
-}
-
-fn filter_chip_strip_width_class(width: gpui::Pixels) -> FilterChipStripWidthClass {
-    if width < layout::FILTER_CHIP_STRIP_NARROW_COLLAPSE_BREAKPOINT {
-        FilterChipStripWidthClass::Narrow
-    } else {
-        FilterChipStripWidthClass::Normal
-    }
 }
 
 impl From<AppTab> for WorkspaceScreenMount {
@@ -157,6 +148,10 @@ pub struct TopApp {
     workspace_layout: WorkspaceLayout,
     last_music_content_nav: Option<FrameNavigationState>,
     search_results_detail: Option<SearchResultsInspectorPageVm>,
+    /// The keyboard focus of the search list in the list column (ADR 0084
+    /// packet 010). The key handlers act on the search selection only while
+    /// the search list carries the focus.
+    search_list_focus: gpui::FocusHandle,
     queue_text_filter: Option<String>,
     show_page: ShowPageVm,
     show_commands: ShowCommandState,
@@ -478,6 +473,7 @@ impl TopApp {
             ),
             last_music_content_nav: None,
             search_results_detail: None,
+            search_list_focus: cx.focus_handle(),
             queue_text_filter: None,
             show_page,
             show_commands: ShowCommandState::default(),
@@ -694,18 +690,6 @@ impl TopApp {
             library.toggle_list_column_selection_mode(cx);
         });
         cx.notify();
-    }
-
-    fn set_search_results_filter(
-        &mut self,
-        _frame_id: WorkspaceFrameId,
-        filter: ContentFilter,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(detail) = &mut self.search_results_detail {
-            detail.set_filter(filter);
-            cx.notify();
-        }
     }
 
     fn set_search_results_tab(
@@ -1308,31 +1292,34 @@ impl TopApp {
         }
     }
 
-    /// Fills the list column with the search results and their filter chips
-    /// (ADR 0084 Decision 2). A result row opens its page in the detail
-    /// column.
+    /// Fills the list column with the search results (ADR 0084 Decision
+    /// 2, packet 010). A result row opens its page in the detail column.
+    /// The Releases tab and the Tracks tab have the "Select" button, the
+    /// keyboard focus and the action bar of packet 018.
     fn with_search_results_list(
         &mut self,
         slots: WorkspaceSlots,
         content_frame_id: WorkspaceFrameId,
-        filter_chip_width_class: FilterChipStripWidthClass,
         cx: &mut Context<Self>,
     ) -> WorkspaceSlots {
         let entity = cx.entity();
-        let (filter_chip_strip, thumbnail_hrefs) = {
+        let (rows, header_action, bar, thumbnail_hrefs) = {
+            let library = self.library.read(cx);
+            let lookup = library.search_lookup();
             let search_results = self.search_results_detail.as_ref().unwrap();
             (
-                search_results.filter_chip_strip_for_width_class(filter_chip_width_class),
+                search_results.visible_rows(&lookup),
+                search_results.header_action(&lookup),
                 search_results
-                    .thumbnail_hrefs_for_scope(search_results.tab(), search_results.filter()),
+                    .action_bar(&lookup)
+                    .zip(search_results.selection_rows(&lookup)),
+                search_results.thumbnail_hrefs(),
             )
         };
         let thumbnails = self.resolve_search_result_thumbnails(thumbnail_hrefs, cx);
-        let search_results = self.search_results_detail.as_ref().unwrap();
-        let filter_entity = entity.clone();
         let tab_entity = entity.clone();
-        let clear_entity = entity.clone();
         let select_entity = entity.clone();
+        let toggle_entity = entity.clone();
         let failure_entity = entity.clone();
         let inspector_slots = SearchResultsInspectorSlots::new()
             .on_failure_action(move |action, _window, cx| {
@@ -1345,31 +1332,38 @@ impl TopApp {
                     this.set_search_results_tab(content_frame_id, tab, cx);
                 });
             })
-            .on_clear_filter(move |_window, cx| {
-                clear_entity.update(cx, |this, cx| {
-                    this.set_search_results_filter(content_frame_id, ContentFilter::All, cx);
-                });
-            })
-            .on_result_select(move |tab, result_id, _window, cx| {
+            .on_result_select(move |tab, result_id, key, modifiers, window, cx| {
                 select_entity.update(cx, |this, cx| {
-                    this.handle_search_result_selected(tab, &result_id, cx);
+                    this.click_search_result_row(tab, &result_id, key, modifiers, window, cx);
                 });
             })
-            .with_thumbnails(thumbnails);
+            .on_row_toggle(move |key, window, cx| {
+                toggle_entity.update(cx, |this, cx| {
+                    this.toggle_search_result_row(&key, window, cx);
+                });
+            })
+            .with_thumbnails(thumbnails)
+            .with_rows(rows);
         let inspector_content = render_search_results_inspector(
-            search_results,
+            self.search_results_detail.as_ref().unwrap(),
             &inspector_slots,
             SearchResultsHeaderMode::Tabbed,
             cx,
         );
-        slots
-            .content_list(inspector_content)
-            .content_list_filter_chip_strip(filter_chip_strip)
-            .on_content_list_filter_select(move |filter, _window, cx| {
-                filter_entity.update(cx, |this, cx| {
-                    this.set_search_results_filter(content_frame_id, filter, cx);
+        let bar = bar.map(|(bar, rows)| self.render_search_action_bar(bar, &rows, cx));
+        let content = self.render_search_list_frame(inspector_content, bar);
+        let mut slots = slots.content_list(content);
+        if let Some(header_action) = header_action {
+            let header_action_entity = entity;
+            slots = slots
+                .content_list_header_action(header_action)
+                .on_content_list_header_action(move |_window, cx| {
+                    header_action_entity.update(cx, |this, cx| {
+                        this.toggle_search_selection_mode(cx);
+                    });
                 });
-            })
+        }
+        slots
     }
 
     #[expect(
@@ -1379,7 +1373,6 @@ impl TopApp {
     fn render_workspace_content(
         &mut self,
         mount: WorkspaceScreenMount,
-        filter_chip_width_class: FilterChipStripWidthClass,
         show_window_width: f32,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
@@ -1458,12 +1451,7 @@ impl TopApp {
                 if fills_detail {
                     WorkspaceSlots::new().detail_slot(self.library_detail_view.clone())
                 } else {
-                    self.with_search_results_list(
-                        WorkspaceSlots::new(),
-                        content_frame_id,
-                        filter_chip_width_class,
-                        cx,
-                    )
+                    self.with_search_results_list(WorkspaceSlots::new(), content_frame_id, cx)
                 }
             }
             // ADR 0084 Decision 7, packet 017: the name level page reads the
@@ -1550,12 +1538,7 @@ impl TopApp {
             && self.search_results_detail.is_some();
         if matches!(mount, WorkspaceScreenMount::Music) && search_location_is_open {
             workspace_slots = self
-                .with_search_results_list(
-                    workspace_slots,
-                    content_frame_id,
-                    filter_chip_width_class,
-                    cx,
-                )
+                .with_search_results_list(workspace_slots, content_frame_id, cx)
                 .source_list_slot(self.library_sidebar_view.clone())
                 .source_list_sidebar_preference(self.library.read(cx).sidebar_preference());
         } else if matches!(mount, WorkspaceScreenMount::Music) {
@@ -1763,7 +1746,6 @@ impl Render for TopApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.defer_application_event_drain(window, cx);
         let mount = self.active_workspace_screen_mount();
-        let filter_chip_width_class = filter_chip_strip_width_class(window.bounds().size.width);
         let show_window_width = f32::from(window.bounds().size.width);
         let live_status_strip = build_live_status_strip(self, mount, cx);
         let capability_notice = if mount == WorkspaceScreenMount::Settings {
@@ -1821,12 +1803,7 @@ impl Render for TopApp {
                     // shows on each section, beside the live status strip.
                     .child(self.download_status_view.clone())
                     // ADR 0060: workspace render delegates to the active app-section mount.
-                    .child(self.render_workspace_content(
-                        mount,
-                        filter_chip_width_class,
-                        show_window_width,
-                        cx,
-                    )),
+                    .child(self.render_workspace_content(mount, show_window_width, cx)),
             )
             .children(render_window_layers(window, cx))
     }

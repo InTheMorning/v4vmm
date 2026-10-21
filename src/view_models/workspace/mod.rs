@@ -25,8 +25,7 @@ mod tests;
 pub(crate) use breadcrumb::BreadcrumbTruncation;
 pub(crate) use breadcrumb::{BreadcrumbDisplay, BreadcrumbSegment};
 pub(crate) use chrome::{
-    ContentFilter, ContentViewMode, ContentViewModeControlDisplay, FilterChipOption,
-    FilterChipStripDisplay, FilterChipStripWidthClass, FrameChromeButtonDisplay,
+    ContentViewMode, ContentViewModeControlDisplay, FrameChromeButtonDisplay,
     FrameChromeMenuItemDisplay, FrameHeaderActionDisplay, FrameShellDisplay,
 };
 pub(crate) use columns::{

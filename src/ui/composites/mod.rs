@@ -30,7 +30,6 @@ pub mod detail_header;
 pub mod disclosure_group;
 pub mod download_status_item;
 pub mod file_header;
-pub mod filter_chip_strip;
 pub mod frame_shell;
 pub mod identity_action;
 pub mod list_row;
@@ -81,11 +80,6 @@ pub use disclosure_group::{
 };
 pub(crate) use download_status_item::download_status_item;
 pub use file_header::FileHeader;
-#[expect(
-    unused_imports,
-    reason = "ADR 0047 Task 009 exports filter chips before screen wiring"
-)]
-pub(crate) use filter_chip_strip::{filter_chip_strip, FilterChipStrip, FilterChipStripSlots};
 #[expect(
     unused_imports,
     reason = "ADR 0046 Task 006 exports the frame shell before Task 007 wires it"

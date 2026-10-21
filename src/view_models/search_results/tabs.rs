@@ -2,58 +2,54 @@
 
 #![warn(clippy::pedantic)]
 
-#[cfg(test)]
-use crate::view_models::workspace::ContentFilter;
-
 /// Stable numeric identity for one search-result row.
 pub(crate) type SearchResultItemId = u64;
 
-/// Primary tab in the search-results inspector.
+/// One tab of the search results in the list column (ADR 0084 Decision 2,
+/// packet 010 decision D1). The tabs come in the order of [`Self::ALL`].
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) enum SearchResultsTab {
-    /// Artist result rows.
+    /// Release result rows. ADR 0084 Decision 5: the curator sees
+    /// "Release" in place of "Feed".
     #[default]
+    Releases,
+    /// Artist result rows: the feed rows and the name rows.
     Artists,
-    /// Feed result rows.
-    Feeds,
     /// Track result rows.
     Tracks,
 }
 
 impl SearchResultsTab {
-    /// Returns the visible label for this tab.
+    /// Each tab, in the visible order.
+    pub(crate) const ALL: [Self; 3] = [Self::Releases, Self::Artists, Self::Tracks];
+
+    /// Returns the visible label for this tab. A label shows no count.
     #[must_use]
     pub(crate) const fn label(self) -> &'static str {
         match self {
+            Self::Releases => "Releases",
             Self::Artists => "Artists",
-            Self::Feeds => "Feeds",
             Self::Tracks => "Tracks",
+        }
+    }
+
+    /// The noun of the empty state of this tab, for example "releases".
+    #[must_use]
+    pub(crate) const fn plural_noun(self) -> &'static str {
+        match self {
+            Self::Releases => "releases",
+            Self::Artists => "artists",
+            Self::Tracks => "tracks",
         }
     }
 }
 
-/// Result origin used by content filtering and membership display.
+/// The source that found a search row. The row of a Library item and the
+/// row of an Index item of one key merge into one row (packet 010).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SearchResultOrigin {
     /// Row came from the local library.
     Library,
     /// Row came from the remote index.
     Index,
-}
-
-/// `matches_filter` has no caller outside its own dedicated test:
-/// `src/view_models/library.rs`'s `ContentListRowSource::from_search_result_origin`
-/// projects origin into row-source filtering instead of calling this method
-/// directly. It stays here, compiled only for tests.
-#[cfg(test)]
-impl SearchResultOrigin {
-    /// Returns whether this origin is visible under the given filter.
-    #[must_use]
-    pub(crate) const fn matches_filter(self, filter: ContentFilter) -> bool {
-        match filter {
-            ContentFilter::All => true,
-            ContentFilter::Library => matches!(self, Self::Library),
-            ContentFilter::Index => matches!(self, Self::Index),
-        }
-    }
 }

@@ -39,11 +39,13 @@ pub(crate) enum DownloadJob {
     /// A Library track, by its Library track id.
     LibraryTrack { track_id: i64 },
     /// An Index track. `context` holds the track and its feed, built from
-    /// the Index views when the job was queued.
+    /// the Index views when the job was queued. With `context: None`, the
+    /// job reads the feed of `feed_guid` from `MusicIndex` in its own slot
+    /// first, then finds the track by its GUID (ADR 0084 packet 010).
     IndexTrack {
         feed_guid: Option<String>,
         track_guid: String,
-        context: Box<TrackContext>,
+        context: Option<Box<TrackContext>>,
     },
     /// An Index release. With `feed: None`, the job reads the feed from
     /// `MusicIndex` in its own slot first.
@@ -181,7 +183,49 @@ impl QueuedJob {
             job: DownloadJob::IndexTrack {
                 feed_guid,
                 track_guid,
-                context: Box::new(context),
+                context: Some(Box::new(context)),
+            },
+        })
+    }
+
+    /// An Index track job that reads its feed from `MusicIndex` when it
+    /// starts (ADR 0084 packet 010 decision D10). The search finds the
+    /// track with no feed, so the job has no context. Its identity follows
+    /// the rules of [`Self::index_track`]: the feed GUID gives the key,
+    /// and the track GUID gives the track.
+    ///
+    /// # Errors
+    ///
+    /// Refuses an empty feed GUID or an empty track GUID, because the job
+    /// then cannot find its feed or its track.
+    pub(crate) fn index_track_by_guid(
+        feed_guid: &str,
+        track_guid: &str,
+        label: String,
+    ) -> Result<Self, DownloadRefusal> {
+        let feed_guid = feed_guid.trim().to_owned();
+        let track_guid = track_guid.trim().to_owned();
+        let feed_key = FeedKey::new(Some(&feed_guid), None, None);
+        let track_present = !track_guid.is_empty();
+        let (Some(feed_key), true) = (feed_key, track_present) else {
+            return Err(DownloadRefusal {
+                reason: format!(
+                    "The app did not download {label}: the app needs a feed GUID and a track GUID to read the track from MusicIndex."
+                ),
+                label,
+            });
+        };
+        Ok(Self {
+            identity: JobIdentity::IndexTrack {
+                feed_key: feed_key.clone(),
+                track: IndexTrackIdentity::new(&track_guid, None),
+            },
+            feed_key,
+            label,
+            job: DownloadJob::IndexTrack {
+                feed_guid: Some(feed_guid),
+                track_guid,
+                context: None,
             },
         })
     }
@@ -654,6 +698,68 @@ mod tests {
         assert_eq!(queue.enqueue(track_job(20, "b")), EnqueueResult::Dropped);
         assert_eq!(queue.enqueue(feed_job(1, "a")), EnqueueResult::Dropped);
         assert_eq!(queue.batch().expect("a batch").total, 2);
+    }
+
+    /// R10-12: an Index track job with no context reads its feed in its
+    /// slot. Its identity follows the rules of R22-04: the same track
+    /// queued from a release page with a context is a duplicate, and a
+    /// release job of its key drops it.
+    #[test]
+    fn adr_0084_download_queue_r10_12_index_track_job_with_no_context() {
+        let by_guid = || {
+            QueuedJob::index_track_by_guid("g1", "t1", "Track".to_owned())
+                .expect("a feed GUID and a track GUID")
+        };
+        let job = by_guid();
+        assert!(matches!(
+            job.job,
+            DownloadJob::IndexTrack {
+                ref feed_guid,
+                context: None,
+                ..
+            } if feed_guid.as_deref() == Some("g1")
+        ));
+        assert_eq!(
+            job.identity,
+            JobIdentity::IndexTrack {
+                feed_key: guid_key("g1"),
+                track: IndexTrackIdentity::Guid("t1".to_owned()),
+            }
+        );
+
+        let with_context = QueuedJob::index_track(
+            Some("g1".to_owned()),
+            None,
+            "t1".to_owned(),
+            TrackContext::new(api::Track::default(), None),
+            "Track".to_owned(),
+        )
+        .expect("a key");
+        assert_eq!(with_context.identity, job.identity);
+
+        let mut queue = DownloadQueue::default();
+        assert_eq!(queue.enqueue(job), EnqueueResult::Queued);
+        assert_eq!(queue.enqueue(with_context), EnqueueResult::Dropped);
+        assert_eq!(queue.enqueue(by_guid()), EnqueueResult::Dropped);
+
+        let mut queue = DownloadQueue::default();
+        let release = QueuedJob::index_release(Some("g1".to_owned()), None, None, "R".to_owned())
+            .expect("a key");
+        assert_eq!(queue.enqueue(release), EnqueueResult::Queued);
+        assert_eq!(queue.enqueue(by_guid()), EnqueueResult::Dropped);
+
+        let padded =
+            QueuedJob::index_track_by_guid(" g1 ", " t1 ", "T".to_owned()).expect("trimmed GUIDs");
+        assert_eq!(padded.identity, by_guid().identity);
+        assert!(matches!(
+            padded.job,
+            DownloadJob::IndexTrack { ref feed_guid, ref track_guid, .. }
+                if feed_guid.as_deref() == Some("g1") && track_guid == "t1"
+        ));
+
+        for (feed, track) in [("", "t1"), ("g1", " ")] {
+            assert!(QueuedJob::index_track_by_guid(feed, track, "T".to_owned()).is_err());
+        }
     }
 
     /// R22-05: a failure adds to the failed count, and the queue starts

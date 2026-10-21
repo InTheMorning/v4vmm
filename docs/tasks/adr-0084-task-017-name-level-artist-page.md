@@ -501,7 +501,7 @@ Pass. The code needs no fix.
 
 - The orchestrator made Required Change 14: the phase plan row, the ADR 0085 status line, the overhaul plan items §12, §21 and §23, the open gates and the source map.
 - The search check of decision D15 is responsiveness item 17 of the overhaul plan.
-- `src/sources.rs` had no production caller after this packet. The orchestrator deletes it in a separate change.
+- `src/sources.rs` had no production caller after this packet. The orchestrator deleted it in the commit of this packet.
 - A key that a Library change matches after a feed page loads gets its MusicIndex request only at the next load of the page. Its Library rows show at once. The orchestrator accepts this.
 
 ## Prompt for lower-context coding model

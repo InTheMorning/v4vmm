@@ -14,7 +14,6 @@ pub const WINDOW_WIDTH: Pixels = px(1120.0);
 pub const WINDOW_HEIGHT: Pixels = px(760.0);
 pub const TAB_BAR_HEIGHT: Pixels = px(44.0);
 pub const APP_TOOLBAR_GLOBAL_SEARCH_COMPACT_BREAKPOINT: Pixels = px(1120.0);
-pub const FILTER_CHIP_STRIP_NARROW_COLLAPSE_BREAKPOINT: Pixels = px(640.0);
 pub const WORKSPACE_QUEUE_COLLAPSE_BREAKPOINT: Pixels = px(1024.0);
 pub const WORKSPACE_SECONDARY_DETAIL_COLLAPSE_BREAKPOINT: Pixels = px(840.0);
 pub const ROW_HEIGHT: Pixels = px(36.0);

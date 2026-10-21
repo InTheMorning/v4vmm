@@ -15,10 +15,12 @@ use crate::view_models::index_name_list::name_sort_key;
 use crate::view_models::name_level_page::{
     NameLevelIndexRelease, NameLevelIndexState, NameLevelPageVm,
 };
+use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::search_results::{
     artist_feed_result_display, ArtistResultDisplay, FeedResultDisplay, IndexSearchResultRows,
-    SearchResultItemId, SearchResultOrigin, TrackResultDisplay,
+    SearchResultItemId, SearchResultOrigin, TrackResultDisplay, INDEX_FEED_PAGE_RESULT_PREFIX,
 };
+use crate::view_models::workspace::{ReleaseKey, TrackKey};
 use crate::views::TrackView;
 use crate::{db, library_service};
 
@@ -226,35 +228,68 @@ fn fetch_index_search_result_rows(
     let mut artists = BTreeMap::new();
 
     // ADR 0075 packet 047, Required Change 2: each row comes from this
-    // search's own summary fields. Neither call below sends a detail
-    // request for a returned hit.
+    // search's own summary fields. No call below sends a detail request
+    // for a returned hit.
     let feed_rows = fetch_index_feed_result_rows(&client, query);
     let track_rows = fetch_index_track_result_rows(&client, query);
+    // Packet 010 "The Artists tab": the third request gives the feed rows.
+    // Its failure alone shows the other rows.
+    let publisher_rows = fetch_index_feed_page_result_rows(&client, query);
 
-    match (feed_rows, track_rows) {
-        (Ok(feeds), Ok(tracks)) => {
-            rows.feeds = feeds.rows;
-            rows.tracks = tracks.rows;
-            merge_index_artist_candidates(&mut artists, feeds.artists);
-            merge_index_artist_candidates(&mut artists, tracks.artists);
-        }
-        (Ok(feeds), Err(_track_error)) => {
-            rows.feeds = feeds.rows;
-            merge_index_artist_candidates(&mut artists, feeds.artists);
-        }
-        (Err(_feed_error), Ok(tracks)) => {
-            rows.tracks = tracks.rows;
-            merge_index_artist_candidates(&mut artists, tracks.artists);
-        }
-        (Err(feed_error), Err(track_error)) => {
-            return Err(anyhow!(
-                "feed search failed: {feed_error}; track search failed: {track_error}"
-            ));
-        }
+    if let (Err(feed_error), Err(track_error), Err(publisher_error)) =
+        (&feed_rows, &track_rows, &publisher_rows)
+    {
+        return Err(anyhow!(
+            "feed search failed: {feed_error}; track search failed: {track_error}; publisher search failed: {publisher_error}"
+        ));
+    }
+    if let Ok(feeds) = feed_rows {
+        rows.feeds = feeds.rows;
+        merge_index_artist_candidates(&mut artists, feeds.artists);
+    }
+    if let Ok(tracks) = track_rows {
+        rows.tracks = tracks.rows;
+        merge_index_artist_candidates(&mut artists, tracks.artists);
     }
 
     rows.artists = index_artist_rows(&client, artists, matches);
+    if let Ok(feed_page_rows) = publisher_rows {
+        rows.artists.extend(feed_page_rows);
+    }
     Ok(rows)
+}
+
+/// The feed rows of the Artists tab (packet 010 "The Artists tab", flow
+/// map finding 6). One `GET /v1/search?type=publisher` request gives them.
+/// The `entity_id` of a row is the feed GUID, and the row gives no link
+/// fact, so the row shows no level word and no role word. The search
+/// sends no request for a row. No row text says "Publisher" (ADR 0085
+/// Decision 1).
+fn fetch_index_feed_page_result_rows(
+    client: &crate::api::Client,
+    query: &str,
+) -> Result<Vec<(SearchResultItemId, ArtistResultDisplay)>> {
+    let response = client.search(query, Some("publisher"), Some(crate::api::PAGE_LIMIT), None)?;
+    Ok(unique_hits(&response.data)
+        .filter_map(index_feed_page_result_display)
+        .enumerate()
+        .map(|(index, display)| (index_item_id(INDEX_FEED_PAGE_ID_BASE, index), display))
+        .collect())
+}
+
+/// The row of one `type=publisher` hit, with the id
+/// `index-feed-page:<entity_id>`. `None` for a hit with an empty
+/// `entity_id`.
+fn index_feed_page_result_display(hit: &SearchResult) -> Option<ArtistResultDisplay> {
+    let feed_guid = non_empty_str(Some(hit.entity_id.as_str()))?;
+    let label = non_empty_str(hit.title.as_deref()).unwrap_or(feed_guid);
+    let mut display =
+        ArtistResultDisplay::new(format!("{INDEX_FEED_PAGE_RESULT_PREFIX}{feed_guid}"), label);
+    display.a11y_label = format!("Open the feed page {label}");
+    if let Some(image_url) = non_empty_string(hit.feed_image_url.clone()) {
+        display = display.with_thumbnail_href(image_url);
+    }
+    Some(display)
 }
 
 /// The artist rows of the `MusicIndex` search results (ADR 0084 Decision 7,
@@ -274,11 +309,7 @@ fn index_artist_rows(
             NameFeedMatch::MatchedFeed(feed_guid) => {
                 if feeds_shown.insert(feed_guid.clone()) {
                     let title = matches.feed_title(&feed_guid);
-                    displays.push(artist_feed_result_display(
-                        &feed_guid,
-                        &title,
-                        SearchResultOrigin::Index,
-                    ));
+                    displays.push(artist_feed_result_display(&feed_guid, &title));
                 }
             }
             NameFeedMatch::Ambiguous | NameFeedMatch::NoFeed => {
@@ -332,11 +363,7 @@ impl IndexArtistCandidate {
     /// the name.
     fn into_display(self) -> ArtistResultDisplay {
         let label = NameLevelPageVm::title_text_for_name(&self.name);
-        let mut display = ArtistResultDisplay::new(
-            format!("index-artist:{}", self.name),
-            label,
-            SearchResultOrigin::Index,
-        );
+        let mut display = ArtistResultDisplay::new(format!("index-artist:{}", self.name), label);
         display.a11y_label.clone_from(&display.label);
         if let Some(thumbnail_href) = self.thumbnail_href {
             display = display.with_thumbnail_href(thumbnail_href);
@@ -494,10 +521,20 @@ fn index_feed_result_display(hit: &SearchResult) -> FeedResultDisplay {
     let label = non_empty_str(hit.title.as_deref())
         .map(str::to_string)
         .unwrap_or_else(|| feed_guid.to_string());
+    // Packet 010 decision D11: an Index hit resolves its kind from its
+    // track count only, because the summary states no release kind.
+    let track_count = hit
+        .episode_count
+        .and_then(|count| usize::try_from(count).ok())
+        .unwrap_or(0);
     let mut display = FeedResultDisplay::new(
         format!("index-feed:{feed_guid}"),
         label,
         SearchResultOrigin::Index,
+    )
+    .with_release_key(
+        ReleaseKey::from_index_feed_guid(feed_guid),
+        ReleaseKind::resolve(None, track_count),
     );
 
     let secondary = count_parts([
@@ -517,7 +554,7 @@ fn index_feed_result_display(hit: &SearchResult) -> FeedResultDisplay {
 /// own summary fields (ADR 0075 packet 047, Required Change 2).
 fn index_track_result_display(hit: &SearchResult) -> TrackResultDisplay {
     let track_guid = hit.entity_id.as_str();
-    let feed_guid = hit.feed_guid.as_deref();
+    let feed_guid = non_empty_str(hit.feed_guid.as_deref());
     let activation_id = feed_guid.map_or_else(
         || format!("index-track:{track_guid}"),
         |feed_guid| format!("index-track:{feed_guid}:{track_guid}"),
@@ -526,6 +563,14 @@ fn index_track_result_display(hit: &SearchResult) -> TrackResultDisplay {
         .map(str::to_string)
         .unwrap_or_else(|| track_guid.to_string());
     let mut display = TrackResultDisplay::new(activation_id, label, SearchResultOrigin::Index);
+    // Packet 010: an Index track with no feed GUID has no key, so it has
+    // no checkbox and it merges with no Library track.
+    if let Some(feed_guid) = feed_guid {
+        display = display.with_track_key(TrackKey::from_index_track_target(
+            Some(feed_guid),
+            track_guid,
+        ));
+    }
 
     let secondary = count_parts([
         hit.track_artist.clone(),
@@ -600,6 +645,7 @@ fn merge_index_artist_candidates(
 const INDEX_ARTIST_ID_BASE: SearchResultItemId = 1_000_000_000;
 pub(super) const INDEX_FEED_ID_BASE: SearchResultItemId = 2_000_000_000;
 const INDEX_TRACK_ID_BASE: SearchResultItemId = 3_000_000_000;
+const INDEX_FEED_PAGE_ID_BASE: SearchResultItemId = 4_000_000_000;
 
 pub(super) fn index_item_id(base: SearchResultItemId, index: usize) -> SearchResultItemId {
     let offset = u64::try_from(index).unwrap_or(SearchResultItemId::MAX.saturating_sub(base));
@@ -993,6 +1039,20 @@ mod tests {
             Some("https://example.test/feed.jpg"),
             "R47-04: with no track_image_url, the row must use feed_image_url"
         );
+    }
+
+    /// Packet 010: a track hit with a blank feed GUID has no key, so it
+    /// has no checkbox, and its row id names the track GUID only.
+    #[test]
+    fn adr_0084_search_list_blank_feed_guid_gives_no_track_key() {
+        let display = index_track_result_display(&SearchResult {
+            entity_type: "track".to_string(),
+            entity_id: "track-guid".to_string(),
+            feed_guid: Some("  ".to_string()),
+            ..SearchResult::default()
+        });
+        assert_eq!(display.key, None);
+        assert_eq!(display.id, "index-track:track-guid");
     }
 
     /// R47-03 (ADR 0075 packet 047): a feed row built from summary fields
@@ -1617,5 +1677,114 @@ mod adr_0084_name_level_query_tests {
             .iter()
             .all(|path| path.starts_with("/v1/artist-names?") && path.contains("limit=1")));
         assert!(!requests.iter().any(|path| path.contains("include")));
+    }
+
+    /// The rows of `GET /v1/search?q=Libre&type=publisher` of 2026-10-20
+    /// (packet 010 "Recorded Facts").
+    fn libre_publisher_rows() -> serde_json::Value {
+        serde_json::json!({
+            "data": [
+                {"entity_type": "publisher",
+                 "entity_id": "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+                 "title": "Sir Libre Records", "episode_count": 0},
+                {"entity_type": "publisher",
+                 "entity_id": "c8ec3dba-ed28-5662-9509-094d769f9597",
+                 "title": "Kolomona Myer - AKA Sir Libre", "episode_count": 0}
+            ],
+            "pagination": {"has_more": false, "cursor": null}
+        })
+    }
+
+    fn empty_search() -> String {
+        serde_json::json!({"data": [], "pagination": {"has_more": false}}).to_string()
+    }
+
+    /// R10-05: the search sends `type=feed`, `type=track` and
+    /// `type=publisher`. The recorded Libre response gives two feed rows
+    /// with the ids `index-feed-page:<guid>`, and no other request.
+    #[test]
+    fn adr_0084_search_list_r10_05_publisher_request_gives_feed_rows() {
+        let (endpoint, requests) = serve(
+            3,
+            Arc::new(|path: &str| {
+                if path.contains("type=publisher") {
+                    (200, libre_publisher_rows().to_string())
+                } else {
+                    (200, empty_search())
+                }
+            }),
+        );
+        let rows =
+            fetch_index_search_result_rows(&endpoint.into(), "Libre", &NameFeedMatches::default())
+                .expect("the recorded response decodes");
+
+        let ids: Vec<&str> = rows
+            .artists
+            .iter()
+            .map(|(_, row)| row.id.as_str())
+            .collect();
+        assert_eq!(
+            ids,
+            [
+                "index-feed-page:34bf795f-f551-4db1-8877-ad19aa5f89c8",
+                "index-feed-page:c8ec3dba-ed28-5662-9509-094d769f9597",
+            ]
+        );
+        assert_eq!(rows.artists[0].1.label, "Sir Libre Records");
+        assert!(rows
+            .artists
+            .iter()
+            .all(|(_, row)| !row.a11y_label.contains("Publisher")));
+        let requests = requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 3, "Got: {requests:?}");
+        for kind in ["type=feed", "type=track", "type=publisher"] {
+            assert!(
+                requests
+                    .iter()
+                    .any(|path| path.starts_with("/v1/search?") && path.contains(kind)),
+                "missing {kind}. Got: {requests:?}"
+            );
+        }
+    }
+
+    /// R10-05, the failure part: a failure of the `type=publisher` request
+    /// alone shows the other rows. A failure of all three requests gives
+    /// the failure state.
+    #[test]
+    fn adr_0084_search_list_r10_05_publisher_failure_alone_keeps_the_other_rows() {
+        let (endpoint, _requests) = serve(
+            3,
+            Arc::new(|path: &str| {
+                if path.contains("type=publisher") {
+                    (500, "{}".to_owned())
+                } else if path.contains("type=feed") {
+                    (
+                        200,
+                        serde_json::json!({
+                            "data": [{"entity_type": "feed", "entity_id": "f1",
+                                      "feed_guid": "f1", "title": "Libre Album",
+                                      "episode_count": 9}],
+                            "pagination": {"has_more": false}
+                        })
+                        .to_string(),
+                    )
+                } else {
+                    (200, empty_search())
+                }
+            }),
+        );
+        let rows =
+            fetch_index_search_result_rows(&endpoint.into(), "Libre", &NameFeedMatches::default())
+                .expect("one failed request keeps the other rows");
+        assert_eq!(rows.feeds.len(), 1);
+        assert!(rows.artists.is_empty());
+
+        let (endpoint, _requests) = serve(3, Arc::new(|_path: &str| (500, "{}".to_owned())));
+        assert!(fetch_index_search_result_rows(
+            &endpoint.into(),
+            "Libre",
+            &NameFeedMatches::default()
+        )
+        .is_err());
     }
 }

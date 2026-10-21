@@ -346,4 +346,5 @@ pub(crate) use column_view::{DownloadStatusView, LibraryColumn, LibraryColumnVie
 pub(crate) use download_queue::{DownloadJob, DownloadOutcome};
 pub(crate) use downloads::{
     api_track_from_view, index_release_job, index_release_job_by_guid, index_track_job,
+    index_track_job_by_key,
 };

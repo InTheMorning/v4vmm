@@ -23,6 +23,9 @@ use crate::view_models::list_selection::{
     FocusStep, ListSelection, RowSelectionVm, SelectionMode, SelectionRow,
 };
 use crate::view_models::publisher_page::{PublisherPageSectionVm, TitleDisplay};
+use crate::view_models::search_results::{
+    FeedResultDisplay, SearchLibraryLookup, TrackResultDisplay,
+};
 use crate::view_models::selection_action_bar::{
     PlaylistSelectionCounts, SelectionActionBarVm, SelectionActionCounts,
 };
@@ -702,9 +705,29 @@ pub(crate) fn detail_header_action(
     rows: Option<&DetailPageRows>,
     mode: SelectionMode,
 ) -> Option<FrameHeaderActionDisplay> {
+    header_action_with_id_prefix("music-detail-column-select", rows, mode)
+}
+
+/// The "Select" and "Done" button of the search list in the list column
+/// header (packet 010 "The selection"), by the rule of
+/// [`detail_header_action`]. The Artists tab gives no rows, so it gives no
+/// button.
+#[must_use]
+pub(crate) fn search_header_action(
+    rows: Option<&DetailPageRows>,
+    mode: SelectionMode,
+) -> Option<FrameHeaderActionDisplay> {
+    header_action_with_id_prefix("music-search-list-select", rows, mode)
+}
+
+fn header_action_with_id_prefix(
+    id_prefix: &str,
+    rows: Option<&DetailPageRows>,
+    mode: SelectionMode,
+) -> Option<FrameHeaderActionDisplay> {
     let rows = rows.filter(|rows| rows.has_selectable_rows())?;
     let noun = rows.kind().plural_noun();
-    let element_id = format!("music-detail-column-select-{noun}");
+    let element_id = format!("{id_prefix}-{noun}");
     Some(match mode {
         SelectionMode::Normal => {
             FrameHeaderActionDisplay::new(element_id, "Select", format!("Select {noun}"))
@@ -840,6 +863,49 @@ pub(crate) fn playlist_entry_rows(
             title: track_row_title(track.track_title.as_deref(), Some(&track.item_guid)),
             downloaded: track.is_in_library,
             download_active: download_active(track),
+        })
+        .collect()
+}
+
+/// The release rows of the search results (ADR 0084 Decision 10, packet
+/// 010), from the merged rows in their visible order. A row with no key is
+/// not in this list. `lookup` gives the Library facts, so the bar counts
+/// follow packet 018.
+#[must_use]
+pub(crate) fn search_release_rows(
+    rows: &[FeedResultDisplay],
+    lookup: &dyn SearchLibraryLookup,
+) -> Vec<DetailReleaseRow> {
+    rows.iter()
+        .filter_map(|row| {
+            let key = row.key.clone()?;
+            Some(DetailReleaseRow {
+                title: row.label.clone(),
+                library: lookup.release(&key).map(|release| release.facts),
+                key,
+            })
+        })
+        .collect()
+}
+
+/// The track rows of the search results (ADR 0084 Decision 10, packet
+/// 010), from the merged rows in their visible order. An Index track with
+/// no feed GUID has no key, so it has no checkbox.
+#[must_use]
+pub(crate) fn search_track_rows(
+    rows: &[TrackResultDisplay],
+    lookup: &dyn SearchLibraryLookup,
+) -> Vec<DetailTrackRow> {
+    rows.iter()
+        .map(|row| {
+            let library = row.key.as_ref().and_then(|key| lookup.track(key));
+            DetailTrackRow {
+                key: row.key.clone(),
+                title: row.label.clone(),
+                library_track_id: library.as_ref().map(|track| track.track_id),
+                downloaded: library.as_ref().is_some_and(|track| track.downloaded),
+                download_active: library.is_some_and(|track| track.download_active),
+            }
         })
         .collect()
 }

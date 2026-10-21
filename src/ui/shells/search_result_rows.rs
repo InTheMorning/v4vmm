@@ -1,8 +1,10 @@
-//! Shared Search/Index result row rendering.
+//! The rows of the search results in the Music list column (ADR 0084
+//! Decision 2, packet 010).
 //!
-//! Search results and Recent Feeds both render `MusicIndex` result rows. This
-//! shell helper keeps the row chrome in one place while each route owns its
-//! page-level state and pagination.
+//! The view model gives each text, each state word, each badge and the
+//! selection facts of each row. This shell lays out the row in the order
+//! of a Releases list row: the checkbox, the thumbnail, the title and the
+//! second line, the state word and the badge.
 
 #![warn(clippy::pedantic)]
 
@@ -10,101 +12,114 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    div, AnyElement, App, ClickEvent, FontWeight, Image, IntoElement, ParentElement, SharedString,
-    Styled, Window,
+    div, AnyElement, App, ClickEvent, FontWeight, Image, IntoElement, Modifiers, ParentElement,
+    SharedString, Styled, Window,
 };
 
 use crate::ui::composites::{
     EntityKind, ListRow, ListRowA11yLabel, TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize,
 };
-use crate::ui::primitives::Label;
+use crate::ui::primitives::{Checkbox, CheckboxState, Label};
 use crate::ui::tokens::{FontSize, SemanticColor};
+use crate::view_models::detail_selection::DetailRowKey;
+use crate::view_models::list_selection::RowCheckState;
 use crate::view_models::search_results::{
-    ArtistResultDisplay, FeedResultDisplay, SearchResultOrigin, SearchResultsTab,
-    TrackResultDisplay,
+    SearchResultOrigin, SearchResultRowVm, SearchResultsTab, SearchRowBadge,
 };
 
-pub(crate) type SearchResultSelectHandler =
-    Rc<dyn Fn(SearchResultsTab, String, &mut Window, &mut App) + 'static>;
+/// A click on the body of a search row: the tab, the row id, the selection
+/// key of the row and the modifier keys. The app layer opens the page, or
+/// changes the selection in selection mode.
+pub(crate) type SearchResultSelectHandler = Rc<
+    dyn Fn(SearchResultsTab, String, Option<DetailRowKey>, Modifiers, &mut Window, &mut App)
+        + 'static,
+>;
 
+/// A click on the checkbox of a search row.
+pub(crate) type SearchResultToggleHandler = Rc<dyn Fn(DetailRowKey, &mut Window, &mut App)>;
+
+/// The callbacks of one search row.
 #[derive(Clone, Copy)]
-pub(crate) struct SearchResultRowFields<'a> {
-    pub(crate) id: &'a str,
-    pub(crate) label: &'a str,
-    pub(crate) secondary_text: &'a str,
-    pub(crate) thumbnail_href: Option<&'a str>,
-    pub(crate) a11y_label: &'a str,
-    pub(crate) origin: SearchResultOrigin,
+pub(crate) struct SearchResultRowHandlers<'a> {
+    pub(crate) select: Option<&'a SearchResultSelectHandler>,
+    pub(crate) toggle: Option<&'a SearchResultToggleHandler>,
 }
 
-pub(crate) fn artist_fields(row: &ArtistResultDisplay) -> SearchResultRowFields<'_> {
-    SearchResultRowFields {
-        id: &row.id,
-        label: &row.label,
-        secondary_text: &row.secondary_text,
-        thumbnail_href: row.thumbnail_href.as_deref(),
-        a11y_label: &row.a11y_label,
-        origin: row.origin,
-    }
-}
-
-pub(crate) fn feed_fields(row: &FeedResultDisplay) -> SearchResultRowFields<'_> {
-    SearchResultRowFields {
-        id: &row.id,
-        label: &row.label,
-        secondary_text: &row.secondary_text,
-        thumbnail_href: row.thumbnail_href.as_deref(),
-        a11y_label: &row.a11y_label,
-        origin: row.origin,
-    }
-}
-
-pub(crate) fn track_fields(row: &TrackResultDisplay) -> SearchResultRowFields<'_> {
-    SearchResultRowFields {
-        id: &row.id,
-        label: &row.label,
-        secondary_text: &row.secondary_text,
-        thumbnail_href: row.thumbnail_href.as_deref(),
-        a11y_label: &row.a11y_label,
-        origin: row.origin,
-    }
-}
-
+/// Renders one search row.
 pub(crate) fn render_result_row(
     tab: SearchResultsTab,
-    kind: EntityKind,
-    fields: SearchResultRowFields<'_>,
+    row: SearchResultRowVm,
     thumbnail: Option<Arc<Image>>,
-    on_result_select: Option<&SearchResultSelectHandler>,
+    handlers: SearchResultRowHandlers<'_>,
 ) -> AnyElement {
-    let row_id = fields.id.to_string();
-    let element_id = SharedString::from(format!("search-results-{}-{row_id}", tab_id(tab)));
-    let mut row = ListRow::new(element_id)
+    let kind = entity_kind_for_tab(tab);
+    let row_id = row.id.clone();
+    let element_id = format!("search-results-{}-{row_id}", tab_id(tab));
+    let selection = row.selection.clone();
+    let mut list_row = ListRow::new(SharedString::from(element_id.clone()))
         .a11y_label(ListRowA11yLabel {
-            label: SharedString::from(fields.a11y_label.to_string()),
+            label: SharedString::from(row.a11y_label.clone()),
         })
-        .child(Thumbnail::new(kind, ThumbnailSize::Sm).image(thumbnail))
-        .child(result_row_text(fields))
-        .child(origin_label(fields.origin))
-        .child(TagBadge::new(TagBadgeDisplay {
-            kind,
-            label: Some(SharedString::from(kind.label())),
-        }));
+        .selected(selection.is_marked())
+        .focused(selection.focused);
 
-    if let Some(handler) = on_result_select.cloned() {
-        row = row.on_click(move |_: &ClickEvent, window, cx| {
-            handler(tab, row_id.clone(), window, cx);
+    // ADR 0084 Decision 10 Amendment, 2026-10-19: the checkbox shows only
+    // in selection mode, as on a Releases list row.
+    if let (true, Some(key), Some(toggle)) =
+        (selection.checkbox_visible, row.key.clone(), handlers.toggle)
+    {
+        let toggle = Rc::clone(toggle);
+        list_row = list_row.checkbox(
+            Checkbox::new(
+                SharedString::from(format!("{element_id}-checkbox")),
+                checkbox_state_for(selection.check_state),
+            )
+            .a11y_label(selection.checkbox_a11y_label.clone())
+            .on_click(move |_event: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                toggle(key.clone(), window, cx);
+            })
+            .into_any_element(),
+        );
+    }
+
+    list_row = list_row
+        .child(Thumbnail::new(kind, ThumbnailSize::Sm).image(thumbnail))
+        .child(result_row_text(&row));
+    if let Some(state_word) = row.state_word.clone() {
+        list_row = list_row.child(
+            Label::new(state_word)
+                .size(FontSize::Micro)
+                .color(SemanticColor::SecondaryLabel),
+        );
+    }
+    if let Some(badge) = row.badge {
+        list_row = list_row.child(TagBadge::new(TagBadgeDisplay {
+            kind: entity_kind_for_badge(badge),
+            label: Some(SharedString::from(badge.label())),
+        }));
+    }
+
+    if let Some(handler) = handlers.select.cloned() {
+        let key = row.key;
+        list_row = list_row.on_click(move |event: &ClickEvent, window, cx| {
+            handler(
+                tab,
+                row_id.clone(),
+                key.clone(),
+                event.modifiers(),
+                window,
+                cx,
+            );
         });
     }
 
-    row.into_any_element()
+    list_row.into_any_element()
 }
 
-pub(crate) fn render_pending_result_row(
-    tab: SearchResultsTab,
-    kind: EntityKind,
-    index: usize,
-) -> AnyElement {
+/// Renders one row that waits for the `MusicIndex` results.
+pub(crate) fn render_pending_result_row(tab: SearchResultsTab, index: usize) -> AnyElement {
+    let kind = entity_kind_for_tab(tab);
     ListRow::new(SharedString::from(format!(
         "search-results-{}-pending-{index}",
         tab_id(tab)
@@ -114,52 +129,83 @@ pub(crate) fn render_pending_result_row(
     })
     .child(Thumbnail::new(kind, ThumbnailSize::Sm))
     .child(
-        div().flex_1().min_w_0().child(
+        div().flex_1().min_w_0().overflow_hidden().child(
             Label::new("Loading result")
                 .size(FontSize::Micro)
-                .color(SemanticColor::TertiaryLabel)
-                .truncated(),
+                .color(SemanticColor::TertiaryLabel),
         ),
     )
-    .child(TagBadge::new(TagBadgeDisplay {
-        kind,
-        label: Some(SharedString::from(kind.label())),
-    }))
     .into_any_element()
 }
 
-fn result_row_text(fields: SearchResultRowFields<'_>) -> AnyElement {
-    let mut text = div().flex_1().min_w_0().child(
-        Label::new(fields.label.to_string())
-            .size(FontSize::Micro)
-            .weight(FontWeight::MEDIUM)
-            .truncated(),
-    );
-
-    if !fields.secondary_text.is_empty() {
-        text = text.child(
-            Label::new(fields.secondary_text.to_string())
+/// The title and the second line. Column text does not call `truncate()`
+/// (ADR 0063, docs/troubleshooting/column-text-truncation.md).
+/// `overflow_hidden()` is the required mitigation for text stacked in a
+/// flex column.
+fn result_row_text(row: &SearchResultRowVm) -> AnyElement {
+    let mut text = div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w_0()
+        .overflow_hidden()
+        .child(
+            Label::new(row.label.clone())
                 .size(FontSize::Micro)
-                .color(SemanticColor::TertiaryLabel)
-                .truncated(),
+                .weight(FontWeight::MEDIUM),
+        );
+
+    if !row.secondary_text.is_empty() {
+        text = text.child(
+            Label::new(row.secondary_text.clone())
+                .size(FontSize::Micro)
+                .color(SemanticColor::TertiaryLabel),
         );
     }
 
     text.into_any_element()
 }
 
+/// The origin word of an Index detail page header. A search row shows no
+/// origin word (packet 010 decision D4).
 pub(crate) fn origin_label(origin: SearchResultOrigin) -> Label {
     Label::new(origin_label_text(origin))
         .size(FontSize::Micro)
         .color(origin_label_color(origin))
-        .truncated()
 }
 
 pub(crate) const fn tab_id(tab: SearchResultsTab) -> &'static str {
     match tab {
+        SearchResultsTab::Releases => "releases",
         SearchResultsTab::Artists => "artists",
-        SearchResultsTab::Feeds => "feeds",
         SearchResultsTab::Tracks => "tracks",
+    }
+}
+
+const fn entity_kind_for_tab(tab: SearchResultsTab) -> EntityKind {
+    match tab {
+        SearchResultsTab::Releases => EntityKind::Release,
+        SearchResultsTab::Artists => EntityKind::Artist,
+        SearchResultsTab::Tracks => EntityKind::Track,
+    }
+}
+
+const fn entity_kind_for_badge(badge: SearchRowBadge) -> EntityKind {
+    match badge {
+        SearchRowBadge::Release(_) => EntityKind::Release,
+        SearchRowBadge::Artist => EntityKind::Artist,
+        SearchRowBadge::Feed => EntityKind::Feed,
+    }
+}
+
+/// Maps the typed check state of the view model to the state of the
+/// checkbox primitive. A search row has one member, so it never reads
+/// mixed.
+fn checkbox_state_for(check_state: RowCheckState) -> CheckboxState {
+    match check_state {
+        RowCheckState::Checked => CheckboxState::Checked,
+        RowCheckState::Mixed => CheckboxState::Mixed,
+        RowCheckState::Clear => CheckboxState::NotChecked,
     }
 }
 
@@ -183,8 +229,8 @@ mod tests {
 
     #[test]
     fn tab_ids_are_stable() {
+        assert_eq!(tab_id(SearchResultsTab::Releases), "releases");
         assert_eq!(tab_id(SearchResultsTab::Artists), "artists");
-        assert_eq!(tab_id(SearchResultsTab::Feeds), "feeds");
         assert_eq!(tab_id(SearchResultsTab::Tracks), "tracks");
     }
 

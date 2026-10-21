@@ -1,6 +1,6 @@
 # ADR 0084 Task 010: Search Results In The List Column
 
-Status: Ready - 2026-10-20
+Status: Implemented - 2026-10-21. The visual checks V1 to V7 are open, in the final walk of the run of 2026-10-20.
 
 ## Goal
 
@@ -347,3 +347,109 @@ Stop and report the problem, and do not guess, when:
 - A merged row needs a Library fact that `LibraryViewModel` does not give.
 - The search list cannot get the keyboard focus without a change to the detail column focus.
 - A change needs a file in "Do not touch".
+
+## Implementation Result - 2026-10-21
+
+### What changed
+
+- The tabs are Releases, Artists and Tracks, in that order. `SearchResultsTab::Feeds` is now `SearchResultsTab::Releases`, and Releases is the default tab. A tab label shows no count.
+- The filter chips "All", "Library" and "Index" are deleted. `ContentFilter`, `FilterChipStripDisplay`, `FilterChipStripWidthClass`, `src/ui/composites/filter_chip_strip.rs`, the filter slots of `frame_shell` and `workspace`, and `FILTER_CHIP_STRIP_NARROW_COLLAPSE_BREAKPOINT` are deleted.
+- `SearchResultsPagedTab` holds one ADR 0041 window. `merge_rows` puts the Library rows first and the Index rows after them. An Index row whose key is already in the window does not show.
+- A release row has a `ReleaseKey`, a track row has a `TrackKey`, and a feed row or a name row has a merge key. An Index track with no feed GUID has no key.
+- The view model reads the Library facts at each render through the trait `SearchLibraryLookup`. `LibraryViewModel::search_lookup` gives the facts of the tree. Thus a download or a removal changes the state words in place.
+- `SearchResultsInspectorPageVm::visible_rows` gives each row with its state word, its badge and its selection facts. The shell makes no text.
+- `fetch_index_search_result_rows` sends a third request, `type=publisher`. Its rows have the id `index-feed-page:<entity_id>`. A failure of this request alone keeps the other rows. A failure of all three requests gives the present failure state.
+- `SearchResultTarget::from_row_id` parses each row id. `handle_search_result_selected` matches the target and parses no id. `FeedPage` calls `open_publisher_page`, which pushes `FrameNavigationEntry::PublisherDetail` (flow map finding 6).
+- The header has two rows: the query, then the tab control. The rows and the header call no `truncate()` and no `.truncated()`. They use `overflow_hidden()` (ADR 0063).
+- The search page holds one `DetailSelection`, bound to `FrameNavigationEntry::Search(query)`. The list column header shows "Select" or "Done" on the Releases tab and on the Tracks tab. The bar of packet 018 shows at the bottom of the list column.
+- `TopApp::search_list_focus` is the focus handle of the search list. The key handlers in `src/app/keyboard.rs` also ask the search list to act. The search list acts only when it has the focus.
+- `download_selection`, `request_selection_removal`, `add_selection_to_playlist` and `create_playlist_and_add_selection` in `src/app/detail_selection.rs` take the rows and the selection. The detail column and the search list share them. `src/app/search_selection.rs` holds the search list wiring.
+- `DownloadJob::IndexTrack` has `context: Option<Box<TrackContext>>`. `QueuedJob::index_track_by_guid` makes a job with no context. The job reads the feed in its own slot, finds the track by its GUID, then downloads it. Its identity is the identity of a job with a context.
+
+### Decisions made in this packet
+
+1. Packet 017 replaced the name rows. A name row has the label "Releases that name <name>". It opens the name level page, or the feed page of the one artist feed of the name. This packet uses that path through `SearchResultTarget::artist_destination` and `NameFeedMatches::destination`. R10-14 thus proves that this packet does not change the label of packet 017.
+2. The row of a Library artist feed keeps the id `artist-feed:<feed_guid>` of packet 017. It does not use the id `library-feed-page:<feed_guid>` of the design. One feed GUID still gives one row.
+3. `SearchResultTarget` has a seventh variant, `LibraryTrack(i64)`, because the id of a Library track row is its Library track id. `Release(ReleaseKey::LibraryFeed(id))` opens the release page by the key of its album.
+4. A name row has no badge. A feed row has the badge "Artist" or "Feed". A release row has its kind badge. A track row has no badge.
+5. The state word shows as a label after the text and before the badge.
+6. The feed page of a feed row opens with the Library context when the Library tree has the feed as an artist feed. Each other feed row uses the Index context.
+7. In selection mode, a click on a row with no key opens no page.
+8. The tab control is on its own row. The segments keep their own width, because `SegmentedControl` has no full-width option.
+9. The empty state of a tab has the title "No releases", "No artists" or "No tracks", and the text `No releases matched "<query>".`
+10. The loading header of an Index release page and an Index track page keeps its word "Index". It is not a search row, and this packet does not change the release page or the track page.
+11. The header button of the search list has the element id `music-search-list-select-releases` or `music-search-list-select-tracks`. The detail column keeps `music-detail-column-select-*`.
+
+### Deviations from the packet text
+
+- The stored contract was already 0.12.0 (packet 016, Part A). This packet changes no fixture, no guard constant and no `AGENTS.md` line. No live request was sent.
+- R10-14 uses the label of packet 017. The text `Tracks matching "Survival Guide"` of the packet is superseded.
+- The new tests of R10-05 and R10-12 have the prefixes `adr_0084_search_list_r10_05_` and `adr_0084_download_queue_r10_12_`.
+
+### Tests
+
+| Case | Proof |
+|---|---|
+| R10-01 | `adr_0084_search_list_r10_01_three_tabs_in_order`, and the guard `adr_0084_search_list_filter_chips_are_deleted` |
+| R10-02 | `adr_0084_search_list_r10_02_one_release_row_for_each_item` |
+| R10-03 | `adr_0084_search_list_r10_03_index_hit_of_a_library_feed_is_a_library_row` |
+| R10-04 | `adr_0084_search_list_r10_04_one_track_row_for_each_item` |
+| R10-05 | `adr_0084_search_list_r10_05_publisher_request_gives_feed_rows`, `adr_0084_search_list_r10_05_publisher_failure_alone_keeps_the_other_rows` |
+| R10-06 | `adr_0084_search_list_r10_06_feed_row_badges`, `adr_0084_search_list_r10_06_one_row_for_each_feed_guid` |
+| R10-07 | `adr_0084_search_list_r10_07_row_id_targets` |
+| R10-08 | The guard `adr_0084_search_list_r10_08_feed_rows_open_the_feed_page` |
+| R10-09 | `adr_0084_search_list_r10_09_checkboxes_follow_the_mode` |
+| R10-10 | `adr_0084_search_list_r10_10_tab_change_clears_and_index_arrival_keeps` |
+| R10-11 | `adr_0084_search_list_r10_11_bar_counts` |
+| R10-12 | `adr_0084_download_queue_r10_12_index_track_job_with_no_context` |
+| R10-13 | `adr_0084_search_list_r10_13_stale_result_changes_nothing`. The tests of R47-07 still pass |
+| R10-14 | `adr_0084_search_list_r10_14_name_row_label_does_not_change`. The tests of ADR 0077 task 006 and packet 017 still pass |
+| R10-15 | `adr_0075_task_051_contract_field_guard_passes_on_present_code` reads `musicindex-openapi-0.12.0.json`. The tests of packets 018, 019, 020 and 022 still pass |
+
+The changed guards: `adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared`, `adr_0047_task_014_search_results_inspector_shell_contract`, `adr_0047_task_015_search_submit_commands`, `adr_0048_index_search_is_async_and_vm_owned`, `adr_0049_inspector_source_ownership_is_guarded`, `adr_0024_loading_shape_readiness_gate_is_locked`, `adr_0060_music_surface_vocabulary_and_primary_filter_are_guarded` and `shared_search_result_rows_accept_resolved_artwork_thumbnails`. The guard `adr_0084_search_list_filter_chips_are_deleted` replaces `adr_0047_phase_d_filter_controls_render_through_frame_shell`. The filter chip unit tests of `src/view_models/workspace/tests.rs` and `src/ui/composites/frame_shell.rs` are deleted with the filter chips.
+
+### Open points
+
+- The search list has no held scroll handle. A keyboard focus move does not scroll the focused row into view.
+- A feed row shows no level word and no role word. Stophammer request 9 item C can give link facts on search rows.
+
+## Orchestrator Review - 2026-10-21
+
+Pass, with four small corrections that the orchestrator made.
+
+1. A feed row opens its feed page in the Library context when one or more Library albums name the feed, with each role. Required Change 7 asks for this. The implementation used the artist feeds only, so a label feed of the Library opened in the Index context. `LibrarySearchLookup::names_feed` now gives the Library context, and a test proves it.
+2. A track hit with a blank feed GUID now has no key and no checkbox. Before, the row had a checkbox, and "Download" then refused the track.
+3. `QueuedJob::index_track_by_guid` now keeps the trimmed GUIDs. Before, a GUID with spaces passed the duplicate check and then the job did not find its track.
+4. The `origin` field of `ArtistResultDisplay` had no reader. The orchestrator deleted it. The release and track displays keep their `origin` field, because the Library content list rows read it.
+
+The orchestrator also recorded these points:
+
+- Responsiveness item 18 of the overhaul plan: one render builds the search rows more than one time.
+- The open findings of the phase plan: the search list does not scroll a focused row into view, and a feed row shows no level word until Stophammer request 9 item C.
+- The row id `index-track:<feed>:<track>` splits on its first colon. A track with no feed GUID and a GUID with a colon, for example `urn:uuid:x`, thus opens a wrong key. The code had this defect before this packet. The phase plan records it.
+
+## Operator Visual Check
+
+The visual checks V1 to V7 are open. The operator walks them in the final walk of the run of 2026-10-20.
+
+Necessary state: a desktop session, a reachable MusicIndex endpoint, and a Library with one or more downloaded releases.
+
+1. Build the binary:
+
+   ```bash
+   cd ~/build/v4vmm
+   cargo build --bin v4vmm
+   ./target/debug/v4vmm
+   ```
+
+2. V1: in the toolbar search, type `Survival Guide` and push Enter. Open the Artists tab. Make sure that a row "Releases that name Survival Guide" shows, and that it has no badge. A row that looks like an artist identity is wrong.
+3. V2: look at the rows in the normal window width and in a narrow window width. Do this in the Light theme and in the Dark theme. Make sure that each row shows these items in this order: the thumbnail, the title, the second line, the state word and the badge. A row with text that shows only an ellipsis is wrong.
+4. V3: look at the header of the list column. Make sure that the query is on the first row. Make sure that the tabs Releases, Artists and Tracks are on the next row. A filter chip "All", "Library" or "Index" is wrong. A horizontal scroll bar is wrong.
+5. V4: search for the title of a release that is in the Library. Make sure that the release shows one time, with its state word, for example "In Library". Make sure that a MusicIndex release shows no word. The word "Index" on a row is wrong.
+6. V5: search for `Libre`. Open the Artists tab. Make sure that "Sir Libre Records" shows with the badge "Feed". Click the row. Make sure that its feed page opens in the detail column with the frame title "Label".
+7. V6: search for a word that gives three or more releases that are not in the Library. On the Releases tab, click "Select". Select three releases, then click "Download 3 releases". Make sure that the progress item shows three downloads.
+8. V6, continued: open the Tracks tab. Make sure that selection mode ends.
+9. V7: open a result, then click Back. Make sure that the results show again, with the same tab. Click Forward, then Back again. Make sure that the breadcrumb starts with the search.
+
+Cleanup: remove each release that step 7 downloaded, through "Remove…" on its release page, if you do not want it in the Library.
+

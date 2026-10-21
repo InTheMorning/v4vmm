@@ -12,9 +12,12 @@ use crate::view_models::format::plural;
 use crate::view_models::index_name_list::name_sort_key;
 use crate::view_models::library::LibraryTrackRowVm;
 use crate::view_models::name_level_page::NameLevelPageVm;
+use crate::view_models::release_kind::ReleaseKind;
+use crate::view_models::workspace::{ReleaseKey, TrackKey};
 use crate::views::FeedView;
 
-use super::{SearchResultItemId, SearchResultOrigin};
+use super::paged_tab::SearchRowMergeKey;
+use super::{SearchResultItemId, SearchResultOrigin, SearchResultsTab};
 
 /// Display-ready artist search-result row.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -29,18 +32,31 @@ pub(crate) struct ArtistResultDisplay {
     pub(crate) thumbnail_href: Option<String>,
     /// Accessibility label for the row.
     pub(crate) a11y_label: String,
-    /// Source origin used for local content filtering.
-    pub(crate) origin: SearchResultOrigin,
+}
+
+impl SearchRowMergeKey for ArtistResultDisplay {
+    type Key = String;
+
+    /// A feed row merges by its feed GUID, and a name row by the sort key
+    /// of its name (packet 010 "The Artists tab": one feed GUID gives one
+    /// row).
+    fn merge_key(&self) -> Option<String> {
+        match SearchResultTarget::from_row_id(SearchResultsTab::Artists, &self.id)? {
+            SearchResultTarget::FeedPage(feed_guid) => Some(format!("feed:{feed_guid}")),
+            SearchResultTarget::NameMatches(name) | SearchResultTarget::ArtistByName(name) => {
+                Some(format!("name:{}", name_sort_key(&name)))
+            }
+            SearchResultTarget::Release(_)
+            | SearchResultTarget::Track(_)
+            | SearchResultTarget::LibraryTrack(_) => None,
+        }
+    }
 }
 
 impl ArtistResultDisplay {
     /// Creates an artist result display with empty optional text.
     #[must_use]
-    pub(crate) fn new(
-        id: impl Into<String>,
-        label: impl Into<String>,
-        origin: SearchResultOrigin,
-    ) -> Self {
+    pub(crate) fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
         let label = label.into();
         Self {
             id: id.into(),
@@ -48,7 +64,6 @@ impl ArtistResultDisplay {
             label,
             secondary_text: String::new(),
             thumbnail_href: None,
-            origin,
         }
     }
 
@@ -73,10 +88,24 @@ pub(crate) struct FeedResultDisplay {
     pub(crate) thumbnail_href: Option<String>,
     /// Accessibility label for the row.
     pub(crate) a11y_label: String,
-    /// Source origin used for local content filtering.
+    /// Source origin of the row.
     pub(crate) origin: SearchResultOrigin,
     /// Optional remote feed detail captured during Index search.
     pub(crate) remote_feed: Option<FeedView>,
+    /// The release key of a search row (packet 010). `None` for a row of
+    /// another list.
+    pub(crate) key: Option<ReleaseKey>,
+    /// The kind that the row resolved from its own facts (ADR 0084
+    /// Decision 5). The Library facts of the release replace it.
+    pub(crate) kind: ReleaseKind,
+}
+
+impl SearchRowMergeKey for FeedResultDisplay {
+    type Key = ReleaseKey;
+
+    fn merge_key(&self) -> Option<ReleaseKey> {
+        self.key.clone()
+    }
 }
 
 impl FeedResultDisplay {
@@ -96,7 +125,20 @@ impl FeedResultDisplay {
             thumbnail_href: None,
             origin,
             remote_feed: None,
+            key: None,
+            kind: ReleaseKind::Album,
         }
+    }
+
+    /// Returns this display as a release row of the search (packet 010):
+    /// with its release key, its kind and the accessibility label of a
+    /// release (ADR 0084 Decision 5).
+    #[must_use]
+    pub(crate) fn with_release_key(mut self, key: ReleaseKey, kind: ReleaseKind) -> Self {
+        self.a11y_label = format!("Release: {}", self.label);
+        self.key = Some(key);
+        self.kind = kind;
+        self
     }
 
     /// Returns this display with secondary text attached.
@@ -134,8 +176,19 @@ pub(crate) struct TrackResultDisplay {
     pub(crate) thumbnail_href: Option<String>,
     /// Accessibility label for the row.
     pub(crate) a11y_label: String,
-    /// Source origin used for local content filtering.
+    /// Source origin of the row.
     pub(crate) origin: SearchResultOrigin,
+    /// The track key of a search row (packet 010). `None` for an Index
+    /// track with no feed GUID: that row has no checkbox.
+    pub(crate) key: Option<TrackKey>,
+}
+
+impl SearchRowMergeKey for TrackResultDisplay {
+    type Key = TrackKey;
+
+    fn merge_key(&self) -> Option<TrackKey> {
+        self.key.clone()
+    }
 }
 
 impl TrackResultDisplay {
@@ -154,6 +207,7 @@ impl TrackResultDisplay {
             secondary_text: String::new(),
             thumbnail_href: None,
             origin,
+            key: None,
         }
     }
 
@@ -170,6 +224,14 @@ impl TrackResultDisplay {
         self.thumbnail_href = Some(value.into());
         self
     }
+
+    /// Returns this display with the track key of a search row (packet
+    /// 010).
+    #[must_use]
+    pub(crate) fn with_track_key(mut self, key: TrackKey) -> Self {
+        self.key = Some(key);
+        self
+    }
 }
 
 /// The id prefix of a search row that opens the feed page of a Library
@@ -180,37 +242,106 @@ pub(crate) const ARTIST_FEED_RESULT_PREFIX: &str = "artist-feed:";
 /// it (ADR 0084 Decision 7, packet 017 decision D6). Its label is the feed
 /// title. It opens the feed page of `feed_guid`.
 #[must_use]
-pub(crate) fn artist_feed_result_display(
-    feed_guid: &str,
-    title: &str,
-    origin: SearchResultOrigin,
-) -> ArtistResultDisplay {
-    let mut display = ArtistResultDisplay::new(
-        format!("{ARTIST_FEED_RESULT_PREFIX}{feed_guid}"),
-        title,
-        origin,
-    );
+pub(crate) fn artist_feed_result_display(feed_guid: &str, title: &str) -> ArtistResultDisplay {
+    let mut display =
+        ArtistResultDisplay::new(format!("{ARTIST_FEED_RESULT_PREFIX}{feed_guid}"), title);
     display.a11y_label = format!("Open the artist page {title}");
     display
 }
 
-/// The page that a search artist row opens (ADR 0084 Decision 7, packet
-/// 017 decision D6). A feed row opens its feed page. A name row, from the
-/// Library or from `MusicIndex`, opens the feed page of the one feed that
-/// its name matches, else its name level page. `None` for an id of another
-/// form.
-#[must_use]
-pub(crate) fn artist_result_destination(
-    result_id: &str,
-    matches: &NameFeedMatches,
-) -> Option<ArtistNameDestination> {
-    if let Some(feed_guid) = result_id.strip_prefix(ARTIST_FEED_RESULT_PREFIX) {
-        return Some(ArtistNameDestination::FeedPage(feed_guid.to_owned()));
+/// The id prefix of a search row of a `MusicIndex` feed that
+/// `GET /v1/search?type=publisher` found (packet 010 "The Artists tab").
+/// It opens the feed page of the feed GUID after the prefix.
+pub(crate) const INDEX_FEED_PAGE_RESULT_PREFIX: &str = "index-feed-page:";
+
+/// The page that a search row opens (packet 010 "The clicks"). The view
+/// model parses each row id one time, here. The app layer matches the
+/// target and parses no id.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SearchResultTarget {
+    /// A release page. A Library release row gives
+    /// [`ReleaseKey::LibraryFeed`], and the app layer opens the release
+    /// page by the key of its album.
+    Release(ReleaseKey),
+    /// The track page of an Index track row.
+    Track(TrackKey),
+    /// The track page of a Library track row, by its Library track id.
+    LibraryTrack(i64),
+    /// The feed page of the feed GUID: the row of a Library artist feed,
+    /// or a `MusicIndex` feed row (flow map finding 6).
+    FeedPage(String),
+    /// The name row of a `MusicIndex` name. Packet 017 opens the name
+    /// page, or the feed page of the one artist feed of the name.
+    NameMatches(String),
+    /// The name row of a Library name. It opens the same pages as
+    /// [`Self::NameMatches`].
+    ArtistByName(String),
+}
+
+impl SearchResultTarget {
+    /// The target of the row `id` of the tab `tab`. `None` for an id of
+    /// another form.
+    #[must_use]
+    pub(crate) fn from_row_id(tab: SearchResultsTab, id: &str) -> Option<Self> {
+        match tab {
+            SearchResultsTab::Releases => id.strip_prefix("index-feed:").map_or_else(
+                || {
+                    id.parse::<i64>()
+                        .ok()
+                        .map(|feed_id| Self::Release(ReleaseKey::LibraryFeed(feed_id)))
+                },
+                |feed_guid| Some(Self::Release(ReleaseKey::from_index_feed_guid(feed_guid))),
+            ),
+            SearchResultsTab::Tracks => id.strip_prefix("index-track:").map_or_else(
+                || {
+                    id.strip_prefix("library-track:")
+                        .unwrap_or(id)
+                        .parse::<i64>()
+                        .ok()
+                        .map(Self::LibraryTrack)
+                },
+                |target| {
+                    let (feed_guid, track_guid) = target
+                        .split_once(':')
+                        .map_or((None, target), |(feed, track)| (Some(feed), track));
+                    Some(Self::Track(TrackKey::from_index_track_target(
+                        feed_guid, track_guid,
+                    )))
+                },
+            ),
+            SearchResultsTab::Artists => {
+                if let Some(feed_guid) = id
+                    .strip_prefix(ARTIST_FEED_RESULT_PREFIX)
+                    .or_else(|| id.strip_prefix(INDEX_FEED_PAGE_RESULT_PREFIX))
+                {
+                    return Some(Self::FeedPage(feed_guid.to_owned()));
+                }
+                if let Some(name) = id.strip_prefix("index-artist:") {
+                    return Some(Self::NameMatches(name.to_owned()));
+                }
+                id.strip_prefix("library-artist:")
+                    .map(|name| Self::ArtistByName(name.to_owned()))
+            }
+        }
     }
-    let name = result_id
-        .strip_prefix("index-artist:")
-        .or_else(|| result_id.strip_prefix("library-artist:"))?;
-    Some(matches.destination(ArtistNameKey::from_text(name)))
+
+    /// The page of an Artists tab target (ADR 0084 Decision 7, packet 017
+    /// decision D6). A feed row opens its feed page. A name row opens the
+    /// feed page of the one feed that its name matches, else its name
+    /// level page. `None` for a release target and a track target.
+    #[must_use]
+    pub(crate) fn artist_destination(
+        &self,
+        matches: &NameFeedMatches,
+    ) -> Option<ArtistNameDestination> {
+        match self {
+            Self::FeedPage(feed_guid) => Some(ArtistNameDestination::FeedPage(feed_guid.clone())),
+            Self::NameMatches(name) | Self::ArtistByName(name) => {
+                Some(matches.destination(ArtistNameKey::from_text(name)))
+            }
+            Self::Release(_) | Self::Track(_) | Self::LibraryTrack(_) => None,
+        }
+    }
 }
 
 /// The Library facts that the artist rows of a search read (ADR 0084
@@ -257,7 +388,8 @@ pub(super) fn local_library_result_rows(
             track_vm.display_title(),
             SearchResultOrigin::Library,
         )
-        .with_secondary_text(track_vm.display_artist());
+        .with_secondary_text(track_vm.display_artist())
+        .with_track_key(track.track_key());
         track_rows.push((id, track_row));
     }
 
@@ -307,11 +439,7 @@ fn local_artist_rows(
             NameFeedMatch::MatchedFeed(feed_guid) => {
                 if feeds_shown.insert(feed_guid.clone()) {
                     let title = artist_facts.matches.feed_title(&feed_guid);
-                    displays.push(artist_feed_result_display(
-                        &feed_guid,
-                        &title,
-                        SearchResultOrigin::Library,
-                    ));
+                    displays.push(artist_feed_result_display(&feed_guid, &title));
                 }
             }
             NameFeedMatch::Ambiguous | NameFeedMatch::NoFeed => {
@@ -319,7 +447,6 @@ fn local_artist_rows(
                     let mut display = ArtistResultDisplay::new(
                         format!("library-artist:{name}"),
                         NameLevelPageVm::title_text_for_name(&name),
-                        SearchResultOrigin::Library,
                     );
                     display.a11y_label.clone_from(&display.label);
                     displays.push(display);
@@ -337,6 +464,7 @@ fn local_artist_rows(
 #[derive(Debug)]
 struct LocalFeedResult {
     feed_id: i64,
+    key: ReleaseKey,
     title: String,
     artist_name: String,
     track_count: usize,
@@ -344,8 +472,15 @@ struct LocalFeedResult {
 
 impl LocalFeedResult {
     fn new(track: &TrackRow) -> Self {
+        // The key of the album of the track (ADR 0084 Decision 4): the
+        // feed GUID, else the Library feed id.
+        let key = track
+            .feed_guid
+            .clone()
+            .map_or(ReleaseKey::LibraryFeed(track.feed_id), ReleaseKey::FeedGuid);
         Self {
             feed_id: track.feed_id,
+            key,
             title: feed_result_title(track),
             artist_name: LibraryTrackRowVm::new(track, None).display_artist(),
             track_count: 0,
@@ -368,7 +503,8 @@ impl LocalFeedResult {
             self.title,
             SearchResultOrigin::Library,
         )
-        .with_secondary_text(secondary);
+        .with_secondary_text(secondary)
+        .with_release_key(self.key, ReleaseKind::resolve(None, self.track_count));
 
         (item_id_from_i64(self.feed_id, 0), display)
     }

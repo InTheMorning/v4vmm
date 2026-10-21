@@ -316,6 +316,7 @@ const SCREEN_FILES: &[&str] = &[
     "src/app.rs",
     "src/app/breadcrumb.rs",
     "src/app/detail_selection.rs",
+    "src/app/search_selection.rs",
     "src/app/startup.rs",
     "src/app/session.rs",
     "src/app/capabilities.rs",
@@ -1055,18 +1056,13 @@ fn adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared() {
         }
     }
 
-    for required in [
-        "pub(crate) enum ContentFilter",
-        "pub(crate) struct FilterChipOption",
-        "pub(crate) struct FilterChipStripDisplay",
-        "fn default_for_content_list",
-        "pub(crate) fn default_for_search_inspector",
-    ] {
-        if !workspace_source.contains(required) {
-            violations.push(format!(
-                "src/view_models/workspace/mod.rs: ADR 0047 Phase B content-filter contract missing `{required}`"
-            ));
-        }
+    // ADR 0084 Decision 8, packet 010: the content filter is deleted.
+    // `adr_0084_search_list_filter_chips_are_deleted` guards it.
+    if !workspace_source.contains("fn default_for_content_list") {
+        violations.push(
+            "src/view_models/workspace/mod.rs: ADR 0047 Phase B view-mode contract missing `fn default_for_content_list`"
+                .to_string(),
+        );
     }
 
     for required in [
@@ -1086,14 +1082,8 @@ fn adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared() {
     }
 
     for required in [
-        "use crate::view_models::workspace::{",
-        "ContentFilter, FilterChipStripDisplay, FilterChipStripWidthClass",
         "pub(crate) struct SearchResultsInspectorPageVm",
-        "pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay",
-        "pub(crate) fn filter_chip_strip_for_width_class(",
-        "FilterChipStripDisplay::default_for_search_inspector_width_class(",
         "pub(crate) fn set_tab",
-        "pub(crate) fn set_filter",
         "pub(crate) fn is_empty",
     ] {
         if !search_results_mod_source.contains(required) {
@@ -1131,13 +1121,6 @@ fn adr_0047_phase_b_view_model_contracts_are_gpui_free_and_shared() {
                 "src/view_models/search_results/empty_state.rs: ADR 0047 Phase B search-results contract missing `{required}`"
             ));
         }
-    }
-
-    if search_results_mod_source.contains("enum ContentFilter") {
-        violations.push(
-            "src/view_models/search_results/mod.rs: ADR 0047 Phase B must reuse workspace ContentFilter, not define a second enum"
-                .to_string(),
-        );
     }
 
     if !mod_source.contains("pub mod search_results;") {
@@ -2805,99 +2788,120 @@ impl WorkspaceLayout {
     );
 }
 
+/// ADR 0084 Decision 8, packet 010 Required Change 2: the search shows
+/// everything, so the filter chips "All", "Library" and "Index" are
+/// deleted with their composite, `ContentFilter` and the filter slots of
+/// the frame shell and the workspace. This replaces the ADR 0047 Task 009
+/// filter chip composite contract. Fix: do not add a filter control to the
+/// search results; packet 016 owns the two-state scope control.
 #[test]
-fn adr_0047_phase_d_filter_controls_render_through_frame_shell() {
-    let filter_source = read_source(&manifest_path("src/ui/composites/filter_chip_strip.rs"));
-    let frame_shell_source = read_source(&manifest_path("src/ui/composites/frame_shell.rs"));
-    let composites_mod_source = read_source(&manifest_path("src/ui/composites/mod.rs"));
-    let workspace_source = workspace_vm_source();
+fn adr_0084_search_list_filter_chips_are_deleted() {
     let mut violations = Vec::new();
-
-    for required in [
-        "pub(crate) struct FilterChipStrip",
-        "pub(crate) struct FilterChipStripSlots",
-        "filter_chip_strip(",
-        "ContextMenu::new(",
-        "ContextMenuScope::WorkspaceFrame",
-        "narrow_collapse_to_pulldown",
-    ] {
-        if !filter_source.contains(required) {
-            violations.push(format!(
-                "src/ui/composites/filter_chip_strip.rs: ADR 0047 Task 009 filter chip composite missing `{required}`"
-            ));
-        }
+    if manifest_path("src/ui/composites/filter_chip_strip.rs").exists() {
+        violations.push(
+            "src/ui/composites/filter_chip_strip.rs: ADR 0084 Decision 8 deletes the search filter chip composite"
+                .to_string(),
+        );
     }
-
     for forbidden in [
-        "rgb(",
-        ".absolute()",
-        ".fixed()",
-        ".z_index(",
-        "gpui_component::popover",
-    ] {
-        if filter_source.contains(forbidden) {
-            violations.push(format!(
-                "src/ui/composites/filter_chip_strip.rs: ADR 0047 Task 009 must reuse primitives/tokens and avoid `{forbidden}`"
-            ));
-        }
-    }
-
-    for required in [
-        "pub mod filter_chip_strip;",
-        "pub(crate) use filter_chip_strip::{filter_chip_strip, FilterChipStrip, FilterChipStripSlots}",
-    ] {
-        if !composites_mod_source.contains(required) {
-            violations.push(format!(
-                "src/ui/composites/mod.rs: ADR 0047 Task 009 composite export missing `{required}`"
-            ));
-        }
-    }
-
-    for required in [
-        "filter_chip_strip: Option<FilterChipStripDisplay>",
-        "pub(crate) fn with_filter_chip_strip",
-    ] {
-        if !workspace_source.contains(required) {
-            violations.push(format!(
-                "src/view_models/workspace/mod.rs: ADR 0047 Task 009 frame-shell display contract missing `{required}`"
-            ));
-        }
-    }
-
-    for required in [
-        "use crate::ui::composites::{",
+        "ContentFilter",
+        "FilterChipStrip",
         "filter_chip_strip",
-        "FilterChipStripSlots",
-        "type FrameFilterSelectHandler",
         "on_filter_select",
-        "display.filter_chip_strip.clone()",
-        "filter_chip_strip_display.is_some()",
-        "filter_chip_strip(display, filter_slots)",
+        "on_content_list_filter_select",
     ] {
-        if !frame_shell_source.contains(required) {
-            violations.push(format!(
-                "src/ui/composites/frame_shell.rs: ADR 0047 Task 009 frame-shell integration missing `{required}`"
-            ));
-        }
-    }
-
-    // ADR 0084 Decision 8 (operator decision of 2026-10-16): the Music
-    // content-list tri-state filter control is deleted, not kept beside
-    // the search-results filter chips.
-    for forbidden in ["LibraryFilterControlDisplay", "library_filter_control"] {
-        if workspace_source.contains(forbidden)
-            || composites_mod_source.contains(forbidden)
-            || frame_shell_source.contains(forbidden)
-        {
-            violations.push(format!(
-                "ADR 0084 Decision 8 deletes the Music content-list filter control; found `{forbidden}`"
-            ));
+        for path in rust_files_under("src") {
+            let source = read_source(&path);
+            if source.contains(forbidden) {
+                violations.push(format!(
+                    "{}: ADR 0084 Decision 8 (packet 010) deletes the search filter chips; found `{forbidden}`",
+                    rel_path(&path)
+                ));
+            }
         }
     }
 
     assert!(
         violations.is_empty(),
-        "ADR 0047 Task 009 frame filter control violations:\n{}",
+        "ADR 0084 Decision 8 search filter deletion violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R10-08 (ADR 0084 Decision 2, flow map finding 6): a feed row of the
+/// search results opens its feed page. `handle_search_result_selected`
+/// matches `SearchResultTarget::FeedPage` and calls `open_publisher_page`,
+/// which pushes `FrameNavigationEntry::PublisherDetail`. ADR 0063: the
+/// search rows and the search header call no `truncate()`. Fix: route the
+/// target through `open_publisher_page`, and use `overflow_hidden()` for
+/// column text.
+#[test]
+fn adr_0084_search_list_r10_08_feed_rows_open_the_feed_page() {
+    let dispatch = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let publisher_dispatch = read_source(&manifest_path("src/app/publisher_dispatch.rs"));
+    let mut violations = Vec::new();
+
+    let handler = source_between(
+        &dispatch,
+        "pub(super) fn handle_search_result_selected(",
+        "fn open_library_track_result(",
+    );
+    let Some(feed_page) = handler.find("SearchResultTarget::FeedPage(feed_guid) =>") else {
+        panic!(
+            "src/app/search_dispatch.rs: ADR 0084 flow map finding 6 requires a `SearchResultTarget::FeedPage` arm in `handle_search_result_selected`"
+        );
+    };
+    if !handler[feed_page..].contains("self.open_publisher_page(feed_guid, context, cx);") {
+        violations.push(
+            "src/app/search_dispatch.rs: ADR 0084 flow map finding 6: `SearchResultTarget::FeedPage` must call `open_publisher_page`"
+                .to_string(),
+        );
+    }
+    if handler.contains("strip_prefix(") || handler.contains("parse::<") {
+        violations.push(
+            "src/app/search_dispatch.rs: ADR 0084 packet 010: `handle_search_result_selected` parses no row id; `SearchResultTarget::from_row_id` owns the parse"
+                .to_string(),
+        );
+    }
+    let open_publisher = source_between(
+        &publisher_dispatch,
+        "pub(super) fn open_publisher_page(",
+        "pub(super) fn open_index_publisher_page_from_list_row(",
+    );
+    if !open_publisher.contains("FrameNavigationEntry::PublisherDetail(") {
+        violations.push(
+            "src/app/publisher_dispatch.rs: ADR 0084 Decision 9: `open_publisher_page` must push `FrameNavigationEntry::PublisherDetail`"
+                .to_string(),
+        );
+    }
+
+    for path in [
+        "src/ui/shells/search_result_rows.rs",
+        "src/ui/shells/search_results_inspector.rs",
+    ] {
+        let source = read_source(&manifest_path(path));
+        let checked = if path.ends_with("search_results_inspector.rs") {
+            source_between(
+                &source,
+                "fn render_inspector_header(",
+                "fn render_tab_strip(",
+            )
+            .to_owned()
+        } else {
+            source
+        };
+        for forbidden in [".truncated()", ".truncate()"] {
+            if checked.contains(forbidden) {
+                violations.push(format!(
+                    "{path}: ADR 0063: search column text must not call `{forbidden}`; use `overflow_hidden()`"
+                ));
+            }
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 packet 010 search click violations:\n{}",
         violations.join("\n")
     );
 }
@@ -3009,13 +3013,11 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
     let mut violations = Vec::new();
 
     for required in [
-        "handle_index_feed_result_selected(",
-        "handle_index_track_result_selected(",
-        // ADR 0084 packet 017: an artist row resolves its page through
-        // `artist_result_destination`, and opens the name level entry.
-        "artist_result_destination(",
-        "strip_prefix(\"index-feed:\")",
-        "strip_prefix(\"index-track:\")",
+        // ADR 0084 packet 010: the view model parses each row id into a
+        // `SearchResultTarget`, and the dispatch matches the target. An
+        // artist row resolves its page through `artist_destination`.
+        "SearchResultTarget::from_row_id(tab, result_id)",
+        "target.artist_destination(&matches)",
         "FrameNavigationEntry::ArtistName(",
         "FrameNavigationEntry::Track(",
         "render_index_detail_display(",
@@ -3092,8 +3094,7 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
     }
 
     for required in [
-        "pub(crate) fn index_feed_label(",
-        "pub(crate) fn index_track_label(",
+        "pub(crate) fn row_label(",
         "tab_was_user_selected",
         "select_first_populated_tab_if_automatic(",
     ] {
@@ -3141,30 +3142,6 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
                 "ADR 0049 rejected visible notice path must stay removed; found `{forbidden}`"
             ));
         }
-    }
-
-    // ADR 0084 Decision 4 superseded the rule that stood here: an
-    // index-feed activation must never redirect to the Library source.
-    // One release route now resolves to the Library source on purpose,
-    // whatever its origin. `adr_0084_release_one_route_replaces_the_two_entries`
-    // guards the replacing rule.
-    if !search_dispatch_source.contains("fn handle_index_feed_result_selected(") {
-        violations.push(
-            "src/app/search_dispatch.rs: ADR 0049 Index feed selection handler not found"
-                .to_string(),
-        );
-    }
-
-    // ADR 0084 Decision 4 superseded the rule that stood here too: an
-    // index-track activation must never redirect to the Library source.
-    // One track route now resolves to the Library source on purpose,
-    // whatever its origin. `adr_0084_track_one_route_replaces_the_two_entries`
-    // guards the replacing rule.
-    if !search_dispatch_source.contains("fn handle_index_track_result_selected(") {
-        violations.push(
-            "src/app/search_dispatch.rs: ADR 0049 Index track selection handler not found"
-                .to_string(),
-        );
     }
 
     if !search_results_shell_source.contains("SearchResultsHeaderMode::Tabbed") {
@@ -3409,7 +3386,6 @@ fn adr_0024_playlist_local_detail_metadata_is_vm_owned_without_index_detail() {
 #[test]
 fn adr_0024_loading_shape_readiness_gate_is_locked() {
     let architecture_source = read_source(&manifest_path("tests/architecture_tests.rs"));
-    let search_dispatch_source = read_source(&manifest_path("src/app/search_dispatch.rs"));
     let workspace_nav_source = read_source(&manifest_path("src/view_models/workspace/nav.rs"));
     let views_source = read_source(&manifest_path("src/views.rs"));
     let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
@@ -3451,43 +3427,34 @@ fn adr_0024_loading_shape_readiness_gate_is_locked() {
         }
     }
 
-    // ADR 0084 packet 017: the artist row ids resolve in the view model,
-    // the Index prefix before the Library prefix.
+    // ADR 0084 packets 017 and 010: each row id resolves in the view model,
+    // in `SearchResultTarget::from_row_id`. An Index prefix comes before
+    // the parse of a Library id, and the Index artist prefix comes before
+    // the Library artist prefix.
     let search_results_source =
         read_source(&manifest_path("src/view_models/search_results/results.rs"));
-    let artist_destination = source_between(
+    let from_row_id = source_between(
         &search_results_source,
-        "pub(crate) fn artist_result_destination(",
-        "/// The Library facts that the artist rows of a search read",
+        "pub(crate) fn from_row_id(",
+        "pub(crate) fn artist_destination(",
     );
-    let index_artist = artist_destination.find("strip_prefix(\"index-artist:\")");
-    let library_artist = artist_destination.find("strip_prefix(\"library-artist:\")");
-    if !matches!((index_artist, library_artist), (Some(index), Some(library)) if index < library) {
-        violations.push(
-            "src/view_models/search_results/results.rs: `artist_result_destination` must strip the Index artist prefix before the Library artist prefix"
-                .to_string(),
-        );
-    }
-
-    for (prefix, parse_pattern) in [
-        ("strip_prefix(\"index-track:\")", "parse::<i64>()"),
+    for (first, second) in [
         ("strip_prefix(\"index-feed:\")", "parse::<i64>()"),
+        ("strip_prefix(\"index-track:\")", "parse::<i64>()"),
+        (
+            "strip_prefix(\"index-artist:\")",
+            "strip_prefix(\"library-artist:\")",
+        ),
     ] {
-        let Some(prefix_index) = search_dispatch_source.find(prefix) else {
+        let Some(first_index) = from_row_id.find(first) else {
             violations.push(format!(
-                "src/app/search_dispatch.rs: Index selection dispatch missing `{prefix}`"
+                "src/view_models/search_results/results.rs: `SearchResultTarget::from_row_id` missing `{first}`"
             ));
             continue;
         };
-        let Some(parse_index) = search_dispatch_source[prefix_index..].find(parse_pattern) else {
+        if !from_row_id[first_index..].contains(second) {
             violations.push(format!(
-                "src/app/search_dispatch.rs: Index selection dispatch missing local parsing boundary `{parse_pattern}` after `{prefix}`"
-            ));
-            continue;
-        };
-        if parse_index == 0 {
-            violations.push(format!(
-                "src/app/search_dispatch.rs: Index prefix `{prefix}` must be handled before local id parsing"
+                "src/view_models/search_results/results.rs: `SearchResultTarget::from_row_id` must handle `{first}` before `{second}`"
             ));
         }
     }
@@ -3731,15 +3698,14 @@ fn adr_0047_task_014_search_results_inspector_shell_contract() {
         "pub(crate) fn render_search_results_inspector",
         "SearchResultsInspectorPageVm",
         "SegmentedControl::new(selected)",
+        // ADR 0084 packet 010 decision D1: Releases, Artists, Tracks.
+        "Segment::new(tab_segment_display(SearchResultsTab::Releases))",
         "Segment::new(tab_segment_display(SearchResultsTab::Artists))",
-        "Segment::new(tab_segment_display(SearchResultsTab::Feeds))",
         "Segment::new(tab_segment_display(SearchResultsTab::Tracks))",
         "vm.empty_state()",
         "render_empty_state(",
         "render_active_result_list(",
-        "window.peek_row(index)",
-        "RowSlot::Ready(row)",
-        "RowSlot::Pending(placeholder)",
+        "render_result_row(tab, row.clone(), thumbnail, handlers)",
     ] {
         if !shell_source.contains(required) {
             violations.push(format!(
@@ -3754,6 +3720,8 @@ fn adr_0047_task_014_search_results_inspector_shell_contract() {
         "ListRow::new(",
         "Thumbnail::new(kind, ThumbnailSize::Sm)",
         "TagBadge::new(TagBadgeDisplay",
+        // ADR 0084 Decision 10: the checkbox of a row in selection mode.
+        "selection.checkbox_visible",
     ] {
         if !row_shell_source.contains(required) {
             violations.push(format!(
@@ -3790,14 +3758,17 @@ fn adr_0047_task_014_search_results_inspector_shell_contract() {
         );
     }
 
+    // ADR 0084 packet 010: the view model gives each visible row, with
+    // its state word, its badge and its selection facts.
     for required in [
-        "pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay",
-        "pub(crate) fn filter_chip_strip_for_width_class(",
-        "FilterChipStripDisplay::default_for_search_inspector_width_class(",
+        "pub(crate) fn visible_rows(&self, lookup: &dyn SearchLibraryLookup)",
+        "pub(crate) fn selection_rows(",
+        "pub(crate) fn header_action(",
+        "pub(crate) fn action_bar(",
     ] {
         if !search_results_source.contains(required) {
             violations.push(format!(
-                "src/view_models/search_results/mod.rs: ADR 0047 Task 014 search-results filter display missing `{required}`"
+                "src/view_models/search_results/mod.rs: ADR 0084 packet 010 search row contract missing `{required}`"
             ));
         }
     }
@@ -3836,11 +3807,13 @@ fn adr_0047_task_015_search_submit_commands() {
 
     for required in [
         "search_results_detail: Option<SearchResultsInspectorPageVm>",
-        "fn set_search_results_filter(",
         "fn set_search_results_tab(",
         "SearchResultsInspectorSlots::new()",
         ".on_tab_select(move |tab, _window, cx|",
-        ".on_clear_filter(move |_window, cx|",
+        // ADR 0084 packet 010: the search list has its own checkbox wiring
+        // and its own "Select" button.
+        ".on_row_toggle(move |key, window, cx|",
+        "this.toggle_search_selection_mode(cx);",
         "SearchResultsHeaderMode::Tabbed,",
     ] {
         if !app_source.contains(required) {
@@ -11165,17 +11138,12 @@ fn shared_search_result_rows_accept_resolved_artwork_thumbnails() {
         "src/ui/shells/search_result_rows.rs: shared result rows must accept resolved artwork slots"
     );
 
-    for required in [
-        "thumbnail_href: Option<&'a str>",
-        "row.thumbnail_href.as_deref()",
-    ] {
-        assert!(
-            result_row_shell_source.contains(required),
-            "src/ui/shells/search_result_rows.rs: shared result row fields must expose row artwork hrefs; missing `{required}`"
-        );
-    }
+    assert!(
+        search_inspector_source.contains("row.thumbnail_href.as_deref()"),
+        "src/ui/shells/search_results_inspector.rs: search rows must expose row artwork hrefs; missing `row.thumbnail_href.as_deref()`"
+    );
 
-    for required in ["thumbnail_hrefs_for_scope(", "visible_thumbnail_hrefs("] {
+    for required in ["pub(crate) fn thumbnail_hrefs(", "visible_thumbnail_hrefs("] {
         assert!(
             search_vm_source.contains(required),
             "src/view_models/search_results/mod.rs: search-results VM must expose visible thumbnail hrefs; missing `{required}`"
@@ -11197,7 +11165,7 @@ fn shared_search_result_rows_accept_resolved_artwork_thumbnails() {
 
     for required in [
         "resolve_search_result_thumbnails(",
-        "thumbnail_hrefs_for_scope(",
+        "search_results.thumbnail_hrefs()",
         "index_remote_detail_hero_image(&href, cx)",
         ".with_thumbnails(thumbnails)",
     ] {
@@ -11358,7 +11326,9 @@ fn adr_0048_index_search_is_async_and_vm_owned() {
         "FetchIndexSearchResults::new(",
         "present_command(",
         "content_list_nav_matches_search",
-        "detail.replace_index_results(rows)",
+        // Packet 010 "The stale results": the rows of another query
+        // change neither the rows nor the selection.
+        "detail.replace_index_results_for_query(&success_query, rows)",
         "set_index_error(",
     ] {
         assert!(
@@ -11375,6 +11345,9 @@ fn adr_0048_index_search_is_async_and_vm_owned() {
         "fetch_index_track_result_rows(",
         "Some(\"feed\")",
         "Some(\"track\")",
+        // ADR 0084 packet 010: the third request gives the feed rows of
+        // the Artists tab (flow map finding 6).
+        "Some(\"publisher\")",
         "index_artist_candidates_from_track(",
     ] {
         assert!(
@@ -11385,7 +11358,7 @@ fn adr_0048_index_search_is_async_and_vm_owned() {
 
     assert!(
         inspector_source.contains("vm.is_index_loading()")
-            && inspector_source.contains("render_pending_result_row(tab, kind, index)"),
+            && inspector_source.contains("render_pending_result_row(tab, index)"),
         "SearchResultsInspector renderer must expose VM-owned loading via pending rows"
     );
 }
@@ -13574,7 +13547,6 @@ fn adr_0060_music_surface_vocabulary_and_primary_filter_are_guarded() {
     let toolbar_vm_source = read_source(&manifest_path("src/view_models/app_toolbar.rs"));
     let toolbar_source = read_source(&manifest_path("src/app/tab_bar.rs"));
     let keyboard_source = read_source(&manifest_path("src/app/keyboard.rs"));
-    let library_vm_source = read_source(&manifest_path("src/view_models/library.rs"));
     let workspace_chrome_source =
         read_source(&manifest_path("src/view_models/workspace/chrome.rs"));
     let db_source = read_source(&manifest_path("src/db.rs"));
@@ -13604,9 +13576,6 @@ fn adr_0060_music_surface_vocabulary_and_primary_filter_are_guarded() {
         "id: \"app-tab-music\"",
         "label: \"Music\"",
         "a11y_label: \"Open Music\"",
-        "label: \"Library\"",
-        "ContentFilter::Library",
-        "label: \"Index\"",
     ] {
         if !toolbar_vm_source.contains(required) && !workspace_chrome_source.contains(required) {
             violations.push(format!(
@@ -13666,30 +13635,6 @@ fn adr_0060_music_surface_vocabulary_and_primary_filter_are_guarded() {
     if !render_workspace_content.contains("if matches!(mount, WorkspaceScreenMount::Music)") {
         violations.push(
             "src/app.rs: ADR 0060 task 003 Music default state must branch on the Music mount"
-                .to_string(),
-        );
-    }
-
-    for required in [
-        "pub(crate) enum FilterChipStripWidthClass",
-        "FilterChipStripWidthClass::Normal",
-        "FilterChipStripWidthClass::Narrow",
-        "filter_chip_strip_for_width_class",
-        "FILTER_CHIP_STRIP_NARROW_COLLAPSE_BREAKPOINT",
-        "filter_chip_strip_width_class(window.bounds().size.width)",
-    ] {
-        if !workspace_chrome_source.contains(required)
-            && !library_vm_source.contains(required)
-            && !app_source.contains(required)
-        {
-            violations.push(format!(
-                "Situational ADR 0060 task 003 normal-width content-filter reachability guard missing `{required}`"
-            ));
-        }
-    }
-    if library_vm_source.contains("FilterChipStripDisplay::default_for_content_list") {
-        violations.push(
-            "src/view_models/library.rs: Situational ADR 0062 library tri-state control guard forbids content-list chip-strip projection"
                 .to_string(),
         );
     }

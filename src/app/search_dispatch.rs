@@ -42,7 +42,7 @@ use crate::view_models::release_page::{
     ReleaseTrackRowVm,
 };
 use crate::view_models::search_results::{
-    artist_result_destination, IndexDetailDisplay, IndexDetailKind, SearchResultsInspectorPageVm,
+    IndexDetailDisplay, IndexDetailKind, SearchResultTarget, SearchResultsInspectorPageVm,
     SearchResultsTab,
 };
 use crate::view_models::track_detail::{TrackNameLinkTarget, TrackPageAction};
@@ -387,12 +387,11 @@ impl TopApp {
                         Some(this.search_results_detail_for_query(&success_query, cx));
                 }
 
-                if let Some(detail) = this
-                    .search_results_detail
-                    .as_mut()
-                    .filter(|detail| detail.query() == success_query)
-                {
-                    detail.replace_index_results(rows);
+                // Packet 010 "The stale results": a result for another
+                // query changes neither the rows nor the selection.
+                if this.search_results_detail.as_mut().is_some_and(|detail| {
+                    detail.replace_index_results_for_query(&success_query, rows)
+                }) {
                     cx.notify();
                 }
             },
@@ -484,6 +483,10 @@ impl TopApp {
         }
     }
 
+    /// Opens the page of a search row (packet 010 "The clicks"). The view
+    /// model parses the row id into a [`SearchResultTarget`]. This function
+    /// parses no id: it calls the present open function of the target, and
+    /// each open function pushes its entry into the one stack.
     pub(super) fn handle_search_result_selected(
         &mut self,
         tab: SearchResultsTab,
@@ -495,70 +498,83 @@ impl TopApp {
             cx.notify();
             return;
         };
+        let Some(target) = SearchResultTarget::from_row_id(tab, result_id) else {
+            self.settings_status = format!("Unexpected search result id format: {result_id}");
+            cx.notify();
+            return;
+        };
+        let label = self
+            .search_results_detail
+            .as_ref()
+            .and_then(|detail| detail.row_label(tab, result_id));
 
-        match tab {
-            SearchResultsTab::Tracks => {
-                if let Some(target) = result_id.strip_prefix("index-track:") {
-                    self.handle_index_track_result_selected(target, content_frame_id, cx);
-                    return;
-                }
-
-                let track_id_str = result_id
-                    .strip_prefix("library-track:")
-                    .unwrap_or(result_id);
-                if let Ok(track_id) = track_id_str.parse::<i64>() {
-                    if let Some(track_row) = self.conn.lock().ok().and_then(|conn| {
-                        library_service::track_row_by_id(&conn, track_id)
-                            .ok()
-                            .flatten()
-                    }) {
-                        let key = track_row.track_key();
-                        let label = LibraryTrackRowVm::new(&track_row, None).display_title();
-                        self.open_track_in_frame(content_frame_id, &key, label, cx);
-                    } else {
-                        self.settings_status = format!("Track {track_id} not found");
-                        cx.notify();
-                    }
-                } else {
-                    self.settings_status = format!("Invalid track id: {track_id_str}");
-                    cx.notify();
-                }
+        match target {
+            SearchResultTarget::Release(ReleaseKey::LibraryFeed(feed_id)) => {
+                self.open_library_release_in_frame(feed_id, content_frame_id, cx);
             }
-            SearchResultsTab::Feeds => {
-                if let Some(feed_guid) = result_id.strip_prefix("index-feed:") {
-                    self.handle_index_feed_result_selected(feed_guid, content_frame_id, cx);
-                    return;
-                }
-
-                if let Ok(feed_id) = result_id.parse::<i64>() {
-                    self.open_library_release_in_frame(feed_id, content_frame_id, cx);
+            SearchResultTarget::Release(key @ ReleaseKey::FeedGuid(_)) => {
+                let label = label.unwrap_or_else(|| "Release".to_owned());
+                self.open_release_in_frame(content_frame_id, &key, label, cx);
+            }
+            SearchResultTarget::Track(key) => {
+                let label = label.unwrap_or_else(|| key.item_guid.clone());
+                self.open_track_in_frame(content_frame_id, &key, label, cx);
+            }
+            SearchResultTarget::LibraryTrack(track_id) => {
+                self.open_library_track_result(track_id, content_frame_id, cx);
+            }
+            // Flow map finding 6: a feed row opens its feed page through
+            // `open_publisher_page`, which pushes `PublisherDetail`. The
+            // context is `Library` when the Library tree names the feed,
+            // with each role, else `Index`.
+            SearchResultTarget::FeedPage(feed_guid) => {
+                let context = if self.library.read(cx).search_lookup().names_feed(&feed_guid) {
+                    PublisherPageContext::Library
                 } else {
-                    self.settings_status = format!("Invalid feed id: {result_id}");
-                    cx.notify();
-                }
+                    PublisherPageContext::Index
+                };
+                self.open_publisher_page(feed_guid, context, cx);
             }
             // ADR 0084 Decision 7, packet 017 decision D6: a name row opens
             // the name level page of its name, or the feed page of the one
-            // feed that the name matches. A feed row opens its feed page.
-            SearchResultsTab::Artists => {
+            // feed that the name matches.
+            target @ (SearchResultTarget::NameMatches(_) | SearchResultTarget::ArtistByName(_)) => {
                 let matches = self.library.read(cx).name_feed_matches();
-                match artist_result_destination(result_id, &matches) {
+                match target.artist_destination(&matches) {
                     Some(ArtistNameDestination::FeedPage(feed_guid)) => {
                         self.open_publisher_page(feed_guid, PublisherPageContext::Library, cx);
                     }
                     Some(ArtistNameDestination::NameLevel(key)) => {
                         self.open_artist_name(key, NavigationPathStart::CurrentPath, cx);
                     }
-                    None => {
-                        self.settings_status = format!("Unexpected artist id format: {result_id}");
-                        cx.notify();
-                        return;
-                    }
+                    None => {}
                 }
             }
         }
 
         self.sync_search_results_detail_with_nav(content_frame_id, cx);
+    }
+
+    /// Opens the track page of a Library track row of the search.
+    fn open_library_track_result(
+        &mut self,
+        track_id: i64,
+        content_frame_id: WorkspaceFrameId,
+        cx: &mut Context<Self>,
+    ) {
+        let track_row = self.conn.lock().ok().and_then(|conn| {
+            library_service::track_row_by_id(&conn, track_id)
+                .ok()
+                .flatten()
+        });
+        if let Some(track_row) = track_row {
+            let key = track_row.track_key();
+            let label = LibraryTrackRowVm::new(&track_row, None).display_title();
+            self.open_track_in_frame(content_frame_id, &key, label, cx);
+        } else {
+            self.settings_status = format!("Track {track_id} not found");
+            cx.notify();
+        }
     }
 
     pub(super) fn open_index_feed_detail_from_music(
@@ -573,26 +589,6 @@ impl TopApp {
             return;
         };
 
-        self.open_release_in_frame(
-            content_frame_id,
-            &ReleaseKey::from_index_feed_guid(feed_guid),
-            label,
-            cx,
-        );
-    }
-
-    fn handle_index_feed_result_selected(
-        &mut self,
-        feed_guid: &str,
-        content_frame_id: WorkspaceFrameId,
-        cx: &mut Context<Self>,
-    ) {
-        let activation_id = format!("index-feed:{feed_guid}");
-        let label = self
-            .search_results_detail
-            .as_ref()
-            .and_then(|detail| detail.index_feed_label(&activation_id))
-            .unwrap_or_else(|| feed_guid.to_string());
         self.open_release_in_frame(
             content_frame_id,
             &ReleaseKey::from_index_feed_guid(feed_guid),
@@ -735,25 +731,6 @@ impl TopApp {
             .get(feed_guid)
             .cloned()
             .unwrap_or_else(|| "Release".to_string())
-    }
-
-    /// ADR 0084 Decision 4: an Index track row, whatever its origin (a
-    /// search result or a name-match row), opens its track page by key.
-    fn handle_index_track_result_selected(
-        &mut self,
-        target: &str,
-        content_frame_id: WorkspaceFrameId,
-        cx: &mut Context<Self>,
-    ) {
-        let activation_id = format!("index-track:{target}");
-        let (feed_guid, track_guid) = split_index_track_target(target);
-        let label = self
-            .search_results_detail
-            .as_ref()
-            .and_then(|detail| detail.index_track_label(&activation_id))
-            .unwrap_or_else(|| track_guid.to_string());
-        let key = TrackKey::from_index_track_target(feed_guid, track_guid);
-        self.open_track_in_frame(content_frame_id, &key, label, cx);
     }
 
     /// Opens a track page by its key, from any origin (ADR 0084

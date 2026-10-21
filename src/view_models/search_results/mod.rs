@@ -1,22 +1,29 @@
-//! Search-results inspector view-models.
+//! Search-results view models of the Music list column.
 //!
-//! ADR 0048 mounts `SearchResultsInspector` in the workspace `ContentList` frame.
-//! This module owns tab state, local content-filter state, display-ready result
-//! rows, empty-state copy, and windowed result lists backed by ADR 0041
-//! [`PagedListVm`] instances.
+//! ADR 0084 Decision 2: the toolbar search fills the list column, and a
+//! result opens in the detail column. Packet 010 gives the view three tabs,
+//! one row for each item with the state word of each Library item, and the
+//! selection model of packets 018 and 019 on the Releases tab and the
+//! Tracks tab. Each tab keeps its rows in one ADR 0041 [`PagedListVm`]
+//! window.
 #![warn(clippy::pedantic)]
 
 use crate::db::TrackRow;
 use crate::runtime::paged_list_vm::{PagedListVm, RowSlot};
-use crate::view_models::workspace::{
-    ContentFilter, FilterChipStripDisplay, FilterChipStripWidthClass,
+use crate::view_models::detail_selection::{
+    search_header_action, search_release_rows, search_track_rows, DetailPageRows, DetailRowClick,
+    DetailRowKey, DetailSelection,
 };
+use crate::view_models::list_selection::FocusStep;
+use crate::view_models::selection_action_bar::SelectionActionBarVm;
+use crate::view_models::workspace::{FrameHeaderActionDisplay, FrameNavigationEntry};
 
 mod empty_state;
 mod failure;
 mod index_detail;
 mod paged_tab;
 mod results;
+mod rows;
 mod tabs;
 #[cfg(test)]
 mod tests;
@@ -26,44 +33,54 @@ pub(crate) use failure::{SearchFailureAction, SearchFailureAvailability};
 pub(crate) use index_detail::{IndexDetailDisplay, IndexDetailKind, IndexSearchResultRows};
 pub(crate) use paged_tab::SearchResultsPagedTab;
 pub(crate) use results::{
-    artist_feed_result_display, artist_result_destination, ArtistResultDisplay, ArtistSearchFacts,
-    FeedResultDisplay, TrackResultDisplay,
+    artist_feed_result_display, ArtistResultDisplay, ArtistSearchFacts, FeedResultDisplay,
+    SearchResultTarget, TrackResultDisplay, INDEX_FEED_PAGE_RESULT_PREFIX,
+};
+pub(crate) use rows::{
+    SearchLibraryLookup, SearchLibraryRelease, SearchLibraryTrack, SearchResultRowVm,
+    SearchRowBadge,
 };
 pub(crate) use tabs::{SearchResultItemId, SearchResultOrigin, SearchResultsTab};
 
 use self::empty_state::empty_state_for;
+use self::paged_tab::SearchRowMergeKey;
 use self::results::local_library_result_rows;
 
-/// GPUI-free page contract for the search-results inspector.
+/// GPUI-free page contract for the search results in the list column.
 #[derive(Debug)]
 pub(crate) struct SearchResultsInspectorPageVm {
     query: String,
     tab: SearchResultsTab,
-    filter: ContentFilter,
+    releases: SearchResultsPagedTab<FeedResultDisplay>,
     artists: SearchResultsPagedTab<ArtistResultDisplay>,
-    feeds: SearchResultsPagedTab<FeedResultDisplay>,
     tracks: SearchResultsPagedTab<TrackResultDisplay>,
     index_loading: bool,
     index_error: Option<EmptyStateDisplay>,
     empty_state: Option<EmptyStateDisplay>,
     tab_was_user_selected: bool,
+    /// The one selection of the search list (packet 010 "The selection"),
+    /// bound to `FrameNavigationEntry::Search(query)`.
+    selection: DetailSelection,
 }
 
 impl SearchResultsInspectorPageVm {
     /// Creates an empty search-results page for a query.
     #[must_use]
     pub(crate) fn new(query: impl Into<String>) -> Self {
+        let query = query.into();
+        let mut selection = DetailSelection::new();
+        selection.reset(Some(FrameNavigationEntry::Search(query.clone())));
         let mut page = Self {
-            query: query.into(),
+            query,
             tab: SearchResultsTab::default(),
-            filter: ContentFilter::default(),
+            releases: SearchResultsPagedTab::empty(),
             artists: SearchResultsPagedTab::empty(),
-            feeds: SearchResultsPagedTab::empty(),
             tracks: SearchResultsPagedTab::empty(),
             index_loading: false,
             index_error: None,
             empty_state: None,
             tab_was_user_selected: false,
+            selection,
         };
         page.refresh_empty_state();
         page
@@ -90,7 +107,7 @@ impl SearchResultsInspectorPageVm {
     ) -> Self {
         let local_rows = local_library_result_rows(tracks, artist_facts);
         self.artists = SearchResultsPagedTab::ready_library(local_rows.artists);
-        self.feeds = SearchResultsPagedTab::ready_library(local_rows.feeds);
+        self.releases = SearchResultsPagedTab::ready_library(local_rows.feeds);
         self.tracks = SearchResultsPagedTab::ready_library(local_rows.tracks);
         self.refresh_empty_state();
         self
@@ -109,15 +126,34 @@ impl SearchResultsInspectorPageVm {
         self.index_loading
     }
 
-    /// Replaces remote Index results and merges them into All windows.
+    /// Merges the remote Index rows after the Library rows (packet 010
+    /// "One row for each item"). A selected row that stays visible stays
+    /// selected, and the focus stays.
     pub(crate) fn replace_index_results(&mut self, rows: IndexSearchResultRows) {
         self.index_loading = false;
         self.index_error = None;
         self.artists.replace_index_rows(rows.artists);
-        self.feeds.replace_index_rows(rows.feeds);
+        self.releases.replace_index_rows(rows.feeds);
         self.tracks.replace_index_rows(rows.tracks);
         self.select_first_populated_tab_if_automatic();
+        let members = self.visible_members();
+        self.selection.retain_visible(&members);
         self.refresh_empty_state();
+    }
+
+    /// Applies the Index rows of a request for `query` (packet 010 "The
+    /// stale results"). A result for another query changes neither the
+    /// rows nor the selection. Gives `true` when the rows changed.
+    pub(crate) fn replace_index_results_for_query(
+        &mut self,
+        query: &str,
+        rows: IndexSearchResultRows,
+    ) -> bool {
+        if self.query != query {
+            return false;
+        }
+        self.replace_index_results(rows);
+        true
     }
 
     /// Marks the async remote Index search as failed.
@@ -129,11 +165,8 @@ impl SearchResultsInspectorPageVm {
     ) {
         self.index_loading = false;
         let failure = failure::SearchFailureDisplay::new(error, endpoint, observed_at);
-        let mut empty = EmptyStateDisplay::new(
-            "MusicIndex search unavailable",
-            failure.summary.clone(),
-            None,
-        );
+        let mut empty =
+            EmptyStateDisplay::new("MusicIndex search unavailable", failure.summary.clone());
         empty.failure = Some(failure);
         self.index_error = Some(empty);
         self.refresh_empty_state();
@@ -166,203 +199,277 @@ impl SearchResultsInspectorPageVm {
         self.tab
     }
 
-    /// Sets the selected tab without changing the content filter.
+    /// Selects a tab. A change of tab clears the selection and sets
+    /// `Normal` (packet 010 decision D8).
     pub(crate) fn set_tab(&mut self, tab: SearchResultsTab) {
+        if tab != self.tab {
+            self.selection
+                .reset(Some(FrameNavigationEntry::Search(self.query.clone())));
+        }
         self.tab = tab;
         self.tab_was_user_selected = true;
         self.refresh_empty_state();
     }
 
-    /// Returns the selected content filter.
+    /// The label of the row `id` of the tab `tab`.
     #[must_use]
-    pub(crate) const fn filter(&self) -> ContentFilter {
-        self.filter
-    }
-
-    /// Returns the frame-chrome filter display for the requested width.
-    #[must_use]
-    pub(crate) fn filter_chip_strip_for_width_class(
-        &self,
-        width_class: FilterChipStripWidthClass,
-    ) -> FilterChipStripDisplay {
-        FilterChipStripDisplay::default_for_search_inspector_width_class(self.filter, width_class)
-    }
-
-    /// Sets the content filter without changing the selected tab.
-    pub(crate) fn set_filter(&mut self, filter: ContentFilter) {
-        self.filter = filter;
-        self.refresh_empty_state();
-    }
-
-    /// Returns the display label for an Index feed activation id.
-    #[must_use]
-    pub(crate) fn index_feed_label(&self, activation_id: &str) -> Option<String> {
-        self.feeds
-            .cached_row_matching(ContentFilter::All, |row| row.id == activation_id)
-            .map(|row| row.label)
-    }
-
-    /// Returns the display label for an Index track activation id.
-    #[must_use]
-    pub(crate) fn index_track_label(&self, activation_id: &str) -> Option<String> {
-        self.tracks
-            .cached_row_matching(ContentFilter::All, |row| row.id == activation_id)
-            .map(|row| row.label)
-    }
-
-    /// Returns whether a tab/filter combination has no rows.
-    #[must_use]
-    pub(crate) fn is_empty(&self, tab: SearchResultsTab, filter: ContentFilter) -> bool {
+    pub(crate) fn row_label(&self, tab: SearchResultsTab, id: &str) -> Option<String> {
         match tab {
-            SearchResultsTab::Artists => self.artists.is_empty(filter),
-            SearchResultsTab::Feeds => self.feeds.is_empty(filter),
-            SearchResultsTab::Tracks => self.tracks.is_empty(filter),
+            SearchResultsTab::Releases => self
+                .releases
+                .cached_row_matching(|row| row.id == id)
+                .map(|row| row.label),
+            SearchResultsTab::Artists => self
+                .artists
+                .cached_row_matching(|row| row.id == id)
+                .map(|row| row.label),
+            SearchResultsTab::Tracks => self
+                .tracks
+                .cached_row_matching(|row| row.id == id)
+                .map(|row| row.label),
         }
     }
 
-    /// Returns the empty state for the active tab/filter, if any.
+    /// Returns whether a tab has no rows.
+    #[must_use]
+    pub(crate) fn is_empty(&self, tab: SearchResultsTab) -> bool {
+        match tab {
+            SearchResultsTab::Releases => self.releases.is_empty(),
+            SearchResultsTab::Artists => self.artists.is_empty(),
+            SearchResultsTab::Tracks => self.tracks.is_empty(),
+        }
+    }
+
+    /// Returns the empty state for the active tab, if any.
     #[must_use]
     pub(crate) fn empty_state(&self) -> Option<&EmptyStateDisplay> {
         self.empty_state.as_ref()
     }
 
-    /// Returns visible row thumbnail hrefs for the requested tab/filter scope.
+    /// Returns the visible row thumbnail hrefs of the active tab.
     #[must_use]
-    pub(crate) fn thumbnail_hrefs_for_scope(
-        &self,
-        tab: SearchResultsTab,
-        filter: ContentFilter,
-    ) -> Vec<String> {
-        match tab {
-            SearchResultsTab::Artists => {
-                visible_thumbnail_hrefs(self.artists.window(filter), |row| {
-                    row.thumbnail_href.as_deref()
-                })
+    pub(crate) fn thumbnail_hrefs(&self) -> Vec<String> {
+        match self.tab {
+            SearchResultsTab::Releases => {
+                visible_thumbnail_hrefs(self.releases.window(), |row| row.thumbnail_href.as_deref())
             }
-            SearchResultsTab::Feeds => visible_thumbnail_hrefs(self.feeds.window(filter), |row| {
-                row.thumbnail_href.as_deref()
-            }),
+            SearchResultsTab::Artists => {
+                visible_thumbnail_hrefs(self.artists.window(), |row| row.thumbnail_href.as_deref())
+            }
             SearchResultsTab::Tracks => {
-                visible_thumbnail_hrefs(self.tracks.window(filter), |row| {
-                    row.thumbnail_href.as_deref()
-                })
+                visible_thumbnail_hrefs(self.tracks.window(), |row| row.thumbnail_href.as_deref())
             }
         }
     }
 
-    /// Returns artist result windows.
+    /// The visible rows of the active tab, with the state word, the badge
+    /// and the selection facts of each row. `lookup` gives the Library
+    /// facts at this render.
     #[must_use]
-    pub(crate) const fn artists(&self) -> &SearchResultsPagedTab<ArtistResultDisplay> {
-        &self.artists
+    pub(crate) fn visible_rows(&self, lookup: &dyn SearchLibraryLookup) -> Vec<SearchResultRowVm> {
+        match self.tab {
+            SearchResultsTab::Releases => self
+                .releases
+                .rows()
+                .iter()
+                .map(|row| rows::release_row_vm(row, lookup, &self.selection))
+                .collect(),
+            SearchResultsTab::Artists => self
+                .artists
+                .rows()
+                .iter()
+                .map(|row| rows::artist_row_vm(row, lookup))
+                .collect(),
+            SearchResultsTab::Tracks => self
+                .tracks
+                .rows()
+                .iter()
+                .map(|row| rows::track_row_vm(row, lookup, &self.selection))
+                .collect(),
+        }
     }
 
-    /// Returns feed result windows.
+    /// The selectable rows of the active tab (packet 010 "The
+    /// selection"). The Artists tab has no selection model, so it gives
+    /// `None`.
     #[must_use]
-    pub(crate) const fn feeds(&self) -> &SearchResultsPagedTab<FeedResultDisplay> {
-        &self.feeds
+    pub(crate) fn selection_rows(
+        &self,
+        lookup: &dyn SearchLibraryLookup,
+    ) -> Option<DetailPageRows> {
+        match self.tab {
+            SearchResultsTab::Releases => Some(DetailPageRows::Releases(search_release_rows(
+                &self.releases.rows(),
+                lookup,
+            ))),
+            SearchResultsTab::Tracks => Some(DetailPageRows::Tracks(search_track_rows(
+                &self.tracks.rows(),
+                lookup,
+            ))),
+            SearchResultsTab::Artists => None,
+        }
     }
 
-    /// Returns track result windows.
+    /// The selection of the search list.
     #[must_use]
-    pub(crate) const fn tracks(&self) -> &SearchResultsPagedTab<TrackResultDisplay> {
-        &self.tracks
+    pub(crate) const fn selection(&self) -> &DetailSelection {
+        &self.selection
+    }
+
+    /// The "Select" or "Done" button of the list column header. It shows
+    /// only on the Releases tab and the Tracks tab, and only when the tab
+    /// has a row with a key.
+    #[must_use]
+    pub(crate) fn header_action(
+        &self,
+        lookup: &dyn SearchLibraryLookup,
+    ) -> Option<FrameHeaderActionDisplay> {
+        search_header_action(self.selection_rows(lookup).as_ref(), self.selection.mode())
+    }
+
+    /// The action bar of packet 018, or `None` outside selection mode.
+    #[must_use]
+    pub(crate) fn action_bar(
+        &self,
+        lookup: &dyn SearchLibraryLookup,
+    ) -> Option<SelectionActionBarVm> {
+        self.selection_rows(lookup)?.action_bar(&self.selection)
+    }
+
+    /// A click on the body of the row with the selection key `key`. Gives
+    /// `true` when the caller must open the page of the row: a plain click
+    /// in `Normal` mode.
+    pub(crate) fn click_row(
+        &mut self,
+        key: &DetailRowKey,
+        click: DetailRowClick,
+        lookup: &dyn SearchLibraryLookup,
+    ) -> bool {
+        let visible = self
+            .selection_rows(lookup)
+            .map(|rows| rows.selection_rows())
+            .unwrap_or_default();
+        self.selection.click(key, click, &visible)
+    }
+
+    /// A click on the checkbox of the row `key`.
+    pub(crate) fn toggle_row(&mut self, key: &DetailRowKey) {
+        self.selection.toggle_row(key);
+    }
+
+    /// The "Select" and "Done" button.
+    pub(crate) fn toggle_mode(&mut self) {
+        self.selection.toggle_mode();
+    }
+
+    /// "Clear" of the bar: clears the rows and keeps the mode.
+    pub(crate) fn clear_rows(&mut self) {
+        self.selection.clear_rows();
+    }
+
+    /// Space: changes the selection of the focused row.
+    pub(crate) fn toggle_focused(&mut self, lookup: &dyn SearchLibraryLookup) {
+        if let Some(rows) = self.selectable_rows(lookup) {
+            self.selection.toggle_focused(&rows.selection_rows());
+        }
+    }
+
+    /// Ctrl+A: selects each row of the active tab.
+    pub(crate) fn select_all(&mut self, lookup: &dyn SearchLibraryLookup) {
+        if let Some(rows) = self.selectable_rows(lookup) {
+            self.selection.select_all(&rows.selection_rows());
+        }
+    }
+
+    /// Up, Down, Page Up, Page Down, Home and End: moves the row focus.
+    pub(crate) fn move_focus(
+        &mut self,
+        step: FocusStep,
+        lookup: &dyn SearchLibraryLookup,
+    ) -> Option<DetailRowKey> {
+        let rows = self.selectable_rows(lookup)?;
+        self.selection.move_focus(step, &rows.selection_rows())
+    }
+
+    /// Escape: ends selection mode. Gives `false` in `Normal`.
+    pub(crate) fn end_selecting(&mut self) -> bool {
+        self.selection.end_selecting()
+    }
+
+    fn selectable_rows(&self, lookup: &dyn SearchLibraryLookup) -> Option<DetailPageRows> {
+        self.selection_rows(lookup)
+            .filter(DetailPageRows::has_selectable_rows)
+    }
+
+    /// The selection key of each visible row of the active tab. The keys
+    /// need no Library fact.
+    fn visible_members(&self) -> Vec<DetailRowKey> {
+        match self.tab {
+            SearchResultsTab::Releases => self
+                .releases
+                .rows()
+                .into_iter()
+                .filter_map(|row| row.merge_key().map(DetailRowKey::Release))
+                .collect(),
+            SearchResultsTab::Tracks => self
+                .tracks
+                .rows()
+                .into_iter()
+                .filter_map(|row| row.merge_key().map(DetailRowKey::Track))
+                .collect(),
+            SearchResultsTab::Artists => Vec::new(),
+        }
     }
 
     fn refresh_empty_state(&mut self) {
-        if self.index_loading
-            && matches!(self.filter, ContentFilter::All | ContentFilter::Index)
-            && self.is_empty(self.tab, self.filter)
-        {
+        if !self.is_empty(self.tab) {
             self.empty_state = None;
             return;
         }
-
-        if matches!(self.filter, ContentFilter::All | ContentFilter::Index)
-            && self.is_empty(self.tab, self.filter)
-        {
-            if let Some(error) = self.index_error.as_ref() {
-                self.empty_state = Some(error.clone());
-                return;
-            }
+        if self.index_loading {
+            self.empty_state = None;
+            return;
         }
-
-        self.empty_state = self
-            .is_empty(self.tab, self.filter)
-            .then(|| empty_state_for(self.tab, self.filter, &self.query));
+        self.empty_state = Some(
+            self.index_error
+                .clone()
+                .unwrap_or_else(|| empty_state_for(self.tab, &self.query)),
+        );
     }
 
     fn select_first_populated_tab_if_automatic(&mut self) {
-        if self.tab_was_user_selected || !self.is_empty(self.tab, self.filter) {
+        if self.tab_was_user_selected || !self.is_empty(self.tab) {
             return;
         }
-
-        if let Some(tab) = [
-            SearchResultsTab::Artists,
-            SearchResultsTab::Feeds,
-            SearchResultsTab::Tracks,
-        ]
-        .into_iter()
-        .find(|tab| !self.is_empty(*tab, self.filter))
+        if let Some(tab) = SearchResultsTab::ALL
+            .into_iter()
+            .find(|tab| !self.is_empty(*tab))
         {
             self.tab = tab;
         }
     }
 }
 
-/// `with_artists`, `with_feeds`, `with_tracks`, `artists_mut`, `feeds_mut`,
-/// `tracks_mut` and `filter_chip_strip` have no caller outside their own
-/// dedicated tests: production code builds a page through
-/// `from_local_library_tracks` and `replace_index_results` instead, and reads
-/// the frame-chrome filter display through `filter_chip_strip_for_width_class`.
-/// Each stays here, compiled only for tests.
+/// The tab rows have no caller outside the tests of this module:
+/// production code reads the rows through [`SearchResultsInspectorPageVm::visible_rows`].
 #[cfg(test)]
 impl SearchResultsInspectorPageVm {
-    /// Returns this page with artist result windows attached.
+    /// Returns the release rows.
     #[must_use]
-    pub(crate) fn with_artists(
-        mut self,
-        artists: SearchResultsPagedTab<ArtistResultDisplay>,
-    ) -> Self {
-        self.artists = artists;
-        self.refresh_empty_state();
-        self
+    pub(crate) const fn releases(&self) -> &SearchResultsPagedTab<FeedResultDisplay> {
+        &self.releases
     }
 
-    /// Returns this page with feed result windows attached.
+    /// Returns the artist rows.
     #[must_use]
-    pub(crate) fn with_feeds(mut self, feeds: SearchResultsPagedTab<FeedResultDisplay>) -> Self {
-        self.feeds = feeds;
-        self.refresh_empty_state();
-        self
+    pub(crate) const fn artists(&self) -> &SearchResultsPagedTab<ArtistResultDisplay> {
+        &self.artists
     }
 
-    /// Returns this page with track result windows attached.
+    /// Returns the track rows.
     #[must_use]
-    pub(crate) fn with_tracks(mut self, tracks: SearchResultsPagedTab<TrackResultDisplay>) -> Self {
-        self.tracks = tracks;
-        self.refresh_empty_state();
-        self
-    }
-
-    /// Returns the frame-chrome filter display for this inspector.
-    #[must_use]
-    pub(crate) fn filter_chip_strip(&self) -> FilterChipStripDisplay {
-        self.filter_chip_strip_for_width_class(FilterChipStripWidthClass::Normal)
-    }
-
-    /// Returns mutable artist result windows.
-    pub(crate) const fn artists_mut(&mut self) -> &mut SearchResultsPagedTab<ArtistResultDisplay> {
-        &mut self.artists
-    }
-
-    /// Returns mutable feed result windows.
-    pub(crate) const fn feeds_mut(&mut self) -> &mut SearchResultsPagedTab<FeedResultDisplay> {
-        &mut self.feeds
-    }
-
-    /// Returns mutable track result windows.
-    pub(crate) const fn tracks_mut(&mut self) -> &mut SearchResultsPagedTab<TrackResultDisplay> {
-        &mut self.tracks
+    pub(crate) const fn tracks(&self) -> &SearchResultsPagedTab<TrackResultDisplay> {
+        &self.tracks
     }
 }
 

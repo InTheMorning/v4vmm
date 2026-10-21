@@ -426,9 +426,12 @@ impl TopApp {
             // ADR 0084 packet 018: the detail column ends its own
             // selection mode first, when it carries the focus.
             AppTab::Music => {
+                // Packet 010: the search list ends its own selection mode
+                // first, when it carries the focus.
                 let cleared = self.library.update(cx, |library, cx| {
                     library.clear_focused_selection(window, cx)
-                }) || self.end_detail_selecting(window, cx);
+                }) || self.end_detail_selecting(window, cx)
+                    || self.end_search_selecting(window, cx);
                 if !cleared {
                     self.library.update(cx, LibraryApp::pop_inspector);
                 }
@@ -499,12 +502,14 @@ impl TopApp {
     ) {
         match self.tab {
             // ADR 0084 packet 018: each column checks its own focus
-            // handle, so only the column with the focus acts.
+            // handle, so only the column with the focus acts. Packet 010
+            // adds the search list.
             AppTab::Music => {
                 self.library.update(cx, |library, cx| {
                     library.move_selection_focus(step, window, cx);
                 });
                 self.move_detail_selection_focus(step, window, cx);
+                self.move_search_selection_focus(step, window, cx);
             }
             AppTab::Show | AppTab::Settings => {}
         }
@@ -560,6 +565,7 @@ impl TopApp {
                     library.toggle_focused_selection(window, cx);
                 });
                 self.toggle_focused_detail_row(window, cx);
+                self.toggle_focused_search_row(window, cx);
             }
             AppTab::Show | AppTab::Settings => {}
         }
@@ -576,6 +582,7 @@ impl TopApp {
                 self.library
                     .update(cx, |library, cx| library.select_all_visible(window, cx));
                 self.select_all_detail_rows(window, cx);
+                self.select_all_search_rows(window, cx);
             }
             AppTab::Show | AppTab::Settings => {}
         }
@@ -596,7 +603,7 @@ impl TopApp {
                 let opened = self.library.update(cx, |library, cx| {
                     library.open_focused_selection_row(window, cx)
                 });
-                if !opened {
+                if !opened && !self.open_focused_search_row(window, cx) {
                     self.open_focused_detail_row(window, cx);
                 }
             }

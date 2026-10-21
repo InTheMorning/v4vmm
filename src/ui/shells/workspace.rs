@@ -24,13 +24,12 @@ use crate::ui::layouts::{
 use crate::ui::tokens::{resolve_color, FontSize, SemanticColor, Spacing};
 use crate::view_models::index_name_list::{MusicListScope, MusicScopeControlDisplay};
 use crate::view_models::workspace::{
-    BreadcrumbDisplay, ContentFilter, ContentViewMode, ContentViewModeControlDisplay,
-    FilterChipStripDisplay, FrameHeaderActionDisplay, FrameNavigationEntry, FrameNavigationState,
-    FrameShellDisplay, MusicColumns, MusicDestination, MusicSidebarPreference, MusicSidebarState,
-    TrackKey, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+    BreadcrumbDisplay, ContentViewMode, ContentViewModeControlDisplay, FrameHeaderActionDisplay,
+    FrameNavigationEntry, FrameNavigationState, FrameShellDisplay, MusicColumns, MusicDestination,
+    MusicSidebarPreference, MusicSidebarState, TrackKey, WorkspaceFrameKind, WorkspaceFrameState,
+    WorkspaceLayout,
 };
 
-type WorkspaceFilterSelectHandler = Rc<dyn Fn(ContentFilter, &mut Window, &mut App) + 'static>;
 type WorkspaceViewModeSelectHandler = Rc<dyn Fn(ContentViewMode, &mut Window, &mut App) + 'static>;
 type WorkspaceScopeSelectHandler = Rc<dyn Fn(MusicListScope, &mut Window, &mut App) + 'static>;
 type WorkspaceHeaderActionHandler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
@@ -54,10 +53,8 @@ pub(crate) struct WorkspaceSlots {
     content_list_view_mode_control: Option<ContentViewModeControlDisplay>,
     content_list_header_action: Option<FrameHeaderActionDisplay>,
     detail_header_action: Option<FrameHeaderActionDisplay>,
-    content_list_filter_chip_strip: Option<FilterChipStripDisplay>,
     content_list_scope_control: Option<MusicScopeControlDisplay>,
     on_content_list_scope_select: Option<WorkspaceScopeSelectHandler>,
-    on_content_list_filter_select: Option<WorkspaceFilterSelectHandler>,
     on_content_list_view_mode_select: Option<WorkspaceViewModeSelectHandler>,
     on_content_list_header_action: Option<WorkspaceHeaderActionHandler>,
     on_detail_header_action: Option<WorkspaceHeaderActionHandler>,
@@ -163,15 +160,6 @@ impl WorkspaceSlots {
         self
     }
 
-    /// Supplies frame-local chip filter chrome for the content-list frame.
-    pub(crate) fn content_list_filter_chip_strip(
-        mut self,
-        display: FilterChipStripDisplay,
-    ) -> Self {
-        self.content_list_filter_chip_strip = Some(display);
-        self
-    }
-
     /// Supplies the scope control of the Music Releases or Artists list
     /// (ADR 0084 packet 016) and its selection callback.
     pub(crate) fn content_list_scope_control(
@@ -181,15 +169,6 @@ impl WorkspaceSlots {
     ) -> Self {
         self.content_list_scope_control = Some(display);
         self.on_content_list_scope_select = Some(Rc::new(handler));
-        self
-    }
-
-    /// Supplies the content-list filter callback.
-    pub(crate) fn on_content_list_filter_select(
-        mut self,
-        handler: impl Fn(ContentFilter, &mut Window, &mut App) + 'static,
-    ) -> Self {
-        self.on_content_list_filter_select = Some(Rc::new(handler));
         self
     }
 
@@ -326,16 +305,6 @@ impl WorkspaceSlots {
         .unwrap_or_else(|| placeholder(frame, cx))
     }
 
-    fn filter_chip_strip_for(&self, kind: WorkspaceFrameKind) -> Option<FilterChipStripDisplay> {
-        match kind {
-            WorkspaceFrameKind::ContentList => self.content_list_filter_chip_strip.clone(),
-            // ADR 0081 Decision 4: a Detail filter strip needs a new ADR.
-            WorkspaceFrameKind::SourceList
-            | WorkspaceFrameKind::Detail
-            | WorkspaceFrameKind::QueueNowPlaying => None,
-        }
-    }
-
     fn view_mode_control_for(
         &self,
         kind: WorkspaceFrameKind,
@@ -364,18 +333,6 @@ impl WorkspaceSlots {
             WorkspaceFrameKind::ContentList => self.on_content_list_header_action.clone(),
             WorkspaceFrameKind::Detail => self.on_detail_header_action.clone(),
             WorkspaceFrameKind::SourceList | WorkspaceFrameKind::QueueNowPlaying => None,
-        }
-    }
-
-    fn filter_select_handler_for(
-        &self,
-        kind: WorkspaceFrameKind,
-    ) -> Option<WorkspaceFilterSelectHandler> {
-        match kind {
-            WorkspaceFrameKind::ContentList => self.on_content_list_filter_select.clone(),
-            WorkspaceFrameKind::SourceList
-            | WorkspaceFrameKind::Detail
-            | WorkspaceFrameKind::QueueNowPlaying => None,
         }
     }
 
@@ -521,7 +478,6 @@ impl RenderOnce for WorkspaceShell {
                 }
             }
 
-            let filter_chip_strip = self.slots.filter_chip_strip_for(frame_kind);
             let view_mode_control = self.slots.view_mode_control_for(frame_kind);
             // ADR 0084 packet 016: only the content-list frame has a scope.
             let (scope_control, on_scope_select) = match frame_kind {
@@ -534,7 +490,6 @@ impl RenderOnce for WorkspaceShell {
                 | WorkspaceFrameKind::QueueNowPlaying => (None, None),
             };
             let header_action = self.slots.header_action_for(frame_kind);
-            let on_filter_select = self.slots.filter_select_handler_for(frame_kind);
             let on_view_mode_select = self.slots.view_mode_select_handler_for(frame_kind);
             let on_header_action = self.slots.header_action_handler_for(frame_kind);
             let content = self.slots.take(frame.kind(), frame, cx);
@@ -566,9 +521,6 @@ impl RenderOnce for WorkspaceShell {
                 // show neither control.
                 display = display.with_history_controls_hidden();
             }
-            if let Some(filter_chip_strip) = filter_chip_strip {
-                display = display.with_filter_chip_strip(filter_chip_strip);
-            }
             if let Some(view_mode_control) = view_mode_control {
                 display = display.with_view_mode_control(view_mode_control);
             }
@@ -594,11 +546,6 @@ impl RenderOnce for WorkspaceShell {
                 display = display.with_breadcrumb(breadcrumb);
             }
             let mut shell_slots = FrameShellSlots::new().content(content);
-            if let Some(handler) = on_filter_select {
-                shell_slots = shell_slots.on_filter_select(move |filter, window, cx| {
-                    handler(filter, window, cx);
-                });
-            }
             if let Some(handler) = on_view_mode_select {
                 shell_slots = shell_slots.on_view_mode_select(move |view_mode, window, cx| {
                     handler(view_mode, window, cx);
