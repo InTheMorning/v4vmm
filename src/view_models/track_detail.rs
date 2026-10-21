@@ -6,8 +6,6 @@
 
 #![warn(clippy::pedantic)]
 
-use crate::api::Feed;
-use crate::metadata::{feed_nostr, feed_website};
 use crate::view_models::entity_detail::{
     EntityActionKind, EntityActionTarget, EntityActionTone, EntityActionVm,
 };
@@ -16,6 +14,7 @@ use crate::view_models::named_feeds::{select_artist_feed, ArtistFeed, NamedFeed}
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::track::fmt_dur;
 use crate::view_models::track_metadata_grid::TrackMetadataGridVm;
+use crate::view_models::track_page::TrackFeedFacts;
 use crate::views::{FeedRef, TrackRef, TrackView};
 
 const UNTITLED: &str = "Untitled";
@@ -42,23 +41,20 @@ pub enum TrackDetailLoadState {
     Failed { reason: String },
 }
 
-/// Canonical user-facing labels for track surfaces.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TrackDetailLabels {
-    context: TrackDetailSurfaceContext,
-}
+/// Canonical user-facing labels for track surfaces. The labels are the
+/// same for each origin (ADR 0084 packet 023, decision 6).
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TrackDetailLabels;
 
 impl TrackDetailLabels {
     #[must_use]
-    pub const fn new(context: TrackDetailSurfaceContext) -> Self {
-        Self { context }
+    pub const fn new() -> Self {
+        Self
     }
 
     #[must_use]
     pub const fn release_label(self) -> &'static str {
-        match self.context {
-            TrackDetailSurfaceContext::Library | TrackDetailSurfaceContext::Discover => "Release",
-        }
+        "Release"
     }
 
     #[must_use]
@@ -136,11 +132,12 @@ pub struct TrackDetailVm<'a> {
     /// R4-03). The track stores no named feed of its own; the caller
     /// supplies its album feed's own value.
     named_feeds: &'a [NamedFeed],
-    /// The track's feed, supplied so [`Self::feed_identity_section`] can
-    /// list the feed's own website and Nostr key apart from the track's
-    /// header (ADR 0075 Decision B, packet 022). `None` when the caller's
-    /// surface has no feed.
-    feed: Option<&'a Feed>,
+    /// The facts of the track's feed, supplied so
+    /// [`Self::feed_identity_section`] can list the feed's own website and
+    /// Nostr key apart from the track's header (ADR 0075 Decision B, packet
+    /// 022). Each origin gives them (ADR 0084 packet 023). `None` when the
+    /// page has no feed facts.
+    feed: Option<&'a TrackFeedFacts>,
     /// The Library state that selects the page actions (ADR 0083 Decision
     /// 5). `None` for a track that is not in the Library.
     library_state: Option<LibraryTrackActionState>,
@@ -177,10 +174,10 @@ impl<'a> TrackDetailVm<'a> {
         self
     }
 
-    /// Sets the track's feed (R22-03, ADR 0075 Decision B). The track's own
-    /// header never reads this; only [`Self::feed_identity_section`] does.
+    /// Sets the facts of the track's feed (R22-03, ADR 0075 Decision B).
+    /// The track's own header never reads them.
     #[must_use]
-    pub const fn with_feed_identity(mut self, feed: Option<&'a Feed>) -> Self {
+    pub(crate) const fn with_feed_identity(mut self, feed: Option<&'a TrackFeedFacts>) -> Self {
         self.feed = feed;
         self
     }
@@ -212,13 +209,8 @@ impl<'a> TrackDetailVm<'a> {
     }
 
     #[must_use]
-    pub const fn context(&self) -> TrackDetailSurfaceContext {
-        self.context
-    }
-
-    #[must_use]
     pub const fn labels(&self) -> TrackDetailLabels {
-        TrackDetailLabels::new(self.context)
+        TrackDetailLabels::new()
     }
 
     #[must_use]
@@ -302,7 +294,7 @@ impl<'a> TrackDetailVm<'a> {
         if self.track.pub_date.is_some() {
             return None;
         }
-        let (date, source) = crate::metadata::feed_publication_pubdate(self.feed?)?;
+        let (date, source) = self.feed?.publication_date.as_ref()?;
         Some(format!("{date} ({source})"))
     }
 
@@ -419,19 +411,21 @@ impl<'a> TrackDetailVm<'a> {
     #[must_use]
     pub fn name_links(&self) -> Vec<TrackNameLinkVm> {
         let mut links = Vec::new();
-        let album_target = match self.context {
-            TrackDetailSurfaceContext::Library => {
-                self.album_feed_id.map(TrackNameLinkTarget::LibraryAlbum)
-            }
-            TrackDetailSurfaceContext::Discover => self
-                .track
-                .feed_guid
-                .as_deref()
-                .and_then(nonempty)
-                .map(|feed_guid| TrackNameLinkTarget::IndexAlbum {
-                    feed_guid: feed_guid.to_owned(),
-                }),
-        };
+        // ADR 0084 packet 023, decision 2: a data rule. A Library album
+        // feed id gives the Library album page. Else the feed GUID gives
+        // the Index album page.
+        let album_target = self
+            .album_feed_id
+            .map(TrackNameLinkTarget::LibraryAlbum)
+            .or_else(|| {
+                self.track
+                    .feed_guid
+                    .as_deref()
+                    .and_then(nonempty)
+                    .map(|feed_guid| TrackNameLinkTarget::IndexAlbum {
+                        feed_guid: feed_guid.to_owned(),
+                    })
+            });
         if let Some(target) = album_target {
             let label = self.display_album();
             links.push(TrackNameLinkVm {
@@ -506,8 +500,11 @@ impl<'a> TrackDetailVm<'a> {
     #[must_use]
     pub fn feed_identity_section(&self) -> Option<FeedIdentitySectionVm> {
         let feed = self.feed?;
-        let website = feed_website(feed).filter(|url| nonempty(url).is_some());
-        let nostr = feed_nostr(feed).filter(|npub| nonempty(npub).is_some());
+        let website = feed.website.clone().filter(|url| nonempty(url).is_some());
+        let nostr = feed
+            .nostr_npub
+            .clone()
+            .filter(|npub| nonempty(npub).is_some());
         if website.is_none() && nostr.is_none() {
             return None;
         }
@@ -566,14 +563,6 @@ impl<'a> TrackDetailVm<'a> {
         match self.context {
             TrackDetailSurfaceContext::Discover => "discover-track-feed",
             TrackDetailSurfaceContext::Library => "library-track-feed",
-        }
-    }
-
-    #[must_use]
-    pub const fn primary_actions_a11y_label(&self) -> &'static str {
-        match self.context {
-            TrackDetailSurfaceContext::Discover => "Discover track actions",
-            TrackDetailSurfaceContext::Library => "Library track actions",
         }
     }
 
@@ -997,7 +986,7 @@ pub struct TrackCreditVm {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::{SourceEntityId, SourceEntityLink, SourceReleaseClaim};
+    use crate::api::{Feed, SourceEntityId, SourceEntityLink, SourceReleaseClaim};
     use crate::views::ContributorView;
     use crate::views::{EntityIdentityLinks, IdentityIdFact, IdentityLinkFact, TrackRef};
 
@@ -1117,6 +1106,7 @@ mod tests {
             channel_pub_date: Some(1_758_369_600),
             ..Default::default()
         };
+        let feed = TrackFeedFacts::from_api_feed(&feed);
         let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
             .with_feed_identity(Some(&feed));
         let rows = vm.summary_rows();
@@ -1136,6 +1126,7 @@ mod tests {
             channel_pub_date: Some(1_758_369_600),
             ..Default::default()
         };
+        let feed = TrackFeedFacts::from_api_feed(&feed);
         let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
             .with_feed_identity(Some(&feed));
 
@@ -1161,6 +1152,7 @@ mod tests {
             }]),
             ..Default::default()
         };
+        let feed = TrackFeedFacts::from_api_feed(&feed);
         let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
             .with_feed_identity(Some(&feed));
 
@@ -1324,6 +1316,7 @@ mod tests {
     fn adr_0075_track_header_r22_02_header_hides_feed_identity() {
         let track = track();
         let feed = feed_with_identity();
+        let feed = TrackFeedFacts::from_api_feed(&feed);
         let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
             .with_feed_identity(Some(&feed));
 
@@ -1336,6 +1329,7 @@ mod tests {
     fn adr_0075_track_header_r22_03_feed_identity_section_names_owner() {
         let track = track();
         let feed = feed_with_identity();
+        let feed = TrackFeedFacts::from_api_feed(&feed);
         let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
             .with_feed_identity(Some(&feed));
 
@@ -1370,6 +1364,7 @@ mod tests {
     fn adr_0075_track_header_r22_04_own_and_feed_identities_stay_apart() {
         let track = track_with_identity();
         let feed = feed_with_identity();
+        let feed = TrackFeedFacts::from_api_feed(&feed);
         let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
             .with_feed_identity(Some(&feed));
 
@@ -1407,6 +1402,7 @@ mod tests {
         track.description = None;
         let mut feed = feed_with_identity();
         feed.description = Some("Feed description".into());
+        let feed = TrackFeedFacts::from_api_feed(&feed);
         let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
             .with_feed_identity(Some(&feed));
 
@@ -1422,6 +1418,7 @@ mod tests {
             title: Some("MoeFactz".into()),
             ..Default::default()
         };
+        let feed = TrackFeedFacts::from_api_feed(&feed);
         let vm = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
             .with_feed_identity(Some(&feed));
 
@@ -1631,6 +1628,7 @@ mod tests {
         assert!(actions.menu.is_empty());
 
         let feed = feed_with_url();
+        let feed = TrackFeedFacts::from_api_feed(&feed);
         let with_feed = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Discover)
             .with_feed_identity(Some(&feed));
         assert_eq!(
@@ -1649,6 +1647,7 @@ mod tests {
             subscription_busy: true,
             ..LibraryTrackActionState::default()
         };
+        let feed = TrackFeedFacts::from_api_feed(&feed);
         let actions = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library)
             .with_feed_identity(Some(&feed))
             .with_library_state(busy)
@@ -1677,6 +1676,7 @@ mod tests {
             musicbrainz_available: false,
             release_download_active: false,
         };
+        let feed = TrackFeedFacts::from_api_feed(&feed);
         let actions = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library)
             .with_feed_identity(Some(&feed))
             .with_library_state(state)
@@ -1713,6 +1713,7 @@ mod tests {
             musicbrainz_available: true,
             release_download_active: true,
         };
+        let feed = TrackFeedFacts::from_api_feed(&feed);
         let actions = TrackDetailVm::new(&track, TrackDetailSurfaceContext::Library)
             .with_feed_identity(Some(&feed))
             .with_library_state(state)

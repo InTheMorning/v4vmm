@@ -3,9 +3,10 @@
 //!
 //! Thin screen-level glue: renders a track page's identity actions and feed
 //! identity section, then assembles the shared `TrackDetailSurface` from
-//! typed behavior slots. The Library track page and the Index track page
-//! both call into this module. All layout lives inside shared composites;
-//! this module only wires callbacks.
+//! typed behavior slots. The one track page shell
+//! (`src/ui/shells/track_page.rs`) calls into this module for both origins
+//! (ADR 0084 packet 023). All layout lives inside shared composites. This
+//! module only wires callbacks.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -22,25 +23,16 @@ use crate::ui::tokens::{SemanticColor, Spacing};
 use crate::view_models::entity_detail::{
     EntityActionVm, IdentityActionDisplay, IdentityActionDisplayKind,
 };
-use crate::view_models::track_detail::{
-    TrackDetailLoadState, TrackDetailPageVm, TrackDetailSection, TrackNameLinkTarget,
-    TrackNameLinkVm,
-};
+use crate::view_models::track_detail::{TrackDetailPageVm, TrackNameLinkTarget, TrackNameLinkVm};
 
 #[derive(Default)]
 pub(crate) struct TrackDetailBehaviorSlots {
     pub hero_image: Option<Arc<Image>>,
-    pub load_state: Option<TrackDetailLoadState>,
     pub name_links: Vec<TrackSurfaceElement>,
     pub primary_actions: Vec<TrackSurfaceElement>,
     pub external_links: Vec<TrackSurfaceElement>,
     pub description_panel: Option<TrackSurfaceElement>,
-    pub sections: Vec<TrackDetailSection>,
     pub section_elements: Vec<TrackSurfaceElement>,
-    pub advanced_panels: Vec<TrackSurfaceElement>,
-    /// The held scroll handle of the Music detail column (ADR 0084
-    /// Decision 10, packet 018). `None` scrolls with no held handle.
-    pub scroll_handle: Option<gpui::ScrollHandle>,
 }
 
 #[must_use]
@@ -167,10 +159,6 @@ pub(crate) fn build_track_detail_surface(
 ) -> TrackDetailSurface {
     let mut surface = TrackDetailSurface::new(page.detail()).image(slots.hero_image);
 
-    if let Some(load_state) = slots.load_state {
-        surface = surface.load_state(load_state);
-    }
-
     if !slots.name_links.is_empty() {
         surface = surface.name_links(slots.name_links);
     }
@@ -187,16 +175,8 @@ pub(crate) fn build_track_detail_surface(
         surface = surface.description_panel(description_panel);
     }
 
-    if !slots.sections.is_empty() {
-        surface = surface.sections(slots.sections);
-    }
-
     if !slots.section_elements.is_empty() {
         surface = surface.section_elements(slots.section_elements);
-    }
-
-    if !slots.advanced_panels.is_empty() {
-        surface = surface.advanced_panels(slots.advanced_panels);
     }
 
     surface

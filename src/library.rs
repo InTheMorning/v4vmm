@@ -329,6 +329,7 @@ mod detail_selection;
 mod download_queue;
 mod downloads;
 mod release_page;
+mod track_page;
 
 pub(crate) use app_impl::playlist_options;
 pub(crate) use column_view::{DownloadStatusView, LibraryColumn, LibraryColumnView};

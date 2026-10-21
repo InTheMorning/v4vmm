@@ -230,6 +230,11 @@ pub struct TopApp {
     /// row, or opened one whose full detail already came from the
     /// name-match page's own fetch.
     index_track_detail_state: Option<search_dispatch::IndexTrackDetailState>,
+    /// The feed read of the open Index track page, keyed by the feed GUID
+    /// (ADR 0084 packet 023). The track page shows the feed identity
+    /// section and the "Feed publication date" row from it. `None` when
+    /// no read is tracked.
+    index_track_feed_state: Option<search_dispatch::IndexFeedDetailState>,
     /// The data source of the open release page (ADR 0084 Decision 4).
     /// `None` when the current page is not a release. The top app resolves
     /// and stores this when a release opens or restores, and after a
@@ -531,6 +536,7 @@ impl TopApp {
             name_match_page: None,
             index_feed_detail_state: None,
             index_track_detail_state: None,
+            index_track_feed_state: None,
             release_page_source: None,
             release_page_labels: BTreeMap::new(),
             track_page_source: None,

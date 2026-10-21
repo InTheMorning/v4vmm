@@ -1,6 +1,6 @@
 # ADR 0084 Task 023: One Track Page Assembly
 
-Status: Ready - 2026-10-20
+Status: Implemented - 2026-10-20. Cases R23-01 to R23-16 pass. Mechanical checks are Green. V1 to V5 are open, in the final walk of the run.
 
 ## Goal
 
@@ -246,6 +246,14 @@ Revert the commit. This packet adds no migration and no stored data.
 
 - D14: confirmed: one padding value for both origins, scaled with the interface scale.
 
+## Orchestrator Review - 2026-10-20
+
+Pass. The code needs no fix.
+
+- The deviations agree with the packet. A failed feed read is not sent again when the page opens again, the same rule as the release page.
+- `pending_inspect_sources` still opens "Inspect sources" on a Library track page.
+- The orchestrator added the three new files to the source map.
+
 ## Prompt for lower-context coding model
 
 You are implementing one bounded task from a larger plan.
@@ -299,3 +307,145 @@ Stop and report the problem, and do not guess, when:
 - One render path needs a `TopApp` observation of `LibraryApp`.
 - A change needs a file in "Do not touch".
 - The session context runs short before Part B. Complete Part A, then stop and report.
+
+## Implementation Result - 2026-10-20
+
+The session completed Part A and Part B.
+
+### Files Changed
+
+- `src/view_models/track_page.rs` (new), the view model with no renderer type:
+  - `TrackFeedFacts` with `from_api_feed` and `from_feed_view`.
+  - `LibraryTrackPageState`, and `TrackPageFacts` with `from_library_track`, `from_index_track`, `with_named_feeds`, `with_description_state` and `with_playlists`.
+  - `track_page_vm` gives `TrackPageVm`: the page, `TrackPageActionRowVm`, `TrackPageDescriptionVm`, `inspect_sources` and the container id.
+  - `TrackPageCommand` and `index_track_description_key`. Tests R23-01 to R23-04 and R23-06 to R23-10 are in this file.
+- `src/ui/shells/track_page.rs` (new): `render_track_page`, `TrackPageImages` and `TrackPageDispatch`. It names no `LibraryApp`, no `TopApp` and no `db::`.
+- `src/library/track_page.rs` (new): `LibraryApp::run_track_page_command`.
+- `src/ui/shells/library/track_detail.rs`: only the Library host. It copies the frame facts into `LibraryTrackPageState` and calls `render_track_page`.
+- `src/ui/shells/library/track_detail_metadata.rs`: the action row functions are deleted. `render_library_track_detail_metadata` gives only the "Inspect sources" disclosure. The file has 354 lines.
+- `src/app/search_dispatch.rs`:
+  - `render_index_track_page` and `run_index_track_page_command` replace the old Index track page functions.
+  - `index_track_page_track` reads the open track again at each click.
+  - The Index feed read: `index_track_feed_result_is_current`, `index_track_feed_read`, `index_track_page_feed_guid`, `index_track_page_feed` and `start_index_track_feed_read`. Test R23-05 is in this file.
+- `src/app.rs`: the new field `index_track_feed_state`.
+- `src/view_models/track_detail.rs`:
+  - `with_feed_identity` takes `Option<&TrackFeedFacts>`.
+  - The album name link is a data rule. `TrackDetailLabels` has no context.
+  - `primary_actions_a11y_label` and `context()` are deleted.
+- `src/ui/composites/track_detail_surface.rs`: the field `primary_actions_a11y_label` is deleted.
+- `src/ui/shells/track.rs`: the slot fields `load_state`, `sections`, `advanced_panels` and `scroll_handle` are deleted.
+- `src/ui/shells/search_results_inspector.rs`: `render_index_track_detail` is deleted.
+- `src/view_models/library.rs`: `LibraryTrackActionVm::action_row_a11y_label` is deleted. The view model constant of the row label replaces it.
+- `src/view_models/mod.rs`, `src/ui/shells/mod.rs` and `src/library.rs`: the new modules.
+- `tests/architecture_tests.rs`: the retargeted guards and the new guards R23-11 to R23-14. See deviation 8.
+
+### Behavior Changed
+
+- The defect fix: an Index track page shows the feed identity section and the "Feed publication date" row when its feed gives the data.
+- When an Index track page opens, the app sends one `FetchIndexFeedDetail` for the feed of the track.
+  - The app sends no request when the release page state holds that feed as `Loaded`.
+  - A failed read shows no feed section, and the status text names the feed GUID and the `MusicIndex` error.
+- The Index track page puts its controls in an `ActionRow` with the label "Track actions" (decision 7).
+- The padding of both origins is `Spacing::LG.scaled(cx)` (decision 14).
+- Each command of a track page reads the open track again at the click.
+- Each element id stays the same.
+
+### Checks - 2026-10-20
+
+| Check | Result |
+|---|---|
+| `cargo test --lib adr_0084_track_page_` | Green, 12 tests |
+| `cargo test --lib adr_0083_r83_4` | Green, in the full run |
+| `cargo test` | Green, 2082 unit tests and 348 guards. Ten documentation examples stay ignored |
+| `cargo test --test architecture_tests` | Green, 348 guards |
+| `cargo fmt -- --check` | Green |
+| `cargo clippy --all-targets -- -D warnings` | Green |
+| `cargo check --all-targets` | Green, no warning |
+| `cargo build --bin v4vmm` | Green |
+
+No application launch and no production-data change occurred.
+
+### Deviations From The Task
+
+1. `TrackPageFacts::from_index_track` takes the `TrackView` and an `Option<&FeedView>`, with no activation target.
+   The description key and each element id come from the `TrackView`, as before. A target field had no reader.
+2. `TrackFeedFacts::from_api_feed` trims the title and the feed URL and drops placeholder text. `FeedView::from_api` uses the same rule.
+   `from_feed_view` reads the website from `identity.source_links` with the rule of `feed_website`, "website" or "`web_page`". Thus R23-01 holds for both link types.
+3. `index_track_feed_state` uses the type `IndexFeedDetailState`.
+   The read also starts when the track fetch loads, because an unscoped target names no feed GUID before that.
+4. `LibraryTrackPageState` also holds `musicbrainz_reason` and `container_id`. The container id comes from `LibraryChromeDisplay`.
+5. `render_track_page` takes `cx: &mut App`. The feed identity section needs it.
+6. The gap between the surface and "Inspect sources" is `Spacing::LG.scaled(cx)`. It was the fixed `spacing::LG`, so it is equal at scale 1.
+   The Library container also gets `flex` and `flex_col`, as the Index container had.
+7. The builders `load_state`, `sections` and `advanced_panels` of `TrackDetailSurface` stay. The composite tests use them, and the packet does not name the composite.
+8. Guard changes. No guard is deleted:
+   - Retargeted to the new owners: `adr_0024_index_track_detail_uses_rich_track_view_path`, `adr_0047_phase_c_inspector_rewire_uses_vm_state_and_shared_disclosures` and `adr_0049_inspector_source_ownership_is_guarded`.
+   - Also retargeted: `adr_0083_both_track_page_origins_build_one_shared_surface` (R83-41), `track_identity_links_use_shared_renderer` and `entity_detail_pages_render_through_shell_helper_and_page_vm`.
+   - Also retargeted: `library_release_detail_playlist_popovers_use_shared_composite` and `adr_0084_scrollbars_r14_01_music_columns_use_the_shared_helper`.
+   - `interactive_composites_carry_accessibility_labels` examines `TrackPageActionRowVm.a11y_label` in place of the deleted surface field (decision 5).
+   - `PLAYLIST_POPOVER_CALLSITE_FILES` names `src/ui/shells/track_page.rs` in place of `track_detail_metadata.rs`.
+   - Two file lists got the two new view and shell files: `adr_0047_description_rendering_must_not_infer_placeholder_metadata` and `adr_0047_membership_buttons_use_download_remove_vocabulary`.
+   - New guards: `adr_0084_track_page_r23_11_context_selects_only_id_prefixes`, `adr_0084_track_page_r23_12_one_track_page_shell`, `adr_0084_track_page_r23_13_the_old_track_page_paths_are_gone` and `adr_0084_track_page_r23_14_the_shell_names_no_host`.
+9. R23-15 holds: the tests of R83-41 to R83-48, of ADR 0075 packets 022 and 050 and of the in-place update pass. The packet 022 and 050 tests read `TrackFeedFacts::from_api_feed` of their recorded feed. Their assertions do not change.
+10. R23-16 holds: `surface_modules_under_500_loc` is Green.
+
+### Unresolved Concerns
+
+1. V1 to V5 below need the operator. No test proves the rendered page.
+2. `docs/architecture/source-map.md` and `docs/pending-human-checks.md` do not name this packet. The task instructions named only this packet as a document to edit.
+3. A failed feed read stays `Failed` for its feed GUID. A second open of the same track page does not send the read again. The release page uses the same rule.
+4. The missing busy state of the Index "Download album" (decision 15) and the Index "Inspect sources" view (decision 9) stay open findings.
+
+## Operator Visual Check
+
+This check needs a Linux desktop session, this checkout and a connection to `MusicIndex`. It also needs these items:
+
+- A downloaded Library track with a description. Its feed has a website or a Nostr key.
+- An Index track that is not in the Library, with no date of its own. Its feed has a website or a Nostr key, and a publication date.
+- For V3, an Index track with a website or a Nostr key of its own.
+
+1. Build the app: `cargo build --bin v4vmm`. Then start `target/debug/v4vmm` from a desktop session.
+2. Open Music in the sidebar.
+
+### V1: A Library track page
+
+3. Open the Library track. Look at the header, the cover, the name links and the identity links.
+4. Look at the action row: "Add to playlist" and the "⋯" menu. Open the menu. It must show "Copy feed URL", "MusicBrainz lookup" and "Remove track…".
+5. Click "Add to playlist". The playlist popover must open. Push Escape.
+6. Look at the feed section, the summary, the description and the credits. Click the header of the description two times.
+7. Open "Inspect sources". Then close it.
+
+**Wrong if:** a part moves, changes its size or goes away. Also wrong: the popover closes when the page draws again. A different padding is correct when the interface scale is not 1 (decision 14).
+
+### V2: An Index track page
+
+8. Open the Index track, for example from a search result.
+9. Below the header, look for the feed section with the feed website or the feed Nostr key.
+10. In the summary, look for "Feed publication date" with "(RSS)" or "(MusicIndex)".
+11. Look at "Download release" and the "⋯" menu with "Copy feed URL". The page must show no "Inspect sources".
+12. Compare the padding with the padding of the Library track page. The two must be equal.
+
+**Wrong if:** the feed section or the date row is absent, or the page has a status text about the feed read.
+
+### V3: No repeated identity
+
+13. Open the Index track with its own website or Nostr key.
+14. Compare the identity links under the header with the feed section.
+
+**Wrong if:** the feed section repeats a website or a Nostr key of the track.
+
+### V4: The download in place
+
+15. On the Index track page of V2, click "Download release".
+16. When the download completes, the page must change to the Library track page in place, with no navigation.
+17. The feed section must stay. Push Back. The page before the track page must open.
+
+**Wrong if:** the page changes to another page, the feed section goes away, or Back opens the track page again.
+
+### V5: A narrow window
+
+18. Make the window narrow. Open the Library track page, then the Index track page.
+
+**Wrong if:** a part of V1 or V2 moves from its position, or a text is clipped.
+
+**Cleanup:** step 15 adds one release to the Library. Remove it if you do not want it. Do not delete `/tmp/v4vmm-governance.ie6k8TQf`.

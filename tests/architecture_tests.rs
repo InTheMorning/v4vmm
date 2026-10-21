@@ -289,7 +289,7 @@ const PLAYLIST_POPOVER_CALLSITE_FILES: &[&str] = &[
     "src/ui/shells/track.rs",
     "src/ui/shells/release_page.rs",
     "src/ui/shells/library/singles_group.rs",
-    "src/ui/shells/library/track_detail_metadata.rs",
+    "src/ui/shells/track_page.rs",
 ];
 
 const RELEASE_PLAYLIST_POPOVER_FORBIDDEN_PATTERNS: &[&str] = &[
@@ -1166,7 +1166,19 @@ fn adr_0047_phase_c_inspector_rewire_uses_vm_state_and_shared_disclosures() {
     let metadata_shell_source = read_source(&manifest_path(
         "src/ui/shells/library/track_detail_metadata.rs",
     ));
-    let track_detail_source = read_source(&manifest_path("src/ui/shells/library/track_detail.rs"));
+    // ADR 0084 packet 023: the Library track page has four owners. The
+    // Library host copies the frame facts, the view model reads the text
+    // and the state, the shell draws the panel, and `LibraryApp` runs the
+    // toggle.
+    let track_detail_source = [
+        "src/ui/shells/library/track_detail.rs",
+        "src/view_models/track_page.rs",
+        "src/ui/shells/track_page.rs",
+        "src/library/track_page.rs",
+    ]
+    .iter()
+    .map(|file| read_source(&manifest_path(file)))
+    .collect::<String>();
     // ADR 0084 packet 021: the Library release page description panel
     // has three owners. The view model reads the text and the state, the
     // shell draws the panel, and `LibraryApp` runs the toggle.
@@ -1245,7 +1257,6 @@ fn adr_0047_phase_c_inspector_rewire_uses_vm_state_and_shared_disclosures() {
         "show_compare_id3_panel()",
         "show_musicbrainz_panel()",
         "compare_id3_tooltip_text()",
-        "musicbrainz_tooltip_text()",
         "if disabled {",
         ".on_click(cx.listener(|this, _, _, cx| {",
     ] {
@@ -1289,6 +1300,13 @@ fn adr_0047_phase_c_inspector_rewire_uses_vm_state_and_shared_disclosures() {
         );
     }
 
+    if !track_detail_source.contains("musicbrainz_tooltip_text()") {
+        violations.push(
+            "src/ui/shells/library/track_detail.rs: ADR 0047 Phase C track page actions missing `musicbrainz_tooltip_text()`"
+                .to_string(),
+        );
+    }
+
     for required in [
         "DisclosureTextPanel",
         // ADR 0084 task 013 moved the collapsed/preview decision from a
@@ -1300,7 +1318,7 @@ fn adr_0047_phase_c_inspector_rewire_uses_vm_state_and_shared_disclosures() {
     ] {
         if !track_detail_source.contains(required) {
             violations.push(format!(
-                "src/ui/shells/library/track_detail.rs: ADR 0047 Phase C track description disclosure missing `{required}`"
+                "src/ui/shells/library/track_detail.rs, src/view_models/track_page.rs, src/ui/shells/track_page.rs or src/library/track_page.rs: ADR 0047 Phase C track description disclosure missing `{required}`"
             ));
         }
     }
@@ -1333,6 +1351,8 @@ fn adr_0047_description_rendering_must_not_infer_placeholder_metadata() {
         "src/ui/shells/library/feed_detail.rs",
         "src/ui/shells/release_page.rs",
         "src/ui/shells/library/track_detail.rs",
+        "src/view_models/track_page.rs",
+        "src/ui/shells/track_page.rs",
         "src/ui/composites/disclosure_group.rs",
         "src/ui/composites/track_detail_surface.rs",
         "src/ui/shells/entity.rs",
@@ -3009,13 +3029,24 @@ fn adr_0049_inspector_source_ownership_is_guarded() {
         "fn run_index_release_page_command(",
         "fn render_index_release_page(",
         "fn render_index_feed_or_fallback_detail(",
-        "DisclosureTextPanel::new(",
+        "fn render_index_track_page(",
+        "fn run_index_track_page_command(",
     ] {
         if !app_source.contains(required) && !search_dispatch_source.contains(required) {
             violations.push(format!(
                 "src/app.rs or src/app/search_dispatch.rs: ADR 0049 ContentList dispatch/Index activation missing `{required}`"
             ));
         }
+    }
+    // ADR 0084 packet 023: the one track page shell draws the description
+    // panel of the Index track page.
+    if !read_source(&manifest_path("src/ui/shells/track_page.rs"))
+        .contains("DisclosureTextPanel::new(")
+    {
+        violations.push(
+            "src/ui/shells/track_page.rs: ADR 0049 Index track page description missing `DisclosureTextPanel::new(`"
+                .to_string(),
+        );
     }
     // ADR 0084 packet 022: the download queue of `LibraryApp` runs each
     // Index download, so the Index download requests live there.
@@ -3253,21 +3284,33 @@ fn adr_0024_index_track_detail_uses_rich_track_view_path() {
         }
     }
 
+    // ADR 0084 packet 023 moved the Index track page into the one track
+    // page view model and shell. The rule of this guard stays: the rich
+    // Index track renders through the shared track surface.
+    let track_page_vm_source = read_source(&manifest_path("src/view_models/track_page.rs"));
+    if !track_page_vm_source
+        .contains("TrackPageOrigin::Index => TrackDetailSurfaceContext::Discover")
+    {
+        violations.push(
+            "src/view_models/track_page.rs: ADR 0024 rich Index track detail must build the shared track view model; missing `TrackPageOrigin::Index => TrackDetailSurfaceContext::Discover`"
+                .to_string(),
+        );
+    }
+    let track_page_shell_source = read_source(&manifest_path("src/ui/shells/track_page.rs"));
     for required in [
-        "TrackDetailVm::new(track, TrackDetailSurfaceContext::Discover).page()",
-        "slots.external_links = render_track_page_identity_actions(&page)",
-        "build_track_detail_surface(&page, slots)",
+        "external_links: render_track_page_identity_actions(&vm.page)",
+        "build_track_detail_surface(&vm.page, slots)",
     ] {
-        if !search_results_shell_source.contains(required) {
+        if !track_page_shell_source.contains(required) {
             violations.push(format!(
-                "src/ui/shells/search_results_inspector.rs: ADR 0024 rich Index track detail must render through shared track surface; missing `{required}`"
+                "src/ui/shells/track_page.rs: ADR 0024 rich Index track detail must render through shared track surface; missing `{required}`"
             ));
         }
     }
 
     for required in [
-        "render_index_track_detail(track, slots, cx)",
-        "fn index_track_detail_slots(",
+        "return self.render_index_track_page(track, cx);",
+        "TrackPageFacts::from_index_track(track.clone(), feed)",
         "hero_image: self.index_track_hero_image(track, cx)",
         "fn index_track_artwork_url(track: &TrackView)",
     ] {
@@ -6944,6 +6987,8 @@ fn adr_0047_membership_buttons_use_download_remove_vocabulary() {
         "src/ui/shells/release_page.rs",
         "src/ui/shells/library/track_detail.rs",
         "src/ui/shells/library/track_detail_metadata.rs",
+        "src/view_models/track_page.rs",
+        "src/ui/shells/track_page.rs",
     ];
     let forbidden = [
         "\"Subscribe Feed\"",
@@ -7269,10 +7314,13 @@ fn interactive_composites_carry_accessibility_labels() {
             "src/ui/composites/release_detail_surface.rs",
             "actions_a11y_label",
         ),
+        // ADR 0084 packet 023, decision 5: the label of the action row of
+        // a track page moved from `TrackDetailSurface` to the one track
+        // page view model.
         (
-            "TrackDetailSurface",
-            "src/ui/composites/track_detail_surface.rs",
-            "primary_actions_a11y_label",
+            "TrackPageActionRowVm",
+            "src/view_models/track_page.rs",
+            "a11y_label",
         ),
         (
             "TrackRowVm",
@@ -7561,10 +7609,12 @@ fn surface_modules_under_500_loc() {
 
 #[test]
 fn library_release_detail_playlist_popovers_use_shared_composite() {
+    // ADR 0084 packet 023: the one track page shell draws the playlist
+    // popover of the track page.
     let files = [
         "src/library.rs",
         "src/ui/shells/release_page.rs",
-        "src/ui/shells/library/track_detail_metadata.rs",
+        "src/ui/shells/track_page.rs",
     ];
     let mut violations = Vec::new();
     let mut shared_popover_count = 0;
@@ -8043,12 +8093,16 @@ fn track_identity_links_use_shared_renderer() {
     // `adr_0060_discover_surface_stays_deleted` checks that the file stays
     // gone.
 
+    // ADR 0084 packet 023: the one track page shell renders the identity
+    // links of the Library track page and of the Index track page.
+    let shell = read_source(&manifest_path("src/ui/shells/track_page.rs"));
     let library = read_source(&manifest_path("src/ui/shells/library/track_detail.rs"));
-    if !library.contains("render_track_page_identity_actions(&detail_page)")
+    if !shell.contains("render_track_page_identity_actions(&vm.page)")
+        || shell.contains("\"library-track\"")
         || library.contains("\"library-track\"")
     {
         violations.push(
-            "src/ui/shells/library/track_detail.rs: ADR 0037 Library track detail must call `render_track_page_identity_actions(&detail_page)` and leave the prefix in TrackDetailPageVm"
+            "src/ui/shells/track_page.rs: ADR 0037 the track page must call `render_track_page_identity_actions(&vm.page)` and leave the prefix in TrackDetailPageVm"
                 .to_string(),
         );
     }
@@ -8200,11 +8254,11 @@ fn entity_detail_pages_render_through_shell_helper_and_page_vm() {
             "render_release_detail_shell(&vm.page",
         ),
         (
-            "Library track detail",
-            "src/ui/shells/library/track_detail.rs",
-            "TrackDetailVm::new(",
-            ".page()",
-            "track::build_track_detail_surface(",
+            "Track page of both origins (ADR 0084 packet 023)",
+            "src/ui/shells/track_page.rs",
+            "TrackPageVm",
+            "vm.page",
+            "build_track_detail_surface(&vm.page",
         ),
         (
             "Library artist detail",
@@ -20773,34 +20827,54 @@ fn adr_0083_icon_guard_fails_for_a_sample_play_character() {
 
 /// R83-41 (ADR 0083 task 004, ADR 0037 Pass 2): a Library track page and an
 /// Index track page build through the one shared track page surface, so
-/// both origins keep one header, action row and section order.
+/// both origins keep one header, action row and section order. ADR 0084
+/// packet 023: both origins call the one track page shell, which builds the
+/// shared surface.
 #[test]
 fn adr_0083_both_track_page_origins_build_one_shared_surface() {
-    const FIX: &str = "ADR 0083 task 004 and ADR 0037 Pass 2: build each track page through \
+    const FIX: &str = "ADR 0083 task 004, ADR 0037 Pass 2 and ADR 0084 packet 023: build each \
+track page through `render_track_page` in src/ui/shells/track_page.rs, which builds \
 `track::build_track_detail_surface` with `TrackDetailBehaviorSlots`. Do not compose a \
 second track page layout in a shell.";
     let library = read_source(&manifest_path("src/ui/shells/library/track_detail.rs"));
-    let index = read_source(&manifest_path("src/ui/shells/search_results_inspector.rs"));
-    let library_core = code_only(source_between(
+    let dispatch = read_source(&manifest_path("src/app/search_dispatch.rs"));
+    let shell = read_source(&manifest_path("src/ui/shells/track_page.rs"));
+    let library_page = code_only(source_between(
         &library,
-        "pub(crate) fn render_library_track_detail_core(",
+        "pub(crate) fn render_library_track_detail(",
         "\n}\n",
     ));
     let index_page = code_only(source_between(
-        &index,
-        "pub(crate) fn render_index_track_detail(",
-        "fn render_inspector_header(",
+        &dispatch,
+        "fn render_index_track_page(",
+        "\n    }\n",
+    ));
+    let shell_page = code_only(source_between(
+        &shell,
+        "pub(crate) fn render_track_page(",
+        "\n}\n",
     ));
     let mut violations = Vec::new();
     for (path, body) in [
-        ("src/ui/shells/library/track_detail.rs", &library_core),
-        ("src/ui/shells/search_results_inspector.rs", &index_page),
+        ("src/ui/shells/library/track_detail.rs", &library_page),
+        ("src/app/search_dispatch.rs", &index_page),
     ] {
-        if !body.contains("build_track_detail_surface(") {
+        if !body.contains("render_track_page(") {
             violations.push(format!(
-                "{path}: the track page does not build the shared surface.\n  {FIX}"
+                "{path}: the track page does not build the one track page shell.\n  {FIX}"
             ));
         }
+    }
+    if !shell_page.contains("build_track_detail_surface(") {
+        violations.push(format!(
+            "src/ui/shells/track_page.rs: the track page does not build the shared surface.\n  {FIX}"
+        ));
+    }
+    for (path, body) in [
+        ("src/ui/shells/library/track_detail.rs", &library_page),
+        ("src/app/search_dispatch.rs", &index_page),
+        ("src/ui/shells/track_page.rs", &shell_page),
+    ] {
         if body.contains("TrackDetailSurface::new(") {
             violations.push(format!(
                 "{path}: the track page builds a surface of its own.\n  {FIX}"
@@ -20981,6 +21055,156 @@ dispatch function. Keep `LibraryApp`, `TopApp` and `db::` in the host entities."
     assert!(
         violations.is_empty(),
         "ADR 0084 packet 021 release page shell boundary violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R23-11 (situational ADR 0084 Decision 4, packet 023): the surface
+/// context of a track page selects only the element id prefixes. No file
+/// names the deleted `primary_actions_a11y_label`.
+#[test]
+fn adr_0084_track_page_r23_11_context_selects_only_id_prefixes() {
+    const FIX: &str = "ADR 0084 Decision 4 and packet 023 decisions 2 to 6: the origin \
+selects the data source and the commands, not the page. Make a section or a label a data \
+rule of `TrackDetailVm`, and read `self.context` only in `identity_action_prefix` and \
+`feed_identity_action_prefix`.";
+    let source = read_source(&manifest_path("src/view_models/track_detail.rs"));
+    let production = production_source(&source);
+    let mut violations = Vec::new();
+    let total = production.matches("self.context").count();
+    let allowed: usize = [
+        "pub const fn identity_action_prefix(",
+        "pub const fn feed_identity_action_prefix(",
+    ]
+    .iter()
+    .map(|start| {
+        source_between(production, start, "\n    }\n")
+            .matches("self.context")
+            .count()
+    })
+    .sum();
+    if total != allowed {
+        violations.push(format!(
+            "src/view_models/track_detail.rs: reads `self.context` {total} times, {allowed} of them in the id prefix functions.\n  {FIX}"
+        ));
+    }
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            if line.contains("primary_actions_a11y_label") {
+                violations.push(format!(
+                    "{file}:{line_number}: names `primary_actions_a11y_label`: `{line}`\n  {FIX}"
+                ));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 packet 023 track page context violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R23-12 (situational ADR 0084 Decision 4, packet 023): `src/` has one
+/// definition of `render_track_page`, and only the track page shell calls
+/// `build_track_detail_surface`.
+#[test]
+fn adr_0084_track_page_r23_12_one_track_page_shell() {
+    const FIX: &str = "ADR 0084 Decision 4: one page for each item. Build each track page \
+through `render_track_page` in src/ui/shells/track_page.rs. Give the origin facts to \
+`TrackPageFacts`, and do not call `build_track_detail_surface` from another file.";
+    let mut definitions = Vec::new();
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(production_source(&source)) {
+            if line.contains("fn render_track_page(") {
+                definitions.push(format!("{file}:{line_number}"));
+            }
+            if file != "src/ui/shells/track_page.rs"
+                && line.contains("build_track_detail_surface(")
+                && !line.contains("fn build_track_detail_surface(")
+            {
+                violations.push(format!(
+                    "{file}:{line_number}: calls `build_track_detail_surface`: `{line}`\n  {FIX}"
+                ));
+            }
+        }
+    }
+    if definitions.len() != 1 {
+        violations.push(format!(
+            "src/: expected one definition of `render_track_page`, found [{}]\n  {FIX}",
+            definitions.join(", ")
+        ));
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 packet 023 track page shell violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R23-13 (situational ADR 0084 Decision 4, packet 023): the second
+/// assembly path of the track page is deleted.
+#[test]
+fn adr_0084_track_page_r23_13_the_old_track_page_paths_are_gone() {
+    const FIX: &str = "ADR 0084 Decision 4: each track page builds through `track_page_vm` \
+and `render_track_page`. Send each command through `LibraryApp::run_track_page_command` or \
+`TopApp::run_index_track_page_command`. Do not add a second page assembly.";
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (index, line) in source.lines().enumerate() {
+            let line_number = index + 1;
+            for name in [
+                "render_library_track_detail_core",
+                "render_library_track_detail_actions",
+                "run_track_page_action",
+                "render_index_track_detail",
+                "index_track_detail_slots",
+                "index_track_page_actions",
+                "index_track_description_panel",
+            ] {
+                if line.contains(name) {
+                    violations.push(format!(
+                        "{file}:{line_number}: names `{name}`: `{line}`\n  {FIX}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 packet 023 track page path violations:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R23-14 (situational ADR 0084 Decision 4, packet 023): the track page
+/// shell names no host entity and no database type. Each host gives the
+/// facts, the images and one dispatch function.
+#[test]
+fn adr_0084_track_page_r23_14_the_shell_names_no_host() {
+    const FIX: &str = "ADR 0084 Decision 4 and the AGENTS.md renderer portability rule: the \
+track page shell renders the view model and sends each `TrackPageCommand` through the \
+dispatch function. Keep `LibraryApp`, `TopApp` and `db::` in the host entities.";
+    let source = read_source(&manifest_path("src/ui/shells/track_page.rs"));
+    let mut violations = Vec::new();
+    for (line_number, line) in code_lines(&source) {
+        for name in ["LibraryApp", "TopApp", "db::"] {
+            if line.contains(name) {
+                violations.push(format!(
+                    "src/ui/shells/track_page.rs:{line_number}: names `{name}`: `{line}`\n  {FIX}"
+                ));
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 packet 023 track page shell boundary violations:\n{}",
         violations.join("\n")
     );
 }
@@ -21338,7 +21562,7 @@ fn adr_0084_scrollbars_r14_01_music_columns_use_the_shared_helper() {
         ],
         &["src/ui/shells/search_results_inspector.rs"],
         &["src/ui/composites/release_detail_surface.rs"],
-        &["src/ui/shells/library/track_detail.rs"],
+        &["src/ui/shells/track_page.rs"],
         &["src/ui/shells/library/feed_list.rs"],
         &["src/ui/shells/library/singles_group.rs"],
         &["src/ui/shells/playlist.rs"],

@@ -36,5 +36,6 @@ pub mod search_results_inspector;
 pub mod show;
 pub(crate) mod tag_update_confirmation;
 pub mod track;
+pub(crate) mod track_page;
 pub mod window_layers;
 pub mod workspace;

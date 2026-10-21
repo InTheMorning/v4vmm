@@ -3,7 +3,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use gpui::{prelude::*, AnyElement, Context, Image, SharedString, Window};
+use gpui::{AnyElement, Context, Image, Window};
 
 use crate::application::capability::Dependency;
 use crate::application::capability_recovery::{RecoveryAction, RecoveryIntent};
@@ -23,25 +23,16 @@ use crate::library::{
 use crate::library_service;
 use crate::media::cover_color::CoverColor;
 use crate::presentation::present_command;
-use crate::ui::composites::{DisclosureTextPanel, DisclosureTextPanelDisplay, TrackSurfaceElement};
-use crate::ui::control_styles::ControlStyle;
-use crate::ui::primitives::{
-    Button as UiButton, ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope,
-};
 use crate::ui::shells::release_page::{
     click_modifiers, render_release_page, ReleasePageDispatch, ReleasePageImages,
 };
-use crate::ui::shells::search_results_inspector::{
-    render_index_detail_display, render_index_track_detail,
-};
-use crate::ui::shells::track::{render_track_name_links, TrackDetailBehaviorSlots};
+use crate::ui::shells::search_results_inspector::render_index_detail_display;
+use crate::ui::shells::track_page::{render_track_page, TrackPageDispatch, TrackPageImages};
 use crate::view_models::album_page::AlbumNameLinkTarget;
-use crate::view_models::detail_selection::{
-    index_release_track_rows, index_track_guid, DetailPageRows,
-};
+use crate::view_models::detail_selection::{index_release_track_rows, DetailPageRows};
 use crate::view_models::library::{
     display_description_text, keyed_description_state, toggle_keyed_description_state,
-    DescriptionDisclosureDisplay, DescriptionState, LibraryTrackRowVm, TrackRowWork,
+    DescriptionState, LibraryTrackRowVm, TrackRowWork,
 };
 use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::publisher_page::PublisherPageContext;
@@ -52,9 +43,9 @@ use crate::view_models::release_page::{
 use crate::view_models::search_results::{
     IndexDetailDisplay, IndexDetailKind, SearchResultsInspectorPageVm, SearchResultsTab,
 };
-use crate::view_models::track_detail::{
-    TrackDetailPageVm, TrackDetailSurfaceContext, TrackDetailVm, TrackNameLinkTarget,
-    TrackPageAction, TrackPageActions,
+use crate::view_models::track_detail::{TrackNameLinkTarget, TrackPageAction};
+use crate::view_models::track_page::{
+    index_track_description_key, track_page_vm, TrackPageCommand, TrackPageFacts,
 };
 use crate::view_models::workspace::{
     release_download_updates_open_page, resolve_release_page_source, resolve_track_page_source,
@@ -127,6 +118,49 @@ fn index_feed_detail_result_is_current(
     feed_guid: &str,
 ) -> bool {
     current.is_some_and(|state| state.feed_guid() == feed_guid)
+}
+
+/// `true` when a feed read result for `feed_guid` still belongs to the open
+/// Index track page (ADR 0084 packet 023). The open track page names its
+/// feed GUID in `current`. A result for another feed GUID gives `false`,
+/// and the caller drops it.
+fn index_track_feed_result_is_current(
+    current: Option<&IndexFeedDetailState>,
+    feed_guid: &str,
+) -> bool {
+    current.is_some_and(|state| state.feed_guid() == feed_guid)
+}
+
+/// The way that an open Index track page gets the feed of its feed GUID
+/// (ADR 0084 packet 023).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum IndexTrackFeedRead {
+    /// The open release page already loaded this feed. No request.
+    UseReleasePageFeed,
+    /// The track page already tracks a read of this feed. No request.
+    AlreadyTracked,
+    /// Send one `FetchIndexFeedDetail`.
+    Send,
+}
+
+/// Selects the way that an Index track page gets the feed of `feed_guid`.
+/// It sends no request when the release page state holds the same feed
+/// GUID as `Loaded`.
+fn index_track_feed_read(
+    release_page: Option<&IndexFeedDetailState>,
+    track_feed: Option<&IndexFeedDetailState>,
+    feed_guid: &str,
+) -> IndexTrackFeedRead {
+    if matches!(
+        release_page,
+        Some(IndexFeedDetailState::Loaded { feed_guid: guid, .. }) if guid == feed_guid
+    ) {
+        return IndexTrackFeedRead::UseReleasePageFeed;
+    }
+    if index_track_feed_result_is_current(track_feed, feed_guid) {
+        return IndexTrackFeedRead::AlreadyTracked;
+    }
+    IndexTrackFeedRead::Send
 }
 
 /// Loading lifecycle of the mounted Index track detail page (ADR 0075
@@ -785,6 +819,13 @@ impl TopApp {
                         cx,
                     );
                 }
+                // ADR 0084 packet 023: the track page reads its feed for
+                // the feed identity section. A track with no known feed
+                // GUID yet starts the read when its own fetch loads.
+                match self.index_track_page_feed_guid(target) {
+                    Some(feed_guid) => self.start_index_track_feed_read(&feed_guid, cx),
+                    None => self.index_track_feed_state = None,
+                }
             }
         }
         self.track_page_source = Some(source);
@@ -899,6 +940,107 @@ impl TopApp {
         );
     }
 
+    /// The feed GUID of the open Index track page with the activation
+    /// target `target`: the feed GUID of the target, of the name-match row
+    /// or of the loaded track. `None` before the track names one.
+    fn index_track_page_feed_guid(&self, target: &str) -> Option<String> {
+        let (feed_guid, _) = split_index_track_target(target);
+        if let Some(feed_guid) = feed_guid {
+            return Some(feed_guid.to_owned());
+        }
+        let activation_id = format!("index-track:{target}");
+        if let Some(feed_guid) = self
+            .name_match_page_track_row(&activation_id)
+            .and_then(|row| row.remote_track)
+            .and_then(|track| track.feed_guid)
+        {
+            return Some(feed_guid);
+        }
+        match self.index_track_detail_state.as_ref()? {
+            IndexTrackDetailState::Loaded {
+                target: loaded_target,
+                track,
+            } if loaded_target == target => track.feed_guid.clone(),
+            _ => None,
+        }
+    }
+
+    /// The loaded feed of `feed_guid` for an Index track page (ADR 0084
+    /// packet 023): the feed of the release page state, else the feed of
+    /// the track page read. `None` while the read runs or after it fails.
+    fn index_track_page_feed(&self, feed_guid: &str) -> Option<&FeedView> {
+        [
+            self.index_feed_detail_state.as_ref(),
+            self.index_track_feed_state.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .find_map(|state| match state {
+            IndexFeedDetailState::Loaded {
+                feed_guid: guid,
+                feed,
+            } if guid == feed_guid => Some(feed.as_ref()),
+            _ => None,
+        })
+    }
+
+    /// Starts the feed read of the open Index track page (ADR 0084 packet
+    /// 023). A failed read gives no feed identity section, and the page
+    /// stays usable. The status text names the feed GUID and the
+    /// `MusicIndex` error.
+    fn start_index_track_feed_read(&mut self, feed_guid: &str, cx: &mut Context<Self>) {
+        match index_track_feed_read(
+            self.index_feed_detail_state.as_ref(),
+            self.index_track_feed_state.as_ref(),
+            feed_guid,
+        ) {
+            IndexTrackFeedRead::UseReleasePageFeed | IndexTrackFeedRead::AlreadyTracked => return,
+            IndexTrackFeedRead::Send => {}
+        }
+        self.index_track_feed_state = Some(IndexFeedDetailState::Loading {
+            feed_guid: feed_guid.to_owned(),
+        });
+        let command =
+            FetchIndexFeedDetail::new(self.musicindex_endpoint.clone(), feed_guid.to_owned());
+        let success_guid = feed_guid.to_owned();
+        let failure_guid = feed_guid.to_owned();
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |this, feed, cx| {
+                if !index_track_feed_result_is_current(
+                    this.index_track_feed_state.as_ref(),
+                    &success_guid,
+                ) {
+                    return;
+                }
+                this.index_track_feed_state = Some(IndexFeedDetailState::Loaded {
+                    feed_guid: success_guid,
+                    feed: Box::new(feed),
+                });
+                cx.notify();
+            },
+            move |this, error, cx| {
+                if !index_track_feed_result_is_current(
+                    this.index_track_feed_state.as_ref(),
+                    &failure_guid,
+                ) {
+                    return;
+                }
+                this.settings_status = format!(
+                    "App could not read the feed {failure_guid} of this track from MusicIndex: {error:#}"
+                );
+                this.index_track_feed_state = Some(IndexFeedDetailState::Failed {
+                    feed_guid: failure_guid,
+                    message: format!("{error}"),
+                });
+                cx.notify();
+            },
+        );
+    }
+
     /// Starts the Index track detail-on-open fetch, and records the
     /// loading state right away (ADR 0075 packet 047, Required Change 3).
     fn fetch_index_track_detail_page(
@@ -930,10 +1072,14 @@ impl TopApp {
                 ) {
                     return;
                 }
+                let feed_guid = track.feed_guid.clone();
                 this.index_track_detail_state = Some(IndexTrackDetailState::Loaded {
                     target: success_target,
                     track: Box::new(track),
                 });
+                if let Some(feed_guid) = feed_guid {
+                    this.start_index_track_feed_read(&feed_guid, cx);
+                }
                 cx.notify();
             },
             move |this, error, cx| {
@@ -1038,8 +1184,7 @@ impl TopApp {
             return self.render_index_release_page(feed, cx);
         }
         if let Some(track) = detail.track.as_ref() {
-            let slots = self.index_track_detail_slots(track, cx);
-            return render_index_track_detail(track, slots, cx);
+            return self.render_index_track_page(track, cx);
         }
         render_index_detail_display(detail, cx)
     }
@@ -1210,101 +1355,81 @@ impl TopApp {
         self.index_remote_detail_hero_image(url, cx)
     }
 
-    fn index_track_detail_slots(
-        &mut self,
-        track: &TrackView,
-        cx: &mut Context<Self>,
-    ) -> TrackDetailBehaviorSlots {
-        let page = TrackDetailVm::new(track, TrackDetailSurfaceContext::Discover)
-            .with_named_feeds(&track.named_feeds)
-            .page();
-        let entity = cx.entity();
-        let name_links = render_track_name_links(
-            &page,
-            move |target, _window, cx| {
-                entity.update(cx, |this, cx| this.open_index_track_name_link(target, cx));
-            },
-            cx,
-        );
-        TrackDetailBehaviorSlots {
+    /// The Index track page (ADR 0084 Decision 4, packet 023). It builds
+    /// through the one track page view model and shell. Each command goes
+    /// to [`Self::run_index_track_page_command`].
+    fn render_index_track_page(&mut self, track: &TrackView, cx: &mut Context<Self>) -> AnyElement {
+        let feed = track
+            .feed_guid
+            .as_deref()
+            .and_then(|feed_guid| self.index_track_page_feed(feed_guid));
+        let mut facts = TrackPageFacts::from_index_track(track.clone(), feed);
+        if let Some(description) = display_description_text(track.description.as_deref()) {
+            let key = index_track_description_key(track);
+            facts =
+                facts.with_description_state(self.index_track_description_state(&key, description));
+        }
+        let vm = track_page_vm(&facts);
+        let images = TrackPageImages {
             hero_image: self.index_track_hero_image(track, cx),
-            name_links,
-            primary_actions: Self::index_track_page_actions(&page.page_actions(), track, cx),
-            // ADR 0084 Decision 4, ADR 0047 item 8 (amended 2026-10-16):
-            // an Index track page shows its description, with the same
-            // panel and the same projection as the Index release page.
-            description_panel: self.index_track_description_panel(track, &page, cx),
-            // ADR 0084 packet 018: the keys of the detail column scroll
-            // the page through its held scroll handle.
-            scroll_handle: Some(self.library.read(cx).detail_scroll_handle()),
-            ..TrackDetailBehaviorSlots::default()
+            scroll_handle: self.library.read(cx).detail_scroll_handle(),
+        };
+        let entity = cx.entity();
+        let dispatch: TrackPageDispatch = Rc::new(move |command, _window, cx| {
+            entity.update(cx, |this, cx| {
+                this.run_index_track_page_command(command, cx);
+            });
+        });
+        render_track_page(&vm, images, &dispatch, None, cx)
+    }
+
+    /// Runs one command of the open Index track page. The command reads
+    /// the open track again, so it never acts on an old `TrackView`.
+    fn run_index_track_page_command(&mut self, command: TrackPageCommand, cx: &mut Context<Self>) {
+        let Some(track) = self.index_track_page_track() else {
+            return;
+        };
+        let feed_guid = track
+            .feed_guid
+            .clone()
+            .filter(|feed_guid| !feed_guid.trim().is_empty());
+        match command {
+            TrackPageCommand::Action(TrackPageAction::DownloadAlbum) => {
+                if let Some(feed_guid) = feed_guid {
+                    self.download_index_album_of_track(feed_guid, track.feed_title.clone(), cx);
+                }
+            }
+            TrackPageCommand::Action(TrackPageAction::CopyFeedUrl) => {
+                if let Some(feed_guid) = feed_guid {
+                    self.copy_index_feed_url_of_track(feed_guid, cx);
+                }
+            }
+            TrackPageCommand::ToggleDescription => {
+                if let Some(description) = display_description_text(track.description.as_deref()) {
+                    let key = index_track_description_key(&track);
+                    self.toggle_index_track_description(&key, description, cx);
+                }
+            }
+            TrackPageCommand::OpenNameLink(target) => self.open_index_track_name_link(&target, cx),
+            // An Index track page offers no such action.
+            TrackPageCommand::Action(
+                TrackPageAction::DownloadTrack
+                | TrackPageAction::AddToPlaylist
+                | TrackPageAction::MusicBrainzLookup
+                | TrackPageAction::RemoveTrack,
+            )
+            | TrackPageCommand::AddToPlaylist(_)
+            | TrackPageCommand::CreatePlaylist(_) => {}
         }
     }
 
-    /// The action row of an Index track page (ADR 0083 Decision 5): the
-    /// filled "Download release". An Index track has no plain action and,
-    /// with no feed URL, no menu item. `TrackView` carries no stated kind
-    /// and no track count of its release (ADR 0084 Decision 5), and this
-    /// packet sends no new `MusicIndex` request for one, so the label
-    /// names no known kind.
-    fn index_track_page_actions(
-        actions: &TrackPageActions,
-        track: &TrackView,
-        cx: &mut Context<Self>,
-    ) -> Vec<TrackSurfaceElement> {
-        let filled = actions.filled;
-        let action = filled.action;
-        let feed_guid = track.feed_guid.clone();
-        let album_label = track.feed_title.clone();
-        let button = UiButton::styled(
-            SharedString::from(format!("index-track-page-action:{action:?}")),
-            ControlStyle::Primary,
-        )
-        .label(action.label(None))
-        .a11y_label(action.a11y_label(None))
-        .disabled(!filled.available);
-        let button = match (action, feed_guid.clone()) {
-            (TrackPageAction::DownloadAlbum, Some(feed_guid)) if filled.available => button
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.download_index_album_of_track(feed_guid.clone(), album_label.clone(), cx);
-                })),
-            _ => button,
+    /// The track of the open Index track page, when it shows one.
+    fn index_track_page_track(&self) -> Option<TrackView> {
+        let Some(TrackPageSource::Index { target }) = &self.track_page_source else {
+            return None;
         };
-        let mut elements = vec![TrackSurfaceElement::from_element(button.into_any_element())];
-        if let (false, Some(feed_guid)) = (actions.menu.is_empty(), feed_guid) {
-            let entity = cx.entity();
-            let items = actions.menu.iter().map(|display| {
-                let action = display.action;
-                let mut item = ContextMenuItem::new(ContextMenuItemDisplay {
-                    id: SharedString::from(format!("index-track-page-menu:{action:?}")),
-                    label: SharedString::from(action.label(None)),
-                    a11y_label: SharedString::from(action.a11y_label(None)),
-                    destructive: action.is_destructive(),
-                    disabled: !display.available,
-                });
-                if display.available && action == TrackPageAction::CopyFeedUrl {
-                    let entity = entity.clone();
-                    let feed_guid = feed_guid.clone();
-                    item = item.on_select(move |_window, cx| {
-                        entity.update(cx, |this, cx| {
-                            this.copy_index_feed_url_of_track(feed_guid.clone(), cx);
-                        });
-                    });
-                }
-                item
-            });
-            elements.push(TrackSurfaceElement::from_element(
-                ContextMenu::new(
-                    SharedString::from(format!("index-track-page-menu-{feed_guid}")),
-                    ContextMenuScope::TrackList,
-                    SharedString::from("More actions for this track"),
-                )
-                .trigger_label("")
-                .items(items)
-                .into_any_element(),
-            ));
-        }
-        elements
+        let label = self.track_opening_label(target);
+        self.index_track_detail_display(target, &label).track
     }
 
     /// "Copy feed URL" of an Index track: reads the album feed from
@@ -1777,45 +1902,6 @@ impl TopApp {
         cx.notify();
     }
 
-    /// The description panel of an Index track page (ADR 0084 Decision 4,
-    /// ADR 0047 item 8 amended 2026-10-16). `None` when the track names no
-    /// description. Same panel, same projection and the same id pattern
-    /// as the Index release page.
-    fn index_track_description_panel(
-        &mut self,
-        track: &TrackView,
-        page: &TrackDetailPageVm<'_>,
-        cx: &mut Context<Self>,
-    ) -> Option<TrackSurfaceElement> {
-        let description = page.detail().description()?;
-        let target = index_track_description_target(track);
-        let state = self.index_track_description_state(&target, &description);
-        let display = DescriptionDisclosureDisplay::project(&description, state);
-        let label = SharedString::from(page.detail().labels().description_label());
-        let id = SharedString::from(format!("index-track-description:{target}"));
-        let toggle_target = target;
-        let toggle_description = description;
-        Some(TrackSurfaceElement::from_element(
-            DisclosureTextPanel::new(DisclosureTextPanelDisplay {
-                id: id.into(),
-                label,
-                a11y_label: SharedString::from("Toggle track description"),
-                collapsed: display.collapsed,
-                body: display.body.map(SharedString::from),
-                show_more: display.show_more.map(|show_more| {
-                    (
-                        SharedString::from(show_more.label),
-                        SharedString::from(show_more.a11y_label),
-                    )
-                }),
-            })
-            .on_toggle(cx.listener(move |this, _, _, cx| {
-                this.toggle_index_track_description(&toggle_target, &toggle_description, cx);
-            }))
-            .into_any_element(),
-        ))
-    }
-
     /// The disclosure state of an Index track's description, by its Index
     /// activation target (ADR 0084 Decision 4, ADR 0047 item 8 amended
     /// 2026-10-16). The state lives for the session only; it is not
@@ -1850,23 +1936,62 @@ pub(super) fn feed_guid_from_view(feed: &FeedView) -> Option<String> {
     index_feed_guid(feed)
 }
 
-fn track_guid_from_view(track: &TrackView) -> Option<String> {
-    index_track_guid(track)
-}
-
-/// The Index activation target of a track, for its description state key
-/// (ADR 0084 Decision 4). Built the same way as the track-row click key.
-fn index_track_description_target(track: &TrackView) -> String {
-    TrackKey::from_index_track_target(
-        track.feed_guid.as_deref(),
-        track_guid_from_view(track).unwrap_or_default(),
-    )
-    .index_target()
-}
-
 #[cfg(test)]
 mod index_detail_dispatch_tests {
     use super::*;
+
+    /// R23-05 (ADR 0084 packet 023): a feed read result for a feed GUID
+    /// that the open track page does not name is dropped.
+    #[test]
+    fn adr_0084_track_page_r23_05_feed_result_for_another_feed_is_dropped() {
+        let current = Some(IndexFeedDetailState::Loading {
+            feed_guid: "feed-b".into(),
+        });
+        assert!(!index_track_feed_result_is_current(
+            current.as_ref(),
+            "feed-a"
+        ));
+        assert!(index_track_feed_result_is_current(
+            current.as_ref(),
+            "feed-b"
+        ));
+        assert!(!index_track_feed_result_is_current(None, "feed-a"));
+    }
+
+    /// R23-05: the track page sends no feed request when the release page
+    /// state holds the same feed GUID as `Loaded`. It sends one request
+    /// when the release page holds another feed, or the same feed still
+    /// loading.
+    #[test]
+    fn adr_0084_track_page_r23_05_loaded_release_feed_sends_no_request() {
+        let loaded = Some(IndexFeedDetailState::Loaded {
+            feed_guid: "feed-a".into(),
+            feed: Box::default(),
+        });
+        assert_eq!(
+            index_track_feed_read(loaded.as_ref(), None, "feed-a"),
+            IndexTrackFeedRead::UseReleasePageFeed
+        );
+        assert_eq!(
+            index_track_feed_read(loaded.as_ref(), None, "feed-b"),
+            IndexTrackFeedRead::Send
+        );
+        let loading = Some(IndexFeedDetailState::Loading {
+            feed_guid: "feed-a".into(),
+        });
+        assert_eq!(
+            index_track_feed_read(loading.as_ref(), None, "feed-a"),
+            IndexTrackFeedRead::Send
+        );
+        assert_eq!(
+            index_track_feed_read(None, loading.as_ref(), "feed-a"),
+            IndexTrackFeedRead::AlreadyTracked
+        );
+        assert_eq!(
+            index_track_feed_read(None, None, "feed-a"),
+            IndexTrackFeedRead::Send
+        );
+    }
 
     /// R47-07: a detail result for a feed the operator already navigated
     /// away from must not replace the mounted page.
