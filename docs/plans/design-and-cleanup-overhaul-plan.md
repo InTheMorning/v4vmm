@@ -154,7 +154,7 @@ A separate ADR, after the Library work. The playback defect of one song that doe
 
 - Single source of truth audit: read-only agents find data written in two places and two paths that compute one output. They also find errors that only stderr shows, and live values where the stored value is the rule. Each finding becomes a failing test and then a fix.
 - Split the largest files at their natural seams. No behavior changes in those packets.
-- Add `cargo clippy --all-targets -- -D warnings` to the gate.
+- Add `cargo clippy --all-targets -- -D warnings` to the gate. [Overhaul correctness task 001](../tasks/overhaul-correctness-task-001-clippy-all-targets.md) owns it from 2026-10-20 (operator decision).
 - No complete rewrite. Change one surface at a time and keep the gate Green.
 
 ### Throughout: Responsiveness And Background Feedback

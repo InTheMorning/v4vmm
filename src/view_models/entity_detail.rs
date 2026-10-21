@@ -41,7 +41,6 @@ pub enum EntityActionKind {
     Download,
     Remove,
     AddToPlaylist,
-    Play,
     CompareMetadata,
     OpenMusicBrainz,
     OpenWebsite,
@@ -130,12 +129,6 @@ pub enum ReleaseMembershipState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PlaylistActionState {
-    Hidden,
-    Closed,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MetadataPanelState {
     Hidden,
     Loading,
@@ -146,30 +139,15 @@ pub enum MetadataPanelState {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TrackActionState {
     pub membership: TrackMembershipState,
-    pub playlist: PlaylistActionState,
     pub download_available: bool,
 }
 
 impl TrackActionState {
     #[must_use]
-    pub const fn new(membership: TrackMembershipState, playlist: PlaylistActionState) -> Self {
+    pub const fn new(membership: TrackMembershipState) -> Self {
         Self {
             membership,
-            playlist,
             download_available: true,
-        }
-    }
-
-    #[must_use]
-    pub const fn for_context(context: EntitySurfaceContext) -> Self {
-        match context {
-            EntitySurfaceContext::Discover => Self::new(
-                TrackMembershipState::RemoteOnly,
-                PlaylistActionState::Closed,
-            ),
-            EntitySurfaceContext::Library => {
-                Self::new(TrackMembershipState::InLibrary, PlaylistActionState::Closed)
-            }
         }
     }
 
@@ -222,35 +200,6 @@ impl TrackActionState {
         } else {
             action
         }
-    }
-
-    #[must_use]
-    pub fn playlist_action(&self, target: EntityActionTarget) -> Option<EntityActionVm> {
-        match self.playlist {
-            PlaylistActionState::Hidden => None,
-            PlaylistActionState::Closed => Some(EntityActionVm::new(
-                EntityActionKind::AddToPlaylist,
-                target,
-                "+ Playlist",
-                EntityActionTone::Quiet,
-            )),
-        }
-    }
-
-    #[must_use]
-    pub fn actions(&self, target: EntityActionTarget) -> Vec<EntityActionVm> {
-        let primary = self.primary_action(target.clone());
-        let mut actions = vec![primary];
-        if let Some(action) = self.playlist_action(target.clone()) {
-            actions.push(action);
-        }
-        actions.push(EntityActionVm::new(
-            EntityActionKind::Play,
-            target,
-            "Play",
-            EntityActionTone::Quiet,
-        ));
-        actions
     }
 }
 
@@ -552,7 +501,6 @@ impl EntityActionVm {
             EntityActionKind::Download
             | EntityActionKind::Remove
             | EntityActionKind::AddToPlaylist
-            | EntityActionKind::Play
             | EntityActionKind::CompareMetadata
             | EntityActionKind::OpenMusicBrainz => return None,
         };
@@ -2082,56 +2030,29 @@ mod tests {
     }
 
     #[test]
-    fn track_actions_change_by_context_without_changing_layout_contract() {
-        let target = EntityActionTarget::Track(TrackRef::Musicindex("track-1".into()));
-        let discover_actions =
-            TrackActionState::for_context(EntitySurfaceContext::Discover).actions(target.clone());
-        let library_actions =
-            TrackActionState::for_context(EntitySurfaceContext::Library).actions(target);
-
-        assert_eq!(discover_actions[0].kind, EntityActionKind::Download);
-        assert_eq!(discover_actions[0].tone, EntityActionTone::Secondary);
-        assert_eq!(library_actions[0].kind, EntityActionKind::Remove);
-        assert_eq!(library_actions[0].tone, EntityActionTone::DestructiveQuiet);
-        assert_eq!(discover_actions[1].kind, EntityActionKind::AddToPlaylist);
-        assert_eq!(library_actions[1].kind, EntityActionKind::AddToPlaylist);
-        assert_eq!(discover_actions[1].label, "+ Playlist");
-        assert_eq!(library_actions[1].label, "+ Playlist");
-    }
-
-    #[test]
     fn track_action_state_projects_busy_and_disabled_membership_actions() {
         let target = EntityActionTarget::Track(TrackRef::Musicindex("track-1".into()));
-        let remote_unavailable = TrackActionState::new(
-            TrackMembershipState::RemoteOnly,
-            PlaylistActionState::Hidden,
-        )
-        .with_download_available(false)
-        .primary_action(target.clone());
+        let remote_unavailable = TrackActionState::new(TrackMembershipState::RemoteOnly)
+            .with_download_available(false)
+            .primary_action(target.clone());
 
         assert_eq!(remote_unavailable.kind, EntityActionKind::Download);
         assert_eq!(remote_unavailable.label, "Download");
         assert!(!remote_unavailable.enabled);
 
-        let downloading = TrackActionState::new(
-            TrackMembershipState::Downloading,
-            PlaylistActionState::Hidden,
-        )
-        .primary_action(target.clone());
+        let downloading =
+            TrackActionState::new(TrackMembershipState::Downloading).primary_action(target.clone());
         assert_eq!(downloading.kind, EntityActionKind::Download);
         assert_eq!(downloading.label, "Downloading...");
         assert!(!downloading.enabled);
 
         let queued =
-            TrackActionState::new(TrackMembershipState::Queued, PlaylistActionState::Hidden)
-                .primary_action(target.clone());
+            TrackActionState::new(TrackMembershipState::Queued).primary_action(target.clone());
         assert_eq!(queued.kind, EntityActionKind::Download);
         assert_eq!(queued.label, "Queued");
         assert!(!queued.enabled);
 
-        let removing =
-            TrackActionState::new(TrackMembershipState::Removing, PlaylistActionState::Hidden)
-                .primary_action(target);
+        let removing = TrackActionState::new(TrackMembershipState::Removing).primary_action(target);
         assert_eq!(removing.kind, EntityActionKind::Remove);
         assert_eq!(removing.label, "Removing...");
         assert_eq!(removing.tone, EntityActionTone::DestructiveQuiet);

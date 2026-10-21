@@ -2693,6 +2693,54 @@ fn adr_0081_staged_frame_model_stays_deleted() {
     );
 }
 
+/// Situational, Music flow map findings 13 and 14, operator decision of
+/// 2026-10-20: the code that no path reached is deleted. `ArtistVm` and
+/// `render_artist_view` had no live caller. The Play action of
+/// `TrackActionState` had no render path. Delete this guard when a decision
+/// adds an artist view model or a track Play action again.
+#[test]
+fn music_flow_map_dead_artist_view_and_track_play_action_stay_deleted() {
+    const FIX: &str = "Music flow map findings 13 and 14, operator decision of 2026-10-20: this code had no live caller and is deleted. Render an artist page through `LibraryArtistDetailVm::page` and `render_artist_detail_shell`. Give a track action a render path and a click handler in the same change, or record the action in a decision first.";
+    let deleted_names = ["ArtistVm", "render_artist_view", "EntityActionKind::Play"];
+
+    let mut violations = Vec::new();
+    if manifest_path("src/view_models/artist.rs").exists() {
+        violations.push("src/view_models/artist.rs: the file is deleted".to_string());
+    }
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(&source) {
+            for name in deleted_names {
+                let found = line.match_indices(name).any(|(start, _)| {
+                    let before = line[..start].chars().next_back();
+                    let after = line[start + name.len()..].chars().next();
+                    !before.is_some_and(|ch| ch.is_alphanumeric() || ch == '_')
+                        && !after.is_some_and(|ch| ch.is_alphanumeric() || ch == '_')
+                });
+                if found {
+                    violations.push(format!("{file}:{line_number}: `{name}` is deleted"));
+                }
+            }
+        }
+    }
+
+    let entity_detail = read_source(&manifest_path("src/view_models/entity_detail.rs"));
+    let action_kinds = entity_detail
+        .split("pub enum EntityActionKind {")
+        .nth(1)
+        .and_then(|rest| rest.split('}').next())
+        .expect("src/view_models/entity_detail.rs declares `EntityActionKind`");
+    if action_kinds.lines().any(|line| line.trim() == "Play,") {
+        violations.push(
+            "src/view_models/entity_detail.rs: the `EntityActionKind::Play` variant is deleted"
+                .to_string(),
+        );
+    }
+
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+}
+
 /// R81-03: `adr_0081_staged_frame_model_stays_deleted` must fail on a sample
 /// source with `fn request_detach(`, and its message must name ADR 0081.
 /// This sample is a string, not a file under `src/`, so it proves the
@@ -8170,13 +8218,6 @@ fn entity_detail_pages_render_through_shell_helper_and_page_vm() {
             "PlaylistDetailVm::new(",
             ".page(",
             "render_playlist_detail_shell(",
-        ),
-        (
-            "Discover artist detail",
-            "src/ui/shells/artist.rs",
-            "ArtistVm::new(",
-            ".page()",
-            "render_artist_detail_shell(",
         ),
     ];
     let mut violations = Vec::new();

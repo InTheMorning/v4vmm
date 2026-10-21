@@ -1,12 +1,9 @@
-use crate::api::Feed;
 use crate::ui::composites::{
     DetailGrid, DetailHeader, DetailHeaderDisplay, DetailRow, DetailTextRow, EntityKind,
 };
 use crate::ui::primitives::VStack;
 use crate::ui::tokens::{FontSize, Spacing};
-use crate::view_models::artist::ArtistVm;
 use crate::view_models::artist_detail::ArtistDetailPageVm;
-use crate::views::ArtistView;
 use gpui::{prelude::*, AnyElement};
 use std::sync::Arc;
 
@@ -14,27 +11,6 @@ use std::sync::Arc;
 pub struct ArtistDetailBehaviorSlots {
     pub image: Option<Arc<gpui::Image>>,
     pub feed_section: Option<AnyElement>,
-}
-
-#[must_use]
-pub fn render_artist_view(
-    view: &ArtistView,
-    feeds: &[Feed],
-    image: Option<Arc<gpui::Image>>,
-    has_more_tracks: bool,
-    track_count_override: Option<i32>,
-    feed_section: Option<AnyElement>,
-) -> AnyElement {
-    let vm = ArtistVm::new(view, feeds, has_more_tracks, track_count_override);
-    let page = vm.page();
-
-    render_artist_detail_shell(
-        &page,
-        ArtistDetailBehaviorSlots {
-            image,
-            feed_section,
-        },
-    )
 }
 
 #[must_use]

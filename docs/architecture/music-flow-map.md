@@ -83,10 +83,10 @@ and the new count compare the same situation.
     marks an inline track row (`src/view_models/library.rs`, `src/app/search_dispatch.rs`).
     "Add to playlist" marks a page's own button
     (`src/ui/shells/library/track_detail_metadata.rs`, `src/ui/shells/library/feed_detail.rs`).
-13. **`ArtistVm` and `render_artist_view` still have no caller.** No file outside
+13. **`ArtistVm` and `render_artist_view` still have no caller.** Fixed on 2026-10-20 by deletion. No file outside
     `src/ui/shells/artist.rs` and its own tests calls `render_artist_view`. The live artist
     page renders through the separate `LibraryArtistDetailVm` and `render_artist_detail_shell`.
-14. **The "Play" action of `TrackActionState` still has no confirmed render path.**
+14. **The "Play" action of `TrackActionState` still has no confirmed render path.** Fixed on 2026-10-20 by deletion.
     `TrackActionState::actions` (`src/view_models/entity_detail.rs`) always appends an
     `EntityActionKind::Play` action. No file in `src/` matches a click handler for it. The one
     live row-action builder for an Index track row, `index_track_row_actions`
@@ -307,7 +307,7 @@ and the new count compare the same situation.
   still two labels for the same action, now split by context (finding 12).
 - Two MusicBrainz scopes with similar labels: open, unchanged.
 - Code that no path reaches: `ArtistVm` with `render_artist_view` (finding 13), and the "Play"
-  action of `TrackActionState` (finding 14).
+  action of `TrackActionState` (finding 14). Fixed on 2026-10-20 by deletion.
 - A new duplicate: two artist page types by identity, not by origin. A confirmed-feed artist
   and a name-only artist still open two different pages (finding 8).
 

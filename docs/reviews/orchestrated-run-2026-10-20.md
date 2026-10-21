@@ -78,6 +78,8 @@ Each entry names the step, the decision and the reason.
 - Packet answers of the operator, 2026-10-20: a feed page lists the releases that match its name, marked as inferred, and that name has no row of its own (packet 017 D1, ADR 0084 Decision 7). A name search row opens the name page and is absent when no name-only release exists (packet 017 D6 and D7). A tab change clears the selection (packet 010 D8). One padding value for the track page (packet 023 D14).
 - Stophammer request 9 is a draft in both copies of `v4vmm-open-requests.md`. The orchestrator commits nothing in the Stophammer repository. The operator reviews the draft.
 
+- Operator answers of 2026-10-20 to the open questions: add "Stop queued" to the download queue (new packet 027), delete the dead code of flow map findings 13 and 14 now, and fix the test-code lints in one packet that adds `--all-targets` to the gate. The orchestrator implements the new packets now, while the operator walks the screenshot list. The operator reviews Stophammer request 9 before any commit in the Stophammer repository.
+
 ## Steps
 
 | Step | State | Commit |

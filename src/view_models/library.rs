@@ -37,8 +37,8 @@ use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
 use crate::view_models::detail_selection::LibraryReleaseFacts;
 use crate::view_models::download_progress::{DownloadActivity, DownloadPhase, FeedKey};
 use crate::view_models::entity_detail::{
-    EntityActionTarget, EntityActionVm, PlaylistActionState, ReleaseMembershipState,
-    TrackActionState, TrackMembershipState,
+    EntityActionTarget, EntityActionVm, ReleaseMembershipState, TrackActionState,
+    TrackMembershipState,
 };
 use crate::view_models::format::{fmt_date, fmt_total_runtime_clock, plural};
 pub(crate) use crate::view_models::library_removal::RemovalConfirmation;
@@ -4399,7 +4399,7 @@ impl<'a> LibraryTrackRowVm<'a> {
             (true, TrackRowWork::Idle) => TrackMembershipState::InLibrary,
             (false, TrackRowWork::Idle) => TrackMembershipState::RemoteOnly,
         };
-        TrackActionState::new(membership, PlaylistActionState::Closed)
+        TrackActionState::new(membership)
     }
 
     #[must_use]

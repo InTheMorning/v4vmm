@@ -43,20 +43,19 @@
 //! 3. **Every public projection is unit-testable without a `Window`
 //!    or `App`.** If a method needs a `cx`, it doesn't belong here.
 //! 4. **Borrow, don't clone.** VMs hold short-lived borrows of the
-//!    screen's owned data (`&ArtistView`, `&[Feed]`, …). They're
+//!    screen's owned data (`&str`, `&[Feed]`, …). They're
 //!    constructed fresh each render and dropped before the element
 //!    tree is painted. This avoids any extra `Arc`/`clone` churn.
-//! 5. **One module per screen.** `view_models::artist`,
-//!    `view_models::feed`, `view_models::track`,
+//! 5. **One module per screen.** `view_models::feed`, `view_models::track`,
 //!    `view_models::library`, `view_models::search_results`. Shared
 //!    helpers live alongside in this `mod.rs` or a `common` submodule.
 //!
 //! ## Reference implementation
 //!
-//! See [`artist::ArtistVm`] for the pattern: a borrow-only struct with
-//! pure projection methods (`title`, `track_count_label`,
-//! `detail_rows`) and a sibling `#[cfg(test)] mod tests` pinning every
-//! display invariant. New VMs should copy that shape exactly.
+//! See `library::LibraryArtistDetailVm` for the pattern: a borrow-only
+//! struct with pure projection methods (`detail_rows`, `page`) and a
+//! sibling `#[cfg(test)] mod tests` that pins each display invariant.
+//! Copy that shape for a new view model.
 
 #![warn(clippy::pedantic)]
 
@@ -66,7 +65,6 @@ pub(crate) mod collection_art;
 pub mod startup;
 
 pub mod album_page;
-pub mod artist;
 pub mod artist_detail;
 pub mod artist_identity;
 pub(crate) mod detail_selection;

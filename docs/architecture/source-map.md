@@ -70,7 +70,6 @@ When you need to look something up, consult this map first to find the right fil
 | Top-level GPUI window, tab switching | `src/app.rs` |
 | Platform shortcut modifier and typed keyboard/menu bindings | `src/app/keyboard.rs`, `src/app/menu.rs` (ADR 0067) |
 | GPUI view composition helpers | `src/views.rs` |
-| Artist inspector view | `src/ui_artist.rs` |
 | Feed inspector view | `src/ui_feed.rs` |
 | Track inspector view | `src/ui_track.rs` |
 | Shared UI helpers (status, layout) | `src/ui_common.rs` |
