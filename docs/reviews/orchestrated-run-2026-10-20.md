@@ -211,9 +211,12 @@ The order puts the checks that only read pages first, and the checks that downlo
 10. [Packet 017](../tasks/adr-0084-task-017-name-level-artist-page.md), V1 to V11: the name level page and "Matched by name". V8 downloads two releases.
 11. [Packet 010](../tasks/adr-0084-task-010-search-results-list-column.md), V1 to V7: the search results in the list column. V6 downloads three releases.
 12. [Packet 012](../tasks/adr-0084-task-012-saved-searches.md), V1 to V7: saved searches. Its cleanup deletes the test saved searches.
-13. [ADR 0083 task 007](../tasks/adr-0083-task-007-list-and-playlist-row-actions.md), V1 to V11: the playlist, Tracks and Needs attention rows. Use the test playlist.
-14. [ADR 0083 task 008](../tasks/adr-0083-task-008-drag-track-to-playlist.md), V1 to V9: drag a track to a playlist. Use the test playlist.
-15. [Packet 027](../tasks/adr-0084-task-027-stop-queued-downloads.md), V1 to V3: "Stop queued". V1 queues nine releases.
+13. [Packet 028](../tasks/adr-0084-task-028-search-open-defects.md), V1 to V4: the open defects of search. V4 sets an unreachable MusicIndex endpoint, and its cleanup restores it.
+14. [Packet 029](../tasks/adr-0084-task-029-search-link-facts.md), V1 to V6: the badge "Artist", a role word or "Feed" on a search feed row.
+15. [Packet 026](../tasks/adr-0084-task-026-index-singles-groups.md), V1 to V10: the singles groups of MusicIndex releases in "Everything", the group page and "All n singles". V9 turns the network off, and its cleanup turns it on again.
+16. [ADR 0083 task 007](../tasks/adr-0083-task-007-list-and-playlist-row-actions.md), V1 to V11: the playlist, Tracks and Needs attention rows. Use the test playlist.
+17. [ADR 0083 task 008](../tasks/adr-0083-task-008-drag-track-to-playlist.md), V1 to V9: drag a track to a playlist. Use the test playlist.
+18. [Packet 027](../tasks/adr-0084-task-027-stop-queued-downloads.md), V1 to V3: "Stop queued". V1 queues nine releases.
 
 #### Record
 
