@@ -82,9 +82,7 @@ The overhaul plan names eight steps. Step 2 has two packets, 002 and 003, becaus
 - 2026-10-21: Stophammer ADR 0076 §1 does not count a link with `role_agreement` `conflict` as confirmed, but ADR 0085 does. One rank 1 entry had this case on 2026-10-21. Packet 026 decision D3 records it.
 - 2026-10-21: `index_target` in `src/view_models/workspace/nav.rs` joins the feed GUID and the track GUID in one text. The keys `(None, "urn:uuid:x")` and `(Some("urn"), "uuid:x")` thus give the same text, which keys the track page labels and the stale-result check. No code divides the text. Packet 028 records it. No packet owns it yet.
 - 2026-10-21: the search row renderer selects the artist frame of the art, because the row has art (`src/ui/shells/search_result_rows.rs`). The Artists list does the same (`destination_lists.rs`). The view model does not give the frame kind. No packet owns it yet.
-- 2026-10-21: an Index feed row with a large image showed "AR" in the walk, but the image cache holds its image (packet 028 D4). The cause is not known. Packet 028 V3 tells a missing retry after a failed load from a slow load.
 - 2026-10-21: after Back to a search page, the toolbar search field keeps the text of the later query. The list shows the restored query. No packet owns this yet (`src/app/search_dispatch.rs`).
-- 2026-10-21: a feed row in search results shows no level word and no role word. Packet 029 corrected this on 2026-10-21. Its walk closes this finding.
 - 2026-10-17: a track, artist, playlist, publisher or name-match page has one fixed scroll id for each page type. Two pages of one type, opened one after the other, thus share one scroll position. A release page has one scroll id for each release since task 014. No packet owns this yet (`track_detail_scroll_id` and the other scroll ids in `src/view_models/library.rs` chrome, and `src/ui/shells/`).
 
 ## Affected Modules
