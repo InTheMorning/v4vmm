@@ -1222,7 +1222,7 @@ mod tests {
         assert!(!remote_row.in_library);
     }
 
-    /// R85-8-09: a MusicIndex failure keeps the Library rows in their
+    /// R85-8-09: a `MusicIndex` failure keeps the Library rows in their
     /// sections and gives the report.
     #[test]
     fn adr_0085_feed_page_failure_keeps_library_rows_r85_8_09() {
@@ -1243,7 +1243,7 @@ mod tests {
         );
     }
 
-    /// R85-8-14: `frame_title()` gives "Artist" for the HeyCitizen and
+    /// R85-8-14: `frame_title()` gives "Artist" for the `HeyCitizen` and
     /// DETOX facts, and "Label" for the Sir Libre Records facts. A feed
     /// with rank 2 rows and no stated role gives "Publisher". A null rank
     /// gives "Feed", and so does a rank 2 row with a one-side `artist`

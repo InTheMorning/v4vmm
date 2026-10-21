@@ -1552,7 +1552,10 @@ mod tests {
         finished(&handle, playlist_id).await;
         let sent = fetcher.sent();
         assert_eq!(sent.len(), 2);
-        assert_eq!(sent[1].at - sent[0].at, Duration::from_secs(30));
+        assert_eq!(
+            sent[1].at.checked_sub(sent[0].at).unwrap(),
+            Duration::from_secs(30)
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -1594,7 +1597,7 @@ mod tests {
             [StoppedHost {
                 host: "limited.test".to_owned(),
                 reason: HostStopReason::TooManyRequests {
-                    requested_wait: Some(Duration::from_secs(300)),
+                    requested_wait: Some(Duration::from_mins(5)),
                 },
             }]
         );
@@ -2024,8 +2027,11 @@ mod tests {
         let sent = fetcher.sent();
         assert_eq!(sent.len(), 2);
         assert_eq!(sent[1].url, second);
-        assert_eq!(sent[1].at - sent[0].at, Duration::from_secs(60));
-        assert_eq!(MAX_RETRY_AFTER, Duration::from_secs(60));
+        assert_eq!(
+            sent[1].at.checked_sub(sent[0].at).unwrap(),
+            Duration::from_mins(1)
+        );
+        assert_eq!(MAX_RETRY_AFTER, Duration::from_mins(1));
         assert!(run.stopped_hosts.is_empty());
         assert_eq!(run.count(RssFeedOutcome::Document), 2);
     }

@@ -159,7 +159,7 @@ it. Use the status vocabulary of ADR 0057.
 session. Do not chain phases.
 
 **Zero warnings.** Every commit passes `cargo check`, `cargo fmt --check`, and
-`cargo clippy -- -D warnings`.
+`cargo clippy --all-targets -- -D warnings`.
 
 **Silence success.** Report an error. When a check passes, say "Green" and
 continue.
@@ -243,15 +243,16 @@ binary linked to GPUI test-support and its synchronous drawing loop. The startup
 fixture's `run` command rebuilds the normal binary before opening it.
 
 ```bash
-cargo build                          # Debug build
-cargo build --release                # Production build: target/release/v4vmm
-cargo test                           # All tests
-cargo test --test architecture_tests # The guards
-cargo fmt -- --check                 # Check formatting
-cargo clippy -- -D warnings          # Strict clippy
+cargo build                               # Debug build
+cargo build --release                     # Production build: target/release/v4vmm
+cargo test                                # All tests
+cargo test --test architecture_tests      # The guards
+cargo fmt -- --check                      # Check formatting
+cargo clippy --all-targets -- -D warnings # Strict clippy, every target
 ```
 
-CI runs build, test, clippy, then format check.
+This repository has no CI workflow file. The agent runs build, test, clippy
+and format check locally before a commit.
 
 ## Conventions
 

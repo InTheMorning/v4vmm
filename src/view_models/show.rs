@@ -3708,7 +3708,7 @@ mod tests {
             cards.push(ShowCardDisplay::from_stream(&stream));
         }
 
-        for card in cards {
+        for card in &cards {
             assert_uniform_card(card);
         }
     }
@@ -5223,7 +5223,7 @@ mod tests {
         ]
     }
 
-    fn assert_uniform_card(card: ShowCardDisplay) {
+    fn assert_uniform_card(card: &ShowCardDisplay) {
         assert!(
             !card.title.trim().is_empty(),
             "card {card:?} has an empty title"

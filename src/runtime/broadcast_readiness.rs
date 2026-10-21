@@ -191,7 +191,7 @@ mod tests {
         let conn = setup_test_db()?;
         let handle = start_with_interval(
             Arc::clone(&conn),
-            Duration::from_secs(60),
+            Duration::from_mins(1),
             &SessionLifecycle::new(),
         );
         let mut receiver = handle.subscribe();

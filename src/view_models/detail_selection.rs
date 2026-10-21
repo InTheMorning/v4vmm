@@ -954,12 +954,12 @@ mod tests {
         ReleaseKey::FeedGuid(guid.to_owned())
     }
 
-    fn library_facts(feed_id: i64, fully_downloaded: bool) -> Option<LibraryReleaseFacts> {
-        Some(LibraryReleaseFacts {
+    fn library_facts(feed_id: i64, fully_downloaded: bool) -> LibraryReleaseFacts {
+        LibraryReleaseFacts {
             feed_id,
             fully_downloaded,
             download_active: false,
-        })
+        }
     }
 
     fn feed_row(guid: &str, title: &str) -> PublisherPageAlbumVm {
@@ -1268,9 +1268,7 @@ mod tests {
             ],
         }];
         let rows = DetailPageRows::Releases(feed_page_release_rows(&sections, |key| {
-            (key == &release_key("library"))
-                .then_some(library_facts(9, true))
-                .flatten()
+            (key == &release_key("library")).then_some(library_facts(9, true))
         }));
         let visible = rows.selection_rows();
         let mut selection = DetailSelection::new();
@@ -1367,9 +1365,9 @@ mod tests {
         ];
         let rows = DetailPageRows::Releases(discover_release_rows(&rows, |key| {
             if key == &release_key("downloaded") {
-                library_facts(9, true)
+                Some(library_facts(9, true))
             } else if key == &release_key("partial") {
-                library_facts(10, false)
+                Some(library_facts(10, false))
             } else {
                 None
             }

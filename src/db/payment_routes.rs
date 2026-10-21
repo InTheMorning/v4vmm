@@ -351,7 +351,7 @@ mod tests {
 
         crate::db::migrate_schema_to(&conn, 17).unwrap();
 
-        assert!(CURRENT_VERSION >= 17);
+        const { assert!(CURRENT_VERSION >= 17) };
         // Migration 18 (ADR 0082) follows, so version 17 is not current.
         assert_eq!(
             inspect_schema(&conn).unwrap(),

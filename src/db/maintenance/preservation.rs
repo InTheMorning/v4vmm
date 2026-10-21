@@ -700,7 +700,7 @@ pub(super) mod tests {
                 ))
             })
             .unwrap_err();
-        assert_eq!(failure.remaining, [destination.clone()]);
+        assert_eq!(failure.remaining, std::slice::from_ref(&destination));
         assert!(destination.join("database.sqlite").exists());
         assert!(!destination.join("manifest.json").exists());
         Peer::probe(&source, "blocked");

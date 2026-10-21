@@ -780,6 +780,10 @@ mod tests {
                 .set_read_timeout(Some(std::time::Duration::from_secs(5)))
                 .unwrap();
             let mut request = [0; 2048];
+            #[expect(
+                clippy::unused_io_amount,
+                reason = "the mock server drains one read into an oversized buffer, so read_exact would block"
+            )]
             stream.read(&mut request).unwrap();
             let body = r#"<rss version="2.0"><channel><title>Known RSS</title><link>https://feed.test</link><description>Fixture</description><item><guid>known-track</guid><title>Local needle</title><enclosure url="https://feed.test/audio.mp3" type="audio/mpeg" length="123"/></item></channel></rss>"#;
             write!(

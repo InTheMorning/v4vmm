@@ -1818,7 +1818,7 @@ mod tests {
         WorkspaceScreenMount,
     };
 
-    /// C4-01: the Music visible layout has SourceList, ContentList and
+    /// C4-01: the Music visible layout has `SourceList`, `ContentList` and
     /// Detail, in that order.
     #[test]
     fn adr_0084_columns_c4_01_music_visible_layout_has_three_columns_in_order() {

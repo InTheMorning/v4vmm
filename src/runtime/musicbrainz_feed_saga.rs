@@ -450,9 +450,9 @@ mod tests {
 
     #[derive(Default)]
     struct FakeExecutor {
-        album_results: Mutex<VecDeque<Result<Vec<MusicBrainzCandidate>, String>>>,
-        stage_track_results: Mutex<VecDeque<Result<StagedMusicBrainzLookup, String>>>,
-        stage_candidate_results: Mutex<VecDeque<Result<StagedMusicBrainzLookup, String>>>,
+        album: Mutex<VecDeque<Result<Vec<MusicBrainzCandidate>, String>>>,
+        stage_track: Mutex<VecDeque<Result<StagedMusicBrainzLookup, String>>>,
+        stage_candidate: Mutex<VecDeque<Result<StagedMusicBrainzLookup, String>>>,
     }
 
     impl FakeExecutor {
@@ -460,21 +460,21 @@ mod tests {
             results: impl IntoIterator<Item = Result<Vec<MusicBrainzCandidate>, String>>,
         ) -> Self {
             Self {
-                album_results: Mutex::new(results.into_iter().collect()),
-                stage_track_results: Mutex::new(VecDeque::new()),
-                stage_candidate_results: Mutex::new(VecDeque::new()),
+                album: Mutex::new(results.into_iter().collect()),
+                stage_track: Mutex::new(VecDeque::new()),
+                stage_candidate: Mutex::new(VecDeque::new()),
             }
         }
 
         fn push_stage_track(&self, result: Result<StagedMusicBrainzLookup, String>) {
-            self.stage_track_results
+            self.stage_track
                 .lock()
                 .expect("lock stage track")
                 .push_back(result);
         }
 
         fn push_stage_candidate(&self, result: Result<StagedMusicBrainzLookup, String>) {
-            self.stage_candidate_results
+            self.stage_candidate
                 .lock()
                 .expect("lock stage candidate")
                 .push_back(result);
@@ -486,7 +486,7 @@ mod tests {
             &self,
             _metadata: LookupMetadata,
         ) -> Result<Vec<MusicBrainzCandidate>, String> {
-            self.album_results
+            self.album
                 .lock()
                 .expect("lock album results")
                 .pop_front()
@@ -494,7 +494,7 @@ mod tests {
         }
 
         fn stage_track(&self, _track: TrackRow) -> Result<StagedMusicBrainzLookup, String> {
-            self.stage_track_results
+            self.stage_track
                 .lock()
                 .expect("lock stage track results")
                 .pop_front()
@@ -506,7 +506,7 @@ mod tests {
             _track: TrackRow,
             _candidate: MusicBrainzCandidate,
         ) -> Result<StagedMusicBrainzLookup, String> {
-            self.stage_candidate_results
+            self.stage_candidate
                 .lock()
                 .expect("lock stage candidate results")
                 .pop_front()

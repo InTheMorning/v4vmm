@@ -1187,28 +1187,29 @@ pub(crate) mod test_support {
     }
 
     pub(crate) fn document(doc: &Doc) -> Vec<u8> {
-        let items = doc
-            .items
-            .iter()
-            .map(|item| {
-                format!(
-                    r#"<item><title>{title}</title><guid isPermaLink="false">{guid}</guid><link>{link}</link><description>{description}</description><pubDate>{date}</pubDate><enclosure url="{url}" type="audio/mpeg" length="100"/><itunes:duration>{duration}</itunes:duration><itunes:explicit>{explicit}</itunes:explicit><itunes:author>{author}</itunes:author><itunes:image href="{image}"/><podcast:person role="guitar">{person}</podcast:person><podcast:txt purpose="npub">{npub}</podcast:txt><podcast:value type="lightning" method="keysend"><podcast:valueRecipient name="Band" type="node" address="abc" split="{split}"/></podcast:value></item>"#,
-                    title = item.title,
-                    guid = item.guid,
-                    link = item.link,
-                    description = item.description,
-                    date = item.date,
-                    url = item.url,
-                    duration = item.duration,
-                    explicit = item.explicit,
-                    author = item.author,
-                    image = item.image,
-                    person = item.person,
-                    npub = item.npub,
-                    split = item.split,
-                )
-            })
-            .collect::<String>();
+        use std::fmt::Write as _;
+
+        let items = doc.items.iter().fold(String::new(), |mut acc, item| {
+            write!(
+                acc,
+                r#"<item><title>{title}</title><guid isPermaLink="false">{guid}</guid><link>{link}</link><description>{description}</description><pubDate>{date}</pubDate><enclosure url="{url}" type="audio/mpeg" length="100"/><itunes:duration>{duration}</itunes:duration><itunes:explicit>{explicit}</itunes:explicit><itunes:author>{author}</itunes:author><itunes:image href="{image}"/><podcast:person role="guitar">{person}</podcast:person><podcast:txt purpose="npub">{npub}</podcast:txt><podcast:value type="lightning" method="keysend"><podcast:valueRecipient name="Band" type="node" address="abc" split="{split}"/></podcast:value></item>"#,
+                title = item.title,
+                guid = item.guid,
+                link = item.link,
+                description = item.description,
+                date = item.date,
+                url = item.url,
+                duration = item.duration,
+                explicit = item.explicit,
+                author = item.author,
+                image = item.image,
+                person = item.person,
+                npub = item.npub,
+                split = item.split,
+            )
+            .unwrap();
+            acc
+        });
         format!(
             r#"<?xml version="1.0" encoding="UTF-8"?><rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:podcast="https://podcastindex.org/namespace/1.0"><channel><title>{title}</title><link>{link}</link><description>{description}</description>{language}<itunes:author>{author}</itunes:author><itunes:explicit>{explicit}</itunes:explicit><itunes:owner><itunes:name>{owner}</itunes:name><itunes:email>owner@label.test</itunes:email></itunes:owner><itunes:image href="{image}"/><podcast:guid>feed-guid-1</podcast:guid><podcast:medium>music</podcast:medium><podcast:person role="vocals" href="https://band.test/person">{person}</podcast:person><podcast:txt purpose="npub">{npub}</podcast:txt><podcast:value type="lightning" method="keysend"><podcast:valueRecipient name="Band" type="node" address="abc" split="{split}"/></podcast:value><podcast:publisher><podcast:remoteItem medium="publisher" feedGuid="{publisher_guid}" feedUrl="{publisher_url}"/></podcast:publisher>{items}</channel></rss>"#,
             title = doc.title,
@@ -1970,6 +1971,10 @@ mod tests {
     /// the canonical route of each raw block that they write.
     #[test]
     fn adr_0076_route_readiness_subscribe_and_check_refresh_stored_route() {
+        const FEED: &str = "SELECT payment_routes_json FROM feeds";
+        const ITEM_ONE: &str = "SELECT payment_routes_json FROM tracks WHERE item_guid = 'item-1'";
+        const ITEM_THREE: &str =
+            "SELECT payment_routes_json FROM tracks WHERE item_guid = 'item-3'";
         let splits = |conn: &Connection, sql: &str| -> Vec<Option<f64>> {
             let json: String = conn.query_row(sql, [], |row| row.get(0)).unwrap();
             serde_json::from_str::<Vec<crate::api::PaymentRoute>>(&json)
@@ -1978,10 +1983,6 @@ mod tests {
                 .map(|route| route.split)
                 .collect()
         };
-        const FEED: &str = "SELECT payment_routes_json FROM feeds";
-        const ITEM_ONE: &str = "SELECT payment_routes_json FROM tracks WHERE item_guid = 'item-1'";
-        const ITEM_THREE: &str =
-            "SELECT payment_routes_json FROM tracks WHERE item_guid = 'item-3'";
 
         let (mut conn, feed_id) = subscribed(&document(&first()));
         assert_eq!(splits(&conn, FEED), vec![Some(100.0)]);

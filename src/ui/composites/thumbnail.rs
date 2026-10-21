@@ -161,7 +161,7 @@ mod tests {
     use super::*;
 
     /// R83-55: each thumbnail size has the base dimension of its image
-    /// primitive size, so the 200 px header cover draws the XXl shadow.
+    /// primitive size, so the 200 px header cover draws the `XXl` shadow.
     #[test]
     fn adr_0083_thumbnail_sizes_match_their_image_sizes() {
         assert_eq!(ThumbnailSize::XXl.image_size(), ImageSize::XXl);

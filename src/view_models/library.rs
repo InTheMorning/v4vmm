@@ -5451,7 +5451,7 @@ impl<'a> PlaylistDetailVm<'a> {
 /// `PlaylistDetailPageVm` wrapper: the playlist screen checks slot
 /// emptiness instead. Compiled only for tests.
 #[cfg(test)]
-impl<'a> PlaylistDetailVm<'a> {
+impl PlaylistDetailVm<'_> {
     #[must_use]
     pub(crate) fn is_empty(&self) -> bool {
         self.visible_tracks().is_empty()
@@ -8616,14 +8616,89 @@ mod tests {
         assert!(!status.is_error);
     }
 
-    #[test]
-    fn adr_0075_observation_failures_survive_navigation_and_preserve_operation_state() {
-        use crate::application::errors::command::CommandError;
+    /// Builds a sample write failure for one generation. The test
+    /// `adr_0075_observation_failures_survive_navigation_and_preserve_operation_state`
+    /// uses it to keep its own body short.
+    fn sample_observation_write_failure(
+        generation: i64,
+    ) -> crate::provider_observation::ObservationWriteFailure {
         use crate::provider_observation::{
             ObservationOutcome, ObservationStorageError, ObservationWriteFailure, ProviderKind,
             ProviderObservation, ProviderRequestSpec, RequestToken,
         };
         use serde_json::json;
+        use std::sync::Arc;
+
+        ObservationWriteFailure {
+            token: RequestToken {
+                key: "private request".into(),
+                write_state: Arc::new(std::sync::Mutex::new(
+                    crate::provider_observation::RequestWriteState::Ready,
+                )),
+                generation,
+                provider_id: 1,
+                resource_id: 1,
+                subject_id: None,
+                spec: Arc::new(ProviderRequestSpec {
+                    provider: ProviderKind::MusicIndex,
+                    provider_identity: "private endpoint".into(),
+                    request_uri: "private URI".into(),
+                    requested_subject: None,
+                    requested_parameters: json!({}),
+                    profile: json!({}),
+                    started_at_us: 10,
+                }),
+            },
+            observation: Arc::new(ProviderObservation {
+                body: Some(Arc::from(b"private response".as_slice())),
+                http_status: Some(200),
+                response_uri: Some("private URI".into()),
+                interpretation: json!({}),
+                source_revision: None,
+                source_times: json!({}),
+                decoder_version: "test".into(),
+                outcome: ObservationOutcome::Success,
+                failure: None,
+                finished_at_us: 20,
+                fetched_at_us: Some(19),
+                occurrence: json!({}),
+                coverage: Vec::new(),
+            }),
+            operation: ObservationStorageError::ResponseWrite,
+            retry: crate::provider_observation::StorageRetry::VerifiedRollback,
+        }
+    }
+
+    /// Builds a sample observation receipt for one generation. The test
+    /// `adr_0075_observation_failures_survive_navigation_and_preserve_operation_state`
+    /// uses it to keep its own body short.
+    fn sample_observation_receipt(
+        generation: i64,
+    ) -> crate::provider_observation::ObservationReceipt {
+        use serde_json::json;
+
+        crate::provider_observation::ObservationReceipt {
+            observation_id: generation,
+            generation: 100 + generation,
+            provider_id: 1,
+            resource_id: 1,
+            request_uri: "private URI".into(),
+            response_uri: None,
+            body_key: None,
+            started_at_us: 10,
+            finished_at_us: 20,
+            fetched_at_us: Some(19),
+            occurrence: json!({}),
+            outcome: crate::provider_observation::ObservationOutcome::Success,
+            retention: crate::provider_observation::ObservationRetention::Unknown,
+            collections: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn adr_0075_observation_failures_survive_navigation_and_preserve_operation_state() {
+        use crate::application::errors::command::CommandError;
+        use crate::provider_observation::ObservationStorageError;
         use std::sync::Arc;
         let mut vm = LibraryViewModel::new();
         vm.selected_id = Some(42);
@@ -8638,65 +8713,13 @@ mod tests {
         assert!(!vm.confirm_library_removal(plan, RemovalConfirmation::WhenReferenced));
         let before = vm.pending_library_removal_confirmation();
         for generation in [1, 2] {
-            let failure = ObservationWriteFailure {
-                token: RequestToken {
-                    key: "private request".into(),
-                    write_state: Arc::new(std::sync::Mutex::new(
-                        crate::provider_observation::RequestWriteState::Ready,
-                    )),
-                    generation,
-                    provider_id: 1,
-                    resource_id: 1,
-                    subject_id: None,
-                    spec: Arc::new(ProviderRequestSpec {
-                        provider: ProviderKind::MusicIndex,
-                        provider_identity: "private endpoint".into(),
-                        request_uri: "private URI".into(),
-                        requested_subject: None,
-                        requested_parameters: json!({}),
-                        profile: json!({}),
-                        started_at_us: 10,
-                    }),
-                },
-                observation: Arc::new(ProviderObservation {
-                    body: Some(Arc::from(b"private response".as_slice())),
-                    http_status: Some(200),
-                    response_uri: Some("private URI".into()),
-                    interpretation: json!({}),
-                    source_revision: None,
-                    source_times: json!({}),
-                    decoder_version: "test".into(),
-                    outcome: ObservationOutcome::Success,
-                    failure: None,
-                    finished_at_us: 20,
-                    fetched_at_us: Some(19),
-                    occurrence: json!({}),
-                    coverage: Vec::new(),
-                }),
-                operation: ObservationStorageError::ResponseWrite,
-                retry: crate::provider_observation::StorageRetry::VerifiedRollback,
-            };
+            let failure = sample_observation_write_failure(generation);
             vm.retain_observation_failure(&CommandError::ObservationWriteFailure(Arc::new(
                 crate::provider_observation::ObservationCommandFailure {
                     read_error: None,
                     write_failure: Some(Arc::new(failure)),
                     storage_error: None,
-                    receipts: Arc::from([crate::provider_observation::ObservationReceipt {
-                        observation_id: generation,
-                        generation: 100 + generation,
-                        provider_id: 1,
-                        resource_id: 1,
-                        request_uri: "private URI".into(),
-                        response_uri: None,
-                        body_key: None,
-                        started_at_us: 10,
-                        finished_at_us: 20,
-                        fetched_at_us: Some(19),
-                        occurrence: json!({}),
-                        outcome: ObservationOutcome::Success,
-                        retention: crate::provider_observation::ObservationRetention::Unknown,
-                        collections: Vec::new(),
-                    }]),
+                    receipts: Arc::from([sample_observation_receipt(generation)]),
                 },
             )));
             assert_eq!(

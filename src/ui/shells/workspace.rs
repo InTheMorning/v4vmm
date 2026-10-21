@@ -862,7 +862,7 @@ mod tests {
     }
 
     /// C4-04: in the Music three-column layout, the breadcrumb attaches to
-    /// the Detail frame, not to the ContentList frame, for the same
+    /// the Detail frame, not to the `ContentList` frame, for the same
     /// navigation state.
     #[test]
     fn adr_0084_columns_c4_04_music_breadcrumb_attaches_to_detail_only() {

@@ -293,6 +293,10 @@ mod tests {
 
     const FIXED_TIME: i64 = 1_778_284_900;
 
+    #[expect(
+        clippy::unnecessary_wraps,
+        reason = "fixed_time must match the production Clock type, fn() -> Result<i64>"
+    )]
     fn fixed_time() -> Result<i64> {
         Ok(FIXED_TIME)
     }

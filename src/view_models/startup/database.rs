@@ -1073,7 +1073,7 @@ mod tests {
             .unwrap()
             .blocking_recv()
             .unwrap();
-        let recorded = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_800_000_000);
+        let recorded = std::time::UNIX_EPOCH + std::time::Duration::from_hours(500_000);
         result.recorded_at = recorded;
         vm.complete(generation, result);
         assert!(vm.report.contains(&time(recorded)));

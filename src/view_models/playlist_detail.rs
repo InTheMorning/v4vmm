@@ -97,7 +97,7 @@ impl<'a> PlaylistDetailPageVm<'a> {
 /// `is_empty` has no caller outside its own dedicated test: the playlist
 /// screen checks slot emptiness instead. Compiled only for tests.
 #[cfg(test)]
-impl<'a> PlaylistDetailPageVm<'a> {
+impl PlaylistDetailPageVm<'_> {
     #[must_use]
     pub(crate) fn is_empty(&self) -> bool {
         self.detail.is_empty()

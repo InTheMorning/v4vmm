@@ -5228,6 +5228,17 @@ mod tests {
         Ok(())
     }
 
+    /// The five nullable text columns that
+    /// `migration_cleanup_placeholder_source_text_nulls_only_placeholder_payloads`
+    /// reads back for one track row.
+    type PlaceholderTrackRow = (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    );
+
     #[test]
     fn migration_cleanup_placeholder_source_text_nulls_only_placeholder_payloads() -> Result<()> {
         let conn = Connection::open_in_memory()?;
@@ -5316,13 +5327,7 @@ mod tests {
             .context("read placeholder feed")?;
         assert_eq!(placeholder_feed, (None, None, None));
 
-        let placeholder_track: (
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-        ) = conn
+        let placeholder_track: PlaceholderTrackRow = conn
             .query_row(
                 "SELECT track_title, artist_name, album_title, album_artist_name, track_image_href
                  FROM tracks WHERE id = ?1",
@@ -5606,7 +5611,7 @@ mod tests {
                 &mut conn,
                 LocalMetadataOwner::Feed(feed_id),
                 "",
-                &[fact.clone()]
+                std::slice::from_ref(&fact)
             )
             .is_err(),
             "metadata facts require a non-empty source"

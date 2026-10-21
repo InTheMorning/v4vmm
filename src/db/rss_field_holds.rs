@@ -993,7 +993,7 @@ mod tests {
 
         // ADR 0076 packet 003: migration 17 follows, so version 16 is an
         // upgrade-required version after this migration.
-        assert!(CURRENT_VERSION >= 16);
+        const { assert!(CURRENT_VERSION >= 16) };
         for table in SUPERSEDED_SELECTION_TABLES {
             assert!(!table_exists(&conn, table), "{table} is dropped");
         }

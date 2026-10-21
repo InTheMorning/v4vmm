@@ -1561,7 +1561,7 @@ mod tests {
 
     /// R50-05 (ADR 0075 packet 050): the album view model shows no "Release
     /// Date" fact from `release_date`. It shows "First track published"
-    /// instead, named with MusicIndex as its source, only when
+    /// instead, named with `MusicIndex` as its source, only when
     /// `release_date` carries a value.
     #[test]
     fn adr_0075_feed_dates_r50_05_release_date_becomes_first_track_published() {

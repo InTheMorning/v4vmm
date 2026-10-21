@@ -328,8 +328,16 @@ mod tests {
     use super::*;
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "this test narrates one sequential drain, correction and resume path, and splitting it would scatter shared session and path state"
+    )]
     fn adr_0066_drained_core_reopens_fresh_only_after_successful_checks() {
+        use crate::application::commands::maintenance::{
+            CorrectionAccess, CorrectionCommand, CorrectionOperation, CorrectionResult,
+        };
         use crate::application::session_lifecycle::{SessionDrain, SessionPhase};
+        use crate::config::correction::{CorrectionDraft, CorrectionField, CorrectionSource};
         use crate::presentation::session_transition::SessionTransition;
         use crate::startup::{CheckIntent, CoreResult, StartupBackend};
         fn drain(
@@ -384,10 +392,6 @@ mod tests {
         assert_eq!(old.phase(), SessionPhase::Maintenance);
         assert!(!old.accepts(old.generation()));
         // Task 006: correct both paths only after the old owners have closed.
-        use crate::application::commands::maintenance::{
-            CorrectionAccess, CorrectionCommand, CorrectionOperation, CorrectionResult,
-        };
-        use crate::config::correction::{CorrectionDraft, CorrectionField, CorrectionSource};
         let replacement_db = temp.path().join("selected-existing.sqlite");
         drop(crate::db::open_db(&replacement_db).unwrap());
         let command = CorrectionCommand {

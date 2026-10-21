@@ -171,6 +171,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "this test loops over five restore scenarios that share one session, connection and config, so splitting would scatter that state"
+    )]
     fn adr_0066_restore_command_requires_review_drain_and_unchanged_configuration() {
         use crate::application::session_lifecycle::{SessionDrain, SessionLifecycle};
         use crate::db::maintenance::restore::InstallState;

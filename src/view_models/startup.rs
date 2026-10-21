@@ -557,11 +557,11 @@ mod tests {
             assert_eq!(mounted.matches(&original).count(), 1);
             assert_eq!(
                 mounted.matches("App started ending this session").count(),
-                generation as usize
+                usize::try_from(generation).unwrap()
             );
             assert_eq!(
                 mounted.matches("App opened fresh session").count(),
-                generation as usize
+                usize::try_from(generation).unwrap()
             );
             for prior in 1..=generation {
                 assert_eq!(

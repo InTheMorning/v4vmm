@@ -195,6 +195,10 @@ mod tests {
             for _ in 0..count {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = [0; 4096];
+                #[expect(
+                    clippy::unused_io_amount,
+                    reason = "the mock server drains one read into an oversized buffer, so read_exact would block"
+                )]
                 stream.read(&mut request).unwrap();
                 stream.write_all(&response).unwrap();
             }
@@ -264,6 +268,10 @@ mod tests {
         let worker = std::thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = [0; 4096];
+            #[expect(
+                clippy::unused_io_amount,
+                reason = "the mock server drains one read into an oversized buffer, so read_exact would block"
+            )]
             stream.read(&mut request).unwrap();
             stream
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\n")

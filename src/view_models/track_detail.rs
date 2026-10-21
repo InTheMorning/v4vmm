@@ -1145,7 +1145,7 @@ mod tests {
             .all(|row| row.label != "Feed publication date"));
     }
 
-    /// R50-06: a feed publication date read from a MusicIndex
+    /// R50-06: a feed publication date read from a `MusicIndex`
     /// `release_date` claim with the path `feed.pub_date` also supplies the
     /// track's fallback row.
     #[test]
@@ -1605,7 +1605,7 @@ mod tests {
     }
 
     /// R83-42: a track that is not in the Library gets "Download album".
-    /// It gets "Copy feed URL" when it names its album feed: MusicIndex
+    /// It gets "Copy feed URL" when it names its album feed: `MusicIndex`
     /// gives the feed URL of that feed.
     #[test]
     fn adr_0083_r83_42_index_track_actions() {

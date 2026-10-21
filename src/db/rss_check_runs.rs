@@ -414,7 +414,7 @@ mod tests {
 
         crate::db::migrate_schema_to(&conn, 15).unwrap();
 
-        assert!(CURRENT_VERSION >= 15);
+        const { assert!(CURRENT_VERSION >= 15) };
         assert_eq!(
             table_names(&conn),
             ["rss_check_feed_results", "rss_check_runs"]

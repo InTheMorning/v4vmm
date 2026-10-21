@@ -393,12 +393,12 @@ mod tests {
         assert_eq!(page.read_with(cx, |page, _| page.selections), 1);
         assert!(cx.debug_bounds("maintenance-page-options").is_none());
         let trigger = cx.debug_bounds("test-view-menu").unwrap();
-        cx.simulate_click(trigger.center(), Default::default());
+        cx.simulate_click(trigger.center(), gpui::Modifiers::default());
         cx.run_until_parked();
         let menu = cx.debug_bounds("maintenance-page-options").unwrap();
         cx.simulate_click(
             gpui::point(menu.center().x, menu.top() + gpui::px(22.)),
-            Default::default(),
+            gpui::Modifiers::default(),
         );
         cx.run_until_parked();
         assert_eq!(
@@ -496,7 +496,7 @@ mod tests {
             cx.simulate_event(ScrollWheelEvent {
                 position: main.center(),
                 delta: ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(-3000.))),
-                modifiers: Default::default(),
+                modifiers: gpui::Modifiers::default(),
                 touch_phase: TouchPhase::Moved,
             });
             cx.update(|window, cx| {
@@ -508,7 +508,7 @@ mod tests {
             assert!(offset.y < gpui::px(0.));
             assert_eq!(cx.debug_bounds("maintenance-actions").unwrap(), actions);
             let toggle = cx.debug_bounds("maintenance-view-toggle").unwrap();
-            cx.simulate_click(toggle.center(), Default::default());
+            cx.simulate_click(toggle.center(), gpui::Modifiers::default());
             cx.update(|window, cx| {
                 let _ = window.draw(cx);
             });
@@ -520,7 +520,7 @@ mod tests {
             cx.simulate_event(ScrollWheelEvent {
                 position: main.center(),
                 delta: ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(500.))),
-                modifiers: Default::default(),
+                modifiers: gpui::Modifiers::default(),
                 touch_phase: TouchPhase::Moved,
             });
             cx.update(|window, cx| {
@@ -529,7 +529,7 @@ mod tests {
             assert_eq!(page.read_with(cx, |page, _| page.scroll.offset()), offset);
             assert_eq!(cx.debug_bounds("maintenance-actions").unwrap(), actions);
             let toggle = cx.debug_bounds("maintenance-view-toggle").unwrap();
-            cx.simulate_click(toggle.center(), Default::default());
+            cx.simulate_click(toggle.center(), gpui::Modifiers::default());
             cx.update(|window, cx| {
                 let _ = window.draw(cx);
             });

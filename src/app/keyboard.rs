@@ -615,6 +615,10 @@ mod tests {
 
     /// Situational ADR 0071: app shortcuts must yield Enter to focused buttons.
     #[gpui::test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "this test defines a local view and simulates key events against one shared window, so splitting it would scatter that shared state"
+    )]
     fn adr_0071_button_enter_precedes_active_pane_shortcut(cx: &mut gpui::TestAppContext) {
         use gpui::{div, prelude::*, Entity, FocusHandle, KeyDownEvent, KeyUpEvent, Render};
         use gpui_component::input::{Escape, Textarea, TextareaState};

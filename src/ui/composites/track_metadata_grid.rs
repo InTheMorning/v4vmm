@@ -355,6 +355,20 @@ impl RenderOnce for TrackMetadataTextValue {
     }
 }
 
+fn metadata_heading_cell(
+    heading: &TrackMetadataGridHeading,
+    appearance: Option<Appearance>,
+    cx: &mut App,
+) -> AnyElement {
+    div()
+        .pl(px(heading.indent))
+        .text_color(resolve_color(cx, SemanticColor::SecondaryLabel, appearance))
+        .font_weight(FontWeight::BOLD)
+        .text_size(FontSize::Micro.scaled(cx))
+        .child(SharedString::from(heading.label.clone()))
+        .into_any_element()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -421,18 +435,4 @@ mod tests {
 
         assert_eq!(cell.value, SharedString::from("Album title"));
     }
-}
-
-fn metadata_heading_cell(
-    heading: &TrackMetadataGridHeading,
-    appearance: Option<Appearance>,
-    cx: &mut App,
-) -> AnyElement {
-    div()
-        .pl(px(heading.indent))
-        .text_color(resolve_color(cx, SemanticColor::SecondaryLabel, appearance))
-        .font_weight(FontWeight::BOLD)
-        .text_size(FontSize::Micro.scaled(cx))
-        .child(SharedString::from(heading.label.clone()))
-        .into_any_element()
 }

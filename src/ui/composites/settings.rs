@@ -418,7 +418,7 @@ mod tests {
                                         gpui::px(0.),
                                         gpui::px(-3000.),
                                     )),
-                                    modifiers: Default::default(),
+                                    modifiers: gpui::Modifiers::default(),
                                     touch_phase: TouchPhase::Moved,
                                 });
                                 cx.update(|window, cx| {

@@ -8009,7 +8009,8 @@ fn release_surface_slots_are_typed() {
 fn release_feed_identity_actions_use_shared_renderer() {
     let mut violations = Vec::new();
 
-    for file in ["src/library.rs"] {
+    {
+        let file = "src/library.rs";
         let source = read_source(&manifest_path(file));
         if source.contains("IdentityActionKind::Rss") {
             violations.push(format!(
@@ -8234,7 +8235,8 @@ fn entity_detail_pages_render_through_shell_helper_and_page_vm() {
         }
     }
 
-    for file in ["src/library.rs"] {
+    {
+        let file = "src/library.rs";
         let source = read_source(&manifest_path(file));
         if source.contains("TrackDetailSurface::new(") {
             violations.push(format!(
@@ -12046,7 +12048,8 @@ fn adr_0076_route_readiness_ignores_test_only_files() {
             "{test_only_file}: its parent declares it under `#[cfg(test)]` and must count as test-only"
         );
     }
-    for production_file in ["src/metadata.rs"] {
+    {
+        let production_file = "src/metadata.rs";
         assert!(
             !is_test_only_source_file(&manifest_path(production_file)),
             "{production_file} is production code and must not count as test-only"
@@ -18205,7 +18208,8 @@ fn adr_0075_migration_registry_preservation_and_receipts_have_live_callers() {
 fn adr_0075_observation_writer_and_library_retention_have_one_owner() {
     let writer = read_source(&manifest_path("src/db/provider_observations.rs"));
     let writer = production_source(&writer);
-    for forbidden in ["DELETE FROM"] {
+    {
+        let forbidden = "DELETE FROM";
         assert!(
             !writer.contains(forbidden),
             "ADR 0075 observation writer exceeded its packet: {forbidden}"

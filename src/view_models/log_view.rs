@@ -191,7 +191,7 @@ mod tests {
         assert!(!vm.following());
         assert_eq!(vm.action().availability, FollowAvailability::Available);
         vm.replace("first\nsecond\nthird\nfourth");
-        assert_eq!(vm.reading_top(10.0), 15.0);
+        assert!((vm.reading_top(10.0) - 15.0).abs() < f32::EPSILON);
         assert!(!vm.following());
         vm.scroll(100.0, 100.0, 10.0);
         assert!(vm.following());
@@ -210,11 +210,11 @@ mod tests {
         vm.replace("old\nrépété\nrépété\n🦀\ntail");
         vm.scroll(25.0, 100.0, 10.0);
         vm.replace("répété\nrépété\n🦀\ntail\nnew");
-        assert_eq!(vm.reading_top(10.0), 15.0);
-        assert_eq!(vm.reading_top(20.0), 30.0);
+        assert!((vm.reading_top(10.0) - 15.0).abs() < f32::EPSILON);
+        assert!((vm.reading_top(20.0) - 30.0).abs() < f32::EPSILON);
         vm.replace("different\nreplacement");
         assert!(!vm.following());
-        assert_eq!(vm.reading_top(10.0), 0.0);
+        assert!((vm.reading_top(10.0) - 0.0).abs() < f32::EPSILON);
         assert!(vm.status().contains("no longer available"));
         assert!(!vm.replace("different\nreplacement"));
         vm.latest();

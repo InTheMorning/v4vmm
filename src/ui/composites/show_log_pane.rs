@@ -335,7 +335,7 @@ mod tests {
             cx.simulate_event(ScrollWheelEvent {
                 position: viewport.center(),
                 delta: ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(-1000.))),
-                modifiers: Default::default(),
+                modifiers: gpui::Modifiers::default(),
                 touch_phase: TouchPhase::Moved,
             });
             cx.update(|window, cx| {

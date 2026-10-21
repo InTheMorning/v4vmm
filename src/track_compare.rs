@@ -630,6 +630,10 @@ mod tests {
                 stream
                     .set_read_timeout(Some(std::time::Duration::from_secs(5)))
                     .unwrap();
+                #[expect(
+                    clippy::unused_io_amount,
+                    reason = "the mock server drains one read into an oversized buffer, so read_exact would block"
+                )]
                 stream.read(&mut [0; 2048]).unwrap();
                 write!(
                     stream,

@@ -2036,10 +2036,11 @@ mod tests {
             completion.contains("if *outcome != DownloadOutcome::Succeeded {"),
             "only a successful download starts the tag scan"
         );
-        for (function, error_handler) in [(
-            "fn subscribe_then_append_to_playlist(",
-            "|this, error, _cx|",
-        )] {
+        {
+            let (function, error_handler) = (
+                "fn subscribe_then_append_to_playlist(",
+                "|this, error, _cx|",
+            );
             let body = production
                 .split(function)
                 .nth(1)

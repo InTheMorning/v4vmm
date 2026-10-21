@@ -260,7 +260,7 @@ mod tests {
         assert_eq!(line_box_height(px(15.0)), px(24.0));
     }
 
-    /// ADR 0039 task 003 rechecks ShowCard capacity at all five steps.
+    /// ADR 0039 task 003 rechecks `ShowCard` capacity at all five steps.
     /// The reserved header and summary must fit within `Size::MenuCompact`.
     /// Ratification reduced the reserved height at `XSmall` and `Small`.
     /// It retained the `Medium`, `Large` and `XLarge` figures.

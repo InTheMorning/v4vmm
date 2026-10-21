@@ -652,7 +652,7 @@ mod tests {
                 + usize::from(pointer_activation_click(&release_click));
             assert_eq!(activations, 1, "{key} must not toggle twice");
             assert!(pointer_activation_click(&ClickEvent::Mouse(
-                Default::default()
+                gpui::MouseClickEvent::default()
             )));
         }
     }

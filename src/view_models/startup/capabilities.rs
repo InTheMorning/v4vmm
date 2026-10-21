@@ -780,7 +780,7 @@ mod tests {
     /// Situational ADR 0074: the full page must not reuse the failure-only notice.
     #[test]
     fn adr_0074_background_tools_remain_visible_without_failures() {
-        let mut vm = CapabilityReportVm::new(Default::default(), true);
+        let mut vm = CapabilityReportVm::new(std::collections::BTreeMap::default(), true);
         let before = vm.report();
         let rows = vm.rows(true);
         let labels: Vec<_> = rows.iter().map(|row| row.label.as_str()).collect();
@@ -902,7 +902,7 @@ mod tests {
     #[test]
     fn adr_0066_conversion_controls_preserve_subject_and_explain_explicit_redownload() {
         use crate::application::conversion_recovery::{ConversionReport, ConversionState};
-        let mut vm = CapabilityReportVm::new(Default::default(), true);
+        let mut vm = CapabilityReportVm::new(std::collections::BTreeMap::default(), true);
         let mut report = ConversionReport {
             id: 7,
             track_id: 41,
@@ -1008,7 +1008,7 @@ mod tests {
 
     #[test]
     fn adr_0066_search_controls_explain_edit_check_and_execution() {
-        let mut vm = CapabilityReportVm::new(Default::default(), true);
+        let mut vm = CapabilityReportVm::new(std::collections::BTreeMap::default(), true);
         let id = vm.pending.retain(
             RecoveryAction::IndexSearch {
                 query: "original query".into(),
@@ -1078,7 +1078,7 @@ mod tests {
 
     #[test]
     fn adr_0066_service_controls_distinguish_observation_from_mutation() {
-        let mut vm = CapabilityReportVm::new(Default::default(), true);
+        let mut vm = CapabilityReportVm::new(std::collections::BTreeMap::default(), true);
         let id = vm.pending.retain(
             RecoveryAction::Publisher {
                 role: crate::runtime::BroadcastServiceRole::Publisher,
@@ -1121,7 +1121,7 @@ mod tests {
 
     #[test]
     fn adr_0066_repair_routes_keep_subjects_actions_and_failed_checks_separate() {
-        let mut vm = CapabilityReportVm::new(Default::default(), true);
+        let mut vm = CapabilityReportVm::new(std::collections::BTreeMap::default(), true);
         let first = vm.pending.retain(
             RecoveryAction::IndexSearch {
                 query: "original search".into(),

@@ -1209,6 +1209,15 @@ const fn hex_alpha(rgb: u32, alpha: f32) -> Rgba {
     }
 }
 
+/// ADR 0063: all log bodies use the same compact, scaled monospace role.
+pub const LOG_TEXT_SIZE: FontSize = FontSize::Caption;
+pub const LOG_LINE_HEIGHT: f32 = 1.5;
+
+#[must_use]
+pub fn log_font_family(cx: &App) -> gpui::SharedString {
+    cx.theme().mono_font_family.clone()
+}
+
 // -----------------------------------------------------------------------------
 // Tests.
 // -----------------------------------------------------------------------------
@@ -1913,13 +1922,4 @@ mod tests {
             }
         }
     }
-}
-
-/// ADR 0063: all log bodies use the same compact, scaled monospace role.
-pub const LOG_TEXT_SIZE: FontSize = FontSize::Caption;
-pub const LOG_LINE_HEIGHT: f32 = 1.5;
-
-#[must_use]
-pub fn log_font_family(cx: &App) -> gpui::SharedString {
-    cx.theme().mono_font_family.clone()
 }

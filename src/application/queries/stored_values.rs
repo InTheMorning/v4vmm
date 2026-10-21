@@ -724,8 +724,8 @@ mod tests {
         .unwrap();
     }
 
-    fn hold(conn: &Connection, owner: HoldOwner, field: RssField, value: Option<Value>) {
-        holds::write_hold(conn, owner, field, value.as_ref(), None, CHECKED_AT).unwrap();
+    fn hold(conn: &Connection, owner: HoldOwner, field: RssField, value: Option<&Value>) {
+        holds::write_hold(conn, owner, field, value, None, CHECKED_AT).unwrap();
     }
 
     fn track_owner() -> HoldOwner {
@@ -761,7 +761,7 @@ mod tests {
             &conn,
             HoldOwner::Feed(FEED_ID),
             RssField::Description,
-            Some(json!("<p>Held notes</p>")),
+            Some(&json!("<p>Held notes</p>")),
         );
 
         let values = feed_values(&conn, FEED_ID).unwrap();
@@ -898,13 +898,13 @@ mod tests {
             &conn,
             track_owner(),
             RssField::Title,
-            Some(json!("Held song")),
+            Some(&json!("Held song")),
         );
         hold(
             &conn,
             HoldOwner::Feed(FEED_ID),
             RssField::Title,
-            Some(json!("Held album")),
+            Some(&json!("Held album")),
         );
 
         let context = crate::feed_service::track_row_to_track_context_with_local_identity(
@@ -1039,7 +1039,7 @@ mod tests {
                     .collect(),
             )
         });
-        hold(conn, owner, RssField::Persons, value);
+        hold(conn, owner, RssField::Persons, value.as_ref());
     }
 
     /// Both credit lists of the fixture feed and track, with the `rss` rows

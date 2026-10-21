@@ -89,19 +89,22 @@ mod tests {
 
     #[test]
     fn clamped_content_pane_width_uses_default_bounds() {
-        assert_eq!(
-            TopApp::clamped_content_pane_width(f32::from(layout::CONTENT_PANE_MIN_WIDTH) - 10.0),
-            f32::from(layout::CONTENT_PANE_MIN_WIDTH),
+        assert!(
+            (TopApp::clamped_content_pane_width(f32::from(layout::CONTENT_PANE_MIN_WIDTH) - 10.0)
+                - f32::from(layout::CONTENT_PANE_MIN_WIDTH))
+            .abs()
+                < f32::EPSILON,
             "pane width should clamp to the minimum bound"
         );
-        assert_eq!(
-            TopApp::clamped_content_pane_width(f32::from(layout::CONTENT_PANE_MAX_WIDTH) + 10.0),
-            f32::from(layout::CONTENT_PANE_MAX_WIDTH),
+        assert!(
+            (TopApp::clamped_content_pane_width(f32::from(layout::CONTENT_PANE_MAX_WIDTH) + 10.0)
+                - f32::from(layout::CONTENT_PANE_MAX_WIDTH))
+            .abs()
+                < f32::EPSILON,
             "pane width should clamp to the maximum bound"
         );
-        assert_eq!(
-            TopApp::clamped_content_pane_width(900.0),
-            900.0,
+        assert!(
+            (TopApp::clamped_content_pane_width(900.0) - 900.0).abs() < f32::EPSILON,
             "in-range pane width should be preserved"
         );
     }

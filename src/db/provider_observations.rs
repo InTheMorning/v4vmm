@@ -1228,6 +1228,10 @@ mod tests {
             for status in [302, 200] {
                 let (mut stream, _) = listener.accept().unwrap();
                 let mut request = [0; 4096];
+                #[expect(
+                    clippy::unused_io_amount,
+                    reason = "the mock server drains one read into an oversized buffer, so read_exact would block"
+                )]
                 stream.read(&mut request).unwrap();
                 let body = if status == 200 {
                     r#"{"data":{"feed_guid":"f","track_guid":"t"}}"#

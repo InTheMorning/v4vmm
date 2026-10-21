@@ -1355,7 +1355,7 @@ fn adr_0084_nav_push_of_path_page_cuts_path_and_back_restores() {
 }
 
 /// ADR 0084 Decision 9, operator check of 2026-10-18: a second row of the
-/// Artists list replaced no page. The path read "Artists > HeyCitizen >
+/// Artists list replaced no page. The path read "Artists > `HeyCitizen` >
 /// Haleen". A list row now opens directly under the destination, and Back
 /// returns to the first row's page.
 #[test]
@@ -1824,7 +1824,7 @@ fn adr_0084_columns_c4_03_detail_frame_shows_history_controls_always() {
     assert!(display.back.disabled, "no back history exists yet");
 }
 
-/// C4-03: the ContentList frame chrome in Music shows neither Back nor
+/// C4-03: the `ContentList` frame chrome in Music shows neither Back nor
 /// Forward, even when the projected navigation has history.
 #[test]
 fn adr_0084_columns_c4_03_content_list_frame_hides_history_controls() {
@@ -1839,7 +1839,7 @@ fn adr_0084_columns_c4_03_content_list_frame_hides_history_controls() {
 }
 
 /// C4-04: the breadcrumb attaches to the Detail frame's display, not to a
-/// ContentList display built from the same navigation state.
+/// `ContentList` display built from the same navigation state.
 #[test]
 fn adr_0084_columns_c4_04_breadcrumb_attaches_to_detail_not_content_list() {
     let mut nav = FrameNavigationState::new(discover());

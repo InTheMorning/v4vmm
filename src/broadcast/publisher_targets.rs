@@ -671,7 +671,7 @@ mod tests {
     }
 
     #[test]
-    fn target_exists_and_not_found_exit_codes_are_not_commands_unavailable() -> Result<()> {
+    fn target_exists_and_not_found_exit_codes_are_not_commands_unavailable() {
         let runner = StubRunner::new(vec![CommandOutput::failure(
             Some(TARGET_EXISTS_EXIT_CODE),
             "",
@@ -713,7 +713,6 @@ mod tests {
                 name: "default".to_owned(),
             }
         );
-        Ok(())
     }
 
     #[test]
@@ -733,7 +732,7 @@ mod tests {
 
     #[test]
     fn list_rejects_bare_array_contract_drift() {
-        let runner = StubRunner::new(vec![CommandOutput::success(r#"[]"#)]);
+        let runner = StubRunner::new(vec![CommandOutput::success(r"[]")]);
         let control = PublisherTargetControl::new(&runner);
 
         let error = control

@@ -355,6 +355,160 @@ fn seed_tracks(conn: &rusqlite::Connection, root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Record actual mounted generations and hold admitted work only in a verified debug fixture.
+pub(crate) fn observe_session(
+    runner: &crate::application::AsyncCommandRunner,
+    config_path: PathBuf,
+    connection: std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
+) {
+    if std::env::var_os("V4VMM_STARTUP_FIXTURE").is_none() {
+        return;
+    }
+    drop(runner.dispatch(
+        FixtureSessionCommand {
+            config_path,
+            generation: runner.session().generation(),
+            _connection: connection,
+        },
+        crate::application::CommandContext::next(),
+    ));
+}
+
+struct FixtureSessionCommand {
+    config_path: PathBuf,
+    generation: u64,
+    _connection: std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
+}
+
+impl crate::application::ApplicationCommand for FixtureSessionCommand {
+    type Output = ();
+
+    fn execute(
+        self,
+        _: &crate::application::CommandContext,
+    ) -> crate::application::CommandResult<()> {
+        self.run().map_err(|error| {
+            crate::application::CommandError::Other(format!(
+                "Fixture session observation failed: {error:#}"
+            ))
+        })?;
+        Ok(crate::application::CommandOutcome::without_events(()))
+    }
+}
+
+impl FixtureSessionCommand {
+    fn run(&self) -> Result<()> {
+        let Some(root) = std::env::var_os("V4VMM_STARTUP_FIXTURE") else {
+            return Ok(());
+        };
+        let root = verified_config_root(Path::new(&root), &self.config_path)?;
+        let hold = root.join("session.hold");
+        ensure!(
+            !hold.is_symlink(),
+            "Fixture hold marker cannot be a symlink"
+        );
+        let holding = hold.try_exists()?;
+        append_session_observation(
+            &root,
+            self.generation,
+            if holding { "command-held" } else { "opened" },
+        )?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+        while hold.try_exists()? {
+            ensure!(
+                std::time::Instant::now() < deadline,
+                "Fixture hold exceeded ten minutes; command finished without a database write"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        if holding {
+            append_session_observation(&root, self.generation, "command-released")?;
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn record_session_release(config_path: &Path, generation: u64) {
+    let result = (|| -> Result<()> {
+        let Some(root) = std::env::var_os("V4VMM_STARTUP_FIXTURE") else {
+            return Ok(());
+        };
+        let root = verified_config_root(Path::new(&root), config_path)?;
+        append_session_observation(&root, generation, "maintenance")
+    })();
+    if let Err(error) = result {
+        eprintln!("Fixture could not record session resource release: {error:#}");
+    }
+}
+
+fn append_session_observation(root: &Path, generation: u64, state: &str) -> Result<()> {
+    use std::io::Write;
+    let path = root.join("session-observations.jsonl");
+    ensure!(
+        !path.is_symlink(),
+        "Fixture session report cannot be a symlink"
+    );
+    let mut output = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    writeln!(
+        output,
+        "{}",
+        json!({"generation": generation, "state": state})
+    )?;
+    Ok(())
+}
+
+/// ADR 0066 task 013 fixtures use the migration executor's failure seam.
+fn seed_upgrade_checks(root: &Path) -> Result<()> {
+    use crate::db::{upgrades::interrupt_fixture, MigrationBoundary};
+    let directory = root.join("upgrade");
+    fs::create_dir(&directory).context("reserve fresh upgrade fixture")?;
+    let source = root.join("data/library.sqlite");
+    // Retain the closed initial fixture. Build the interruption through target 10.
+    ensure!(
+        !source.with_extension("sqlite-wal").exists(),
+        "Close fixture database users before upgrade setup"
+    );
+    fs::rename(&source, directory.join("initial-current.sqlite"))?;
+    let conn = rusqlite::Connection::open(&source)?;
+    crate::db::upgrades::create_fixture(&conn, 10)?;
+    conn.execute("INSERT INTO playlists(name, description) VALUES ('Startup fixture playlist',hex(zeroblob(524288)))", [])?;
+    seed_tracks(&conn, root)?;
+    crate::db::insert_broadcast_event(
+        &conn,
+        &crate::db::BroadcastEventInput {
+            event_id: "upgrade-fixture-event".into(),
+            label: Some("Upgrade fixture saved event".into()),
+            created_at: chrono::Utc::now().timestamp(),
+            last_checked_at: None,
+            last_status: None,
+            endpoint: "http://127.0.0.1:9".into(),
+            token_path: root.join("broadcaster-token.fixture").display().to_string(),
+        },
+    )?;
+    drop(conn);
+    let budget = crate::db::maintenance::Budget::new(std::sync::Arc::new(
+        std::sync::atomic::AtomicBool::new(false),
+    ));
+    let older = directory.join("older-backup.sqlite");
+    crate::db::maintenance::backup(&source, &older, &budget)
+        .map_err(|e| anyhow::anyhow!("{}: {:?}", e.operation, e.kind))?;
+
+    let conn = rusqlite::Connection::open(&source)?;
+    interrupt_fixture(&conn, MigrationBoundary::AfterApply)?;
+    for _ in 0..7 {
+        crate::db::select_broadcast_event(&conn, "upgrade-fixture-event")?;
+    }
+    drop(conn);
+    println!(
+        "{}",
+        json!({"interrupted_database": source, "older_backup": older})
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -530,158 +684,4 @@ mod tests {
         fs::write(root.join("fixture.json"), b"{}").unwrap();
         assert!(fixture_failure(&root, &config, Dependency::BackgroundRuntime).is_err());
     }
-}
-
-/// Record actual mounted generations and hold admitted work only in a verified debug fixture.
-pub(crate) fn observe_session(
-    runner: &crate::application::AsyncCommandRunner,
-    config_path: PathBuf,
-    connection: std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
-) {
-    if std::env::var_os("V4VMM_STARTUP_FIXTURE").is_none() {
-        return;
-    }
-    drop(runner.dispatch(
-        FixtureSessionCommand {
-            config_path,
-            generation: runner.session().generation(),
-            _connection: connection,
-        },
-        crate::application::CommandContext::next(),
-    ));
-}
-
-struct FixtureSessionCommand {
-    config_path: PathBuf,
-    generation: u64,
-    _connection: std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
-}
-
-impl crate::application::ApplicationCommand for FixtureSessionCommand {
-    type Output = ();
-
-    fn execute(
-        self,
-        _: &crate::application::CommandContext,
-    ) -> crate::application::CommandResult<()> {
-        self.run().map_err(|error| {
-            crate::application::CommandError::Other(format!(
-                "Fixture session observation failed: {error:#}"
-            ))
-        })?;
-        Ok(crate::application::CommandOutcome::without_events(()))
-    }
-}
-
-impl FixtureSessionCommand {
-    fn run(&self) -> Result<()> {
-        let Some(root) = std::env::var_os("V4VMM_STARTUP_FIXTURE") else {
-            return Ok(());
-        };
-        let root = verified_config_root(Path::new(&root), &self.config_path)?;
-        let hold = root.join("session.hold");
-        ensure!(
-            !hold.is_symlink(),
-            "Fixture hold marker cannot be a symlink"
-        );
-        let holding = hold.try_exists()?;
-        append_session_observation(
-            &root,
-            self.generation,
-            if holding { "command-held" } else { "opened" },
-        )?;
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
-        while hold.try_exists()? {
-            ensure!(
-                std::time::Instant::now() < deadline,
-                "Fixture hold exceeded ten minutes; command finished without a database write"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-        if holding {
-            append_session_observation(&root, self.generation, "command-released")?;
-        }
-        Ok(())
-    }
-}
-
-pub(crate) fn record_session_release(config_path: &Path, generation: u64) {
-    let result = (|| -> Result<()> {
-        let Some(root) = std::env::var_os("V4VMM_STARTUP_FIXTURE") else {
-            return Ok(());
-        };
-        let root = verified_config_root(Path::new(&root), config_path)?;
-        append_session_observation(&root, generation, "maintenance")
-    })();
-    if let Err(error) = result {
-        eprintln!("Fixture could not record session resource release: {error:#}");
-    }
-}
-
-fn append_session_observation(root: &Path, generation: u64, state: &str) -> Result<()> {
-    use std::io::Write;
-    let path = root.join("session-observations.jsonl");
-    ensure!(
-        !path.is_symlink(),
-        "Fixture session report cannot be a symlink"
-    );
-    let mut output = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
-    writeln!(
-        output,
-        "{}",
-        json!({"generation": generation, "state": state})
-    )?;
-    Ok(())
-}
-
-/// ADR 0066 task 013 fixtures use the migration executor's failure seam.
-fn seed_upgrade_checks(root: &Path) -> Result<()> {
-    use crate::db::{upgrades::interrupt_fixture, MigrationBoundary};
-    let directory = root.join("upgrade");
-    fs::create_dir(&directory).context("reserve fresh upgrade fixture")?;
-    let source = root.join("data/library.sqlite");
-    // Retain the closed initial fixture. Build the interruption through target 10.
-    ensure!(
-        !source.with_extension("sqlite-wal").exists(),
-        "Close fixture database users before upgrade setup"
-    );
-    fs::rename(&source, directory.join("initial-current.sqlite"))?;
-    let conn = rusqlite::Connection::open(&source)?;
-    crate::db::upgrades::create_fixture(&conn, 10)?;
-    conn.execute("INSERT INTO playlists(name, description) VALUES ('Startup fixture playlist',hex(zeroblob(524288)))", [])?;
-    seed_tracks(&conn, root)?;
-    crate::db::insert_broadcast_event(
-        &conn,
-        &crate::db::BroadcastEventInput {
-            event_id: "upgrade-fixture-event".into(),
-            label: Some("Upgrade fixture saved event".into()),
-            created_at: chrono::Utc::now().timestamp(),
-            last_checked_at: None,
-            last_status: None,
-            endpoint: "http://127.0.0.1:9".into(),
-            token_path: root.join("broadcaster-token.fixture").display().to_string(),
-        },
-    )?;
-    drop(conn);
-    let budget = crate::db::maintenance::Budget::new(std::sync::Arc::new(
-        std::sync::atomic::AtomicBool::new(false),
-    ));
-    let older = directory.join("older-backup.sqlite");
-    crate::db::maintenance::backup(&source, &older, &budget)
-        .map_err(|e| anyhow::anyhow!("{}: {:?}", e.operation, e.kind))?;
-
-    let conn = rusqlite::Connection::open(&source)?;
-    interrupt_fixture(&conn, MigrationBoundary::AfterApply)?;
-    for _ in 0..7 {
-        crate::db::select_broadcast_event(&conn, "upgrade-fixture-event")?;
-    }
-    drop(conn);
-    println!(
-        "{}",
-        json!({"interrupted_database": source, "older_backup": older})
-    );
-    Ok(())
 }

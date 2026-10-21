@@ -4641,6 +4641,23 @@ fn retain_track_source_context(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Rendering helpers
+// ---------------------------------------------------------------------------
+
+pub(crate) fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
+    playlist_option_displays(playlists)
+        .into_iter()
+        .map(|option| {
+            PlaylistOption::new(PlaylistOptionDisplay {
+                id: option.id,
+                name: SharedString::from(option.name),
+                a11y_label: SharedString::from(option.a11y_label),
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4810,7 +4827,7 @@ mod tests {
         let mut remote_context = TrackContext {
             rss_observation: None,
             observation_receipts: Vec::new(),
-            provider_state: Default::default(),
+            provider_state: crate::provider_observation::ProviderTrackState::default(),
             track: crate::api::Track {
                 title: Some("Remote Track".into()),
                 publisher_text: Some("Remote Publisher".into()),
@@ -4821,7 +4838,7 @@ mod tests {
         let local_context = TrackContext {
             rss_observation: None,
             observation_receipts: Vec::new(),
-            provider_state: Default::default(),
+            provider_state: crate::provider_observation::ProviderTrackState::default(),
             track: crate::api::Track {
                 publisher_text: Some("Local Publisher".into()),
                 description: Some("Local track description".into()),
@@ -4891,7 +4908,7 @@ mod tests {
             serde_json::to_value((&mounted.track, &mounted.feed)).unwrap(),
             legacy
         );
-        context.provider_state = Default::default();
+        context.provider_state = crate::provider_observation::ProviderTrackState::default();
         retain_track_source_context(&mut frame, 99, context);
         assert_eq!(frame.source_context.unwrap().provider_state, expected);
     }
@@ -5001,8 +5018,9 @@ mod tests {
             1,
             AlbumIdentityHydration {
                 identity_facts: LocalIdentityFacts::default(),
-                metadata_facts: Default::default(),
-                stored_values: Default::default(),
+                metadata_facts: crate::views::FeedMetadataFacts::default(),
+                stored_values:
+                    crate::application::queries::stored_values::FeedStoredValues::default(),
                 description: Some("Hydrated description".into()),
                 observation_receipts: vec![library_observation_receipt(3)],
             },
@@ -5065,8 +5083,9 @@ mod tests {
             1,
             AlbumIdentityHydration {
                 identity_facts: LocalIdentityFacts::default(),
-                metadata_facts: Default::default(),
-                stored_values: Default::default(),
+                metadata_facts: crate::views::FeedMetadataFacts::default(),
+                stored_values:
+                    crate::application::queries::stored_values::FeedStoredValues::default(),
                 description: None,
                 observation_receipts: vec![library_observation_receipt(5)],
             },
@@ -5154,8 +5173,9 @@ mod tests {
             1,
             AlbumIdentityHydration {
                 identity_facts: LocalIdentityFacts::default(),
-                metadata_facts: Default::default(),
-                stored_values: Default::default(),
+                metadata_facts: crate::views::FeedMetadataFacts::default(),
+                stored_values:
+                    crate::application::queries::stored_values::FeedStoredValues::default(),
                 description: Some("Current description".into()),
                 observation_receipts: vec![library_observation_receipt(6)],
             },
@@ -5284,21 +5304,4 @@ mod tests {
         );
         assert_eq!(track.enclosure_type.as_deref(), Some("audio/mpeg"));
     }
-}
-
-// ---------------------------------------------------------------------------
-// Rendering helpers
-// ---------------------------------------------------------------------------
-
-pub(crate) fn playlist_options(playlists: &[db::Playlist]) -> Vec<PlaylistOption> {
-    playlist_option_displays(playlists)
-        .into_iter()
-        .map(|option| {
-            PlaylistOption::new(PlaylistOptionDisplay {
-                id: option.id,
-                name: SharedString::from(option.name),
-                a11y_label: SharedString::from(option.a11y_label),
-            })
-        })
-        .collect()
 }

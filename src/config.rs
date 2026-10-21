@@ -2761,7 +2761,7 @@ content_list_view_mode = "list"
         let path = temp.path().join("config.toml");
         fs::write(&path, SNAPSHOT_CORE).unwrap();
         let permissions = fs::metadata(&path).unwrap().permissions();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0)).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o0)).unwrap();
         // Privileged test runners can bypass permissions; the injected reader
         // test above still covers PermissionDenied on those hosts.
         let denied = fs::read(&path).is_err();
