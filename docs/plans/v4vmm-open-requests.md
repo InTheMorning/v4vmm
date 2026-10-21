@@ -28,6 +28,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 7 | The named feed rank and the release kind facts in each publisher relationship entry | API field addition | Deployed in release 0.11.0 on 2026-10-18, without `remote_release_kind` |
 | 8 | Each list row and each search row is complete | API rule and field additions | Deployed in release 0.12.0 on 2026-10-18 |
 | 9 | A named feed entry states its confirmation | API field, filter and include additions | Accepted on 2026-10-21 as Stophammer ADR 0076. Not built |
+| 10 | Search accepts each query text | Search correction | Draft - 2026-10-21. The v4vmm operator reviews it first |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -248,7 +249,19 @@ The field names are a proposal. Stophammer selects the names in its own ADR.
 - Packet 010 uses item 3 when it exists. Until then, it gives each Index publisher row the badge "Feed", unless the Library Artists list holds that feed.
 - v4vmm sends no read for each row in place of these items.
 
-## Open Question
+### 10. Search Accepts Each Query Text
+
+**What happens.** On 2026-10-21, `GET /v1/search?q=haleen%27` gave `400` with the body `{"error":"invalid search query: SQLite error: fts5: syntax error near \"'\""}`. The query is the word `haleen` and an apostrophe. The server gives the text of the query to FTS5 as a query expression. Thus an apostrophe, a double quote or an FTS5 operator in a name causes a syntax error.
+
+**What it costs.** Names of music often have an apostrophe, for example "Rock 'n' Roll" or "Don't Stop". A curator who types such a name gets no Index results. The error tells a FTS5 fact, and a client cannot tell a user how to correct the query.
+
+**Request.**
+
+1. Treat the text of `q` as words, not as an FTS5 expression. One method is to put each word in double quotes, with each double quote in the word doubled. Then each query text gives `200`, possibly with no rows.
+2. If Stophammer keeps a query syntax, give a `400` with a stable error code, for example `invalid_query`, and state the syntax in the contract.
+
+**What v4vmm does with it.** v4vmm stops the report of a query error as a failure of the MusicIndex setup. That fix is in v4vmm and needs no Stophammer change. Until item 1 exists, a query with an apostrophe gives the Library rows and a note that MusicIndex did not accept the query.
+
 
 **The retention of a publisher resolution.** When an album feed changes or disappears, what happens to its stored back-link resolution and its `publisher_link_observed_at`?
 The v4vmm publisher relationship request asked this for the Stophammer ADR. ADR 0049 does not state it.
