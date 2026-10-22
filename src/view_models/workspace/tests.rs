@@ -1608,7 +1608,7 @@ fn adr_0084_track_resolver_follows_the_lookup_result() {
     assert_eq!(
         resolve_track_page_source(&feed_guid_key, None),
         TrackPageSource::Index {
-            target: "guid:item-guid".to_string()
+            target: feed_guid_key.index_target()
         },
         "no found track resolves to the Index source"
     );
@@ -1617,14 +1617,14 @@ fn adr_0084_track_resolver_follows_the_lookup_result() {
     assert_eq!(
         resolve_track_page_source(&no_release_key, None),
         TrackPageSource::Index {
-            target: "item-guid".to_string()
+            target: no_release_key.index_target()
         },
         "a key with no release gives the Index source"
     );
     assert_eq!(
         resolve_track_page_source(&no_release_key, Some(9)),
         TrackPageSource::Index {
-            target: "item-guid".to_string()
+            target: no_release_key.index_target()
         },
         "a key with no release gives the Index source even when a lookup result is given"
     );
@@ -1964,4 +1964,109 @@ fn adr_0084_saved_search_r12_05_breadcrumb_and_frame_title() {
     assert_eq!(display.segments[1].id, "saved-search-7");
     assert_eq!(nav.active_saved_search(), Some(SavedSearchId(7)));
     assert_eq!(SavedSearch::FRAME_TITLE, "Saved search");
+}
+
+/// R30-09 (ADR 0084 task 030, decision D5): one pure function gives the
+/// toolbar text of a restored entry. A search entry gives its query. Each
+/// other entry gives `None`.
+#[test]
+fn adr_0084_music_open_defects_r30_09_restored_toolbar_text() {
+    use super::nav::restored_toolbar_search_text;
+    let search = FrameNavigationEntry::Search("haleen".to_owned());
+    assert_eq!(restored_toolbar_search_text(&search), Some("haleen"));
+    for entry in [
+        discover(),
+        track(1),
+        FrameNavigationEntry::PlaylistDetail(1),
+        FrameNavigationEntry::Destination(MusicDestination::Tracks),
+    ] {
+        assert_eq!(restored_toolbar_search_text(&entry), None, "{entry:?}");
+    }
+}
+
+/// R30-10 (ADR 0084 task 030, decision D5). Back, Forward and a
+/// breadcrumb segment restore an entry through one function. That function
+/// records the query of a search entry. A render takes the text one time.
+/// The guard `adr_0084_music_open_defects_r30_10_each_restore_records_the_toolbar_text`
+/// proves that each restore path records it.
+#[test]
+fn adr_0084_music_open_defects_r30_10_pending_toolbar_text_is_taken_once() {
+    use super::PendingToolbarSearchText;
+    let mut nav = FrameNavigationState::new(FrameNavigationEntry::Search("haleen".to_owned()));
+    nav.replace_active_search_or_push(FrameNavigationEntry::Search("survival guide".to_owned()));
+    nav.push(track(1));
+    let mut pending = PendingToolbarSearchText::default();
+
+    // Back to the search page records its query.
+    nav.go_back().unwrap();
+    pending.record(nav.current());
+    assert_eq!(pending.take().as_deref(), Some("survival guide"));
+    assert_eq!(pending.take(), None, "a render takes the text one time");
+
+    // Forward to the track page records nothing.
+    nav.go_forward().unwrap();
+    pending.record(nav.current());
+    assert_eq!(pending.take(), None);
+
+    // A breadcrumb segment of a search page restores it.
+    let mut crumbs = FrameNavigationState::new(FrameNavigationEntry::Search("haleen".to_owned()));
+    crumbs.push(track(2));
+    crumbs.push(FrameNavigationEntry::Search("haleen".to_owned()));
+    pending.record(crumbs.current());
+    assert_eq!(pending.take().as_deref(), Some("haleen"));
+}
+
+/// Review of 2026-10-21, P5 point 4: `replace_current` keeps the page's
+/// place in the history, but it is a different page, so the entry it
+/// replaces must get a fresh memory. A later Back or Forward to it must
+/// not show the new page at the old page's scroll offset.
+#[test]
+fn adr_0084_music_open_defects_review_replace_current_resets_detail_scroll_memory() {
+    let mut nav = FrameNavigationState::new(FrameNavigationEntry::Search("haleen".to_owned()));
+    nav.push(track(1));
+
+    // Back to the search page, then the operator scrolls it: 400 is
+    // stored for that history entry.
+    nav.go_back().unwrap();
+    let old_location = nav.detail_scroll_target().location;
+    nav.record_detail_scroll(old_location, 400);
+    assert_eq!(nav.detail_scroll_target().offset, 400);
+
+    // The operator edits the query in place.
+    nav.replace_active_search_or_push(FrameNavigationEntry::Search("survival guide".to_owned()));
+    assert_eq!(
+        nav.current(),
+        &FrameNavigationEntry::Search("survival guide".to_owned())
+    );
+
+    // A move away and a move back to the replaced page must show it at
+    // the top, never at the old query's offset.
+    nav.push(track(2));
+    nav.go_back().unwrap();
+    let new_target = nav.detail_scroll_target();
+    assert_ne!(
+        new_target.location, old_location,
+        "a replaced page must keep no memory of the page it replaced"
+    );
+    assert_eq!(
+        new_target.offset, 0,
+        "a replaced page must not inherit the old page's scroll offset"
+    );
+}
+
+/// R30-15 (ADR 0084 task 030, decision D10): the keys `(None,
+/// "urn:uuid:x")` and `(Some("urn"), "uuid:x")` give two different
+/// targets. A label stored for one is not found for the other.
+#[test]
+fn adr_0084_music_open_defects_r30_15_typed_targets_do_not_collide() {
+    use std::collections::BTreeMap;
+    let bare = TrackKey::from_index_track_target(None, "urn:uuid:x").index_target();
+    let split = TrackKey::from_index_track_target(Some("urn"), "uuid:x").index_target();
+    assert_ne!(bare, split);
+    // The text for a person is the same, so no map may key on it.
+    assert_eq!(bare.to_string(), split.to_string());
+    let mut labels = BTreeMap::new();
+    labels.insert(bare.clone(), "Bare".to_owned());
+    assert_eq!(labels.get(&bare).map(String::as_str), Some("Bare"));
+    assert_eq!(labels.get(&split), None);
 }

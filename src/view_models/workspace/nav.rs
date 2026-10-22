@@ -335,14 +335,67 @@ impl TrackKey {
         }
     }
 
-    /// The Index activation target of this key: `<feed_guid>:<item_guid>`
-    /// when the key has a feed GUID, or the bare item GUID otherwise.
+    /// The Index activation target of this key: the feed GUID, when the
+    /// key has one, and the item GUID (ADR 0084 task 030, decision D10).
     #[must_use]
-    pub(crate) fn index_target(&self) -> String {
-        match &self.release {
-            Some(ReleaseKey::FeedGuid(feed_guid)) => format!("{feed_guid}:{}", self.item_guid),
-            Some(ReleaseKey::LibraryFeed(_)) | None => self.item_guid.clone(),
+    pub(crate) fn index_target(&self) -> IndexTrackTarget {
+        IndexTrackTarget {
+            feed_guid: self.index_feed_guid().map(str::to_owned),
+            item_guid: self.item_guid.clone(),
         }
+    }
+}
+
+/// The Index activation target of a track (ADR 0084 task 030, decision
+/// D10). It keeps the feed GUID and the item GUID apart, so two keys never
+/// give the same target. Maps and checks key on this type, never on a text.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct IndexTrackTarget {
+    feed_guid: Option<String>,
+    item_guid: String,
+}
+
+impl std::fmt::Display for IndexTrackTarget {
+    /// The text of the target for a person, for example the "ID" row of
+    /// the inspector: `<feed_guid>:<item_guid>`, or the item GUID alone.
+    /// Do not use this text as a key.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.feed_guid {
+            Some(feed_guid) => write!(f, "{feed_guid}:{}", self.item_guid),
+            None => f.write_str(&self.item_guid),
+        }
+    }
+}
+
+/// The text of the toolbar search field after a restore of `entry` (ADR
+/// 0084 task 030, decision D5). A search entry gives its query. Each other
+/// entry gives `None`, and the field keeps its text.
+#[must_use]
+pub(crate) fn restored_toolbar_search_text(entry: &FrameNavigationEntry) -> Option<&str> {
+    match entry {
+        FrameNavigationEntry::Search(query) => Some(query.as_str()),
+        _ => None,
+    }
+}
+
+/// The toolbar search text that a restore records for the next render
+/// (ADR 0084 task 030, decision D5). A restore has no `Window`, so the
+/// render writes the text into the field.
+#[derive(Debug, Default)]
+pub(crate) struct PendingToolbarSearchText(Option<String>);
+
+impl PendingToolbarSearchText {
+    /// Records the toolbar text of the restored entry `entry`. An entry
+    /// with no toolbar text changes nothing.
+    pub(crate) fn record(&mut self, entry: &FrameNavigationEntry) {
+        if let Some(text) = restored_toolbar_search_text(entry) {
+            self.0 = Some(text.to_owned());
+        }
+    }
+
+    /// The recorded text. A second call gives `None`.
+    pub(crate) fn take(&mut self) -> Option<String> {
+        self.0.take()
     }
 }
 
@@ -361,7 +414,7 @@ pub(crate) enum TrackPageSource {
     /// The track is known to the Index only.
     Index {
         /// The Index activation target.
-        target: String,
+        target: IndexTrackTarget,
     },
 }
 
@@ -378,7 +431,7 @@ pub(crate) fn resolve_track_page_source(
 ) -> TrackPageSource {
     if key.release.is_none() {
         return TrackPageSource::Index {
-            target: key.item_guid.clone(),
+            target: key.index_target(),
         };
     }
     match library_track_id {
@@ -434,13 +487,81 @@ pub(crate) fn track_release_download_updates_open_page(
 struct FrameLocation {
     ancestors: Vec<FrameNavigationEntry>,
     page: FrameNavigationEntry,
+    /// The memory of this history entry. It is not part of the equality
+    /// of two locations.
+    memory: NotCompared<LocationMemory>,
+}
+
+/// The identity of one history entry of the navigation stack (ADR 0084
+/// Decision 9, amended on 2026-10-21). Two history entries with the same
+/// path have different ids.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct NavigationLocationId(u64);
+
+impl NavigationLocationId {
+    fn next() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Self(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
+}
+
+/// The memory of one history entry: its id and the scroll offset of the
+/// detail column, in whole pixels from the top.
+#[derive(Clone, Copy, Debug)]
+struct LocationMemory {
+    id: NavigationLocationId,
+    detail_scroll: u32,
+}
+
+impl LocationMemory {
+    fn fresh() -> Self {
+        Self {
+            id: NavigationLocationId::next(),
+            detail_scroll: 0,
+        }
+    }
+}
+
+/// A value that the equality of its owner ignores. The history compares
+/// locations by their path, never by their memory.
+#[derive(Clone, Copy, Debug)]
+struct NotCompared<T>(T);
+
+impl<T> PartialEq for NotCompared<T> {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl<T> Eq for NotCompared<T> {}
+
+/// How the current history entry became current (ADR 0084 Decision 9,
+/// amended on 2026-10-21).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NavigationArrival {
+    /// A new open: a row, a link, the sidebar or a search. The page shows
+    /// at the top.
+    Open,
+    /// Back or Forward. The page shows at the stored scroll position.
+    History,
+}
+
+/// The scroll position at which the detail column shows the current
+/// history entry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct DetailScrollTarget {
+    /// The history entry.
+    pub(crate) location: NavigationLocationId,
+    /// The offset from the top, in whole pixels. A new open gives 0.
+    pub(crate) offset: u32,
 }
 
 impl FrameLocation {
-    const fn new(page: FrameNavigationEntry) -> Self {
+    fn new(page: FrameNavigationEntry) -> Self {
         Self {
             ancestors: Vec::new(),
             page,
+            memory: NotCompared(LocationMemory::fresh()),
         }
     }
 
@@ -457,6 +578,7 @@ impl FrameLocation {
             return Self {
                 ancestors,
                 page: entry,
+                memory: NotCompared(LocationMemory::fresh()),
             };
         }
         let mut ancestors = self.ancestors.clone();
@@ -464,6 +586,7 @@ impl FrameLocation {
         Self {
             ancestors,
             page: entry,
+            memory: NotCompared(LocationMemory::fresh()),
         }
     }
 }
@@ -478,16 +601,48 @@ pub(crate) struct FrameNavigationState {
     back_stack: Vec<FrameLocation>,
     current: FrameLocation,
     forward_stack: Vec<FrameLocation>,
+    /// How the current entry became current. It is not part of the
+    /// equality of two histories.
+    arrival: NotCompared<NavigationArrival>,
 }
 
 impl FrameNavigationState {
     /// Creates navigation history at an initial entry.
     #[must_use]
-    pub(crate) const fn new(current: FrameNavigationEntry) -> Self {
+    pub(crate) fn new(current: FrameNavigationEntry) -> Self {
         Self {
             back_stack: Vec::new(),
             current: FrameLocation::new(current),
             forward_stack: Vec::new(),
+            arrival: NotCompared(NavigationArrival::Open),
+        }
+    }
+
+    /// The scroll position at which the detail column shows the current
+    /// entry (ADR 0084 Decision 9, amended on 2026-10-21). Back and Forward
+    /// give the stored offset of the entry. A new open gives the top.
+    #[must_use]
+    pub(crate) fn detail_scroll_target(&self) -> DetailScrollTarget {
+        let memory = self.current.memory.0;
+        DetailScrollTarget {
+            location: memory.id,
+            offset: match self.arrival.0 {
+                NavigationArrival::Open => 0,
+                NavigationArrival::History => memory.detail_scroll,
+            },
+        }
+    }
+
+    /// Stores the detail column offset `offset` for the history entry
+    /// `location`. An entry that is not in the history any more keeps
+    /// nothing.
+    pub(crate) fn record_detail_scroll(&mut self, location: NavigationLocationId, offset: u32) {
+        if let Some(entry) = std::iter::once(&mut self.current)
+            .chain(self.back_stack.iter_mut())
+            .chain(self.forward_stack.iter_mut())
+            .find(|entry| entry.memory.0.id == location)
+        {
+            entry.memory.0.detail_scroll = offset;
         }
     }
 
@@ -503,6 +658,7 @@ impl FrameNavigationState {
             back_stack: Vec::new(),
             current: FrameLocation::new(destination).with_page(page),
             forward_stack: Vec::new(),
+            arrival: NotCompared(NavigationArrival::Open),
         }
     }
 
@@ -578,6 +734,7 @@ impl FrameNavigationState {
         let previous = std::mem::replace(&mut self.current, location);
         self.back_stack.push(previous);
         self.forward_stack.clear();
+        self.arrival.0 = NavigationArrival::Open;
     }
 
     /// Opens a page in the current location and clears forward history.
@@ -632,12 +789,17 @@ impl FrameNavigationState {
         self.back_stack.clear();
         self.current = FrameLocation::new(entry);
         self.forward_stack.clear();
+        self.arrival.0 = NavigationArrival::Open;
     }
 
     /// Replaces only the current page.
     ///
     /// Back history stays intact so transient destinations such as updated
     /// search queries do not erase the path back to the previous content.
+    ///
+    /// Review of 2026-10-21: the replaced location is a different page, so
+    /// it gets a fresh memory. Otherwise a later Back or Forward to this
+    /// entry would show the new page at the old page's scroll offset.
     pub(crate) fn replace_current(&mut self, entry: FrameNavigationEntry) {
         if self.current.page == entry {
             return;
@@ -651,7 +813,9 @@ impl FrameNavigationState {
             self.current.ancestors.truncate(index);
         }
         self.current.page = entry;
+        self.current.memory = NotCompared(LocationMemory::fresh());
         self.forward_stack.clear();
+        self.arrival.0 = NavigationArrival::Open;
     }
 
     /// Replaces the query of the search page, or starts a new search path.
@@ -686,6 +850,7 @@ impl FrameNavigationState {
             .ok_or(WorkspaceModelError::CannotNavigateBack)?;
         let current = std::mem::replace(&mut self.current, previous);
         self.forward_stack.push(current);
+        self.arrival.0 = NavigationArrival::History;
         Ok(&self.current.page)
     }
 
@@ -702,6 +867,7 @@ impl FrameNavigationState {
             .ok_or(WorkspaceModelError::CannotNavigateForward)?;
         let current = std::mem::replace(&mut self.current, next);
         self.back_stack.push(current);
+        self.arrival.0 = NavigationArrival::History;
         Ok(&self.current.page)
     }
 }

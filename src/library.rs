@@ -319,6 +319,9 @@ pub struct LibraryApp {
     /// The held scroll handle of each Music detail page (packet 018), so
     /// a key can scroll the page or keep the focused row in view.
     detail_column_scroll: ScrollHandle,
+    /// The binding of `detail_column_scroll` to the open history entry
+    /// (ADR 0084 Decision 9, amended on 2026-10-21).
+    detail_scroll_binding: detail_selection::DetailScrollBinding,
     /// The request to keep the focused detail row in view (packet 018).
     detail_scroll_reveal: ScrollReveal,
     /// The request to keep the focused Discover row or tile in view

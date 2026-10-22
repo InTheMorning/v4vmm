@@ -143,6 +143,9 @@ pub struct TrackDetailVm<'a> {
     library_state: Option<LibraryTrackActionState>,
     /// The Library feed id of the track's album, for the album name link.
     album_feed_id: Option<i64>,
+    /// A download job of an Index track waits or runs (ADR 0084 task 030,
+    /// decision D9). "Download album" is then not available.
+    index_download_busy: bool,
 }
 
 impl<'a> TrackDetailVm<'a> {
@@ -156,7 +159,16 @@ impl<'a> TrackDetailVm<'a> {
             feed: None,
             library_state: None,
             album_feed_id: None,
+            index_download_busy: false,
         }
+    }
+
+    /// Supplies the queue fact of an Index track (ADR 0084 task 030,
+    /// decision D9). A job of the track or of its release waits or runs.
+    #[must_use]
+    pub(crate) const fn with_index_download_busy(mut self, busy: bool) -> Self {
+        self.index_download_busy = busy;
+        self
     }
 
     #[must_use]
@@ -589,7 +601,10 @@ impl<'a> TrackDetailVm<'a> {
             let copy_feed_url = (has_album || copy_feed_url.is_some())
                 .then(|| TrackPageActionDisplay::new(TrackPageAction::CopyFeedUrl, true));
             return TrackPageActions {
-                filled: TrackPageActionDisplay::new(TrackPageAction::DownloadAlbum, has_album),
+                filled: TrackPageActionDisplay::new(
+                    TrackPageAction::DownloadAlbum,
+                    has_album && !self.index_download_busy,
+                ),
                 plain: Vec::new(),
                 menu: copy_feed_url.into_iter().collect(),
             };

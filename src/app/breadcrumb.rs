@@ -106,6 +106,10 @@ impl TopApp {
             .push_nav(content_list_id, entry.clone())
             .is_ok()
         {
+            // ADR 0084 task 030, decision D5 (review of 2026-10-21): a
+            // breadcrumb segment is a history move, so it shows the query
+            // of a restored search page in the toolbar field.
+            self.pending_toolbar_search.record(&entry);
             self.restore_content_list_nav_entry(content_list_id, &entry, cx);
         }
     }

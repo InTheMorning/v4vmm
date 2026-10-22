@@ -438,14 +438,15 @@ fn render_active_result_list(
             .rows
             .iter()
             .map(|row| {
-                let leading = if row.art.is_some() {
-                    SearchRowLeading::Collection(
-                        slots
+                let leading = if let Some(art) = &row.art {
+                    SearchRowLeading::Collection {
+                        image: slots
                             .arts
                             .get(&row.id)
                             .cloned()
                             .unwrap_or(CollectionArtImage::EntityColor),
-                    )
+                        kind: art.kind,
+                    }
                 } else {
                     let href = row.thumbnail_href.as_deref();
                     SearchRowLeading::Thumbnail(

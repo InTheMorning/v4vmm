@@ -9,7 +9,7 @@
 #![warn(clippy::pedantic)]
 
 use crate::view_models::artists_everything::FeedLinkClass;
-use crate::view_models::collection_art::CollectionArtVm;
+use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
 use crate::view_models::detail_selection::{DetailRowKey, DetailSelection, LibraryReleaseFacts};
 use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::release_kind::ReleaseKind;
@@ -136,9 +136,10 @@ pub(crate) struct SearchResultRowVm {
     pub(crate) secondary_text: String,
     /// The thumbnail href, when the row has one.
     pub(crate) thumbnail_href: Option<String>,
-    /// The logo frame art of a Library name row (packet 028 D3). A row
-    /// with art shows the logo frame in place of the thumbnail.
-    pub(crate) art: Option<CollectionArtVm>,
+    /// The logo frame art of a Library name row (packet 028 D3), with its
+    /// frame kind (ADR 0084 task 030, decision D11). A row with art shows
+    /// the logo frame in place of the thumbnail.
+    pub(crate) art: Option<SearchRowArtVm>,
     /// The accessibility label of the row.
     pub(crate) a11y_label: String,
     /// The state word of a Library item. An Index item shows no word (the
@@ -151,6 +152,17 @@ pub(crate) struct SearchResultRowVm {
     pub(crate) selection: RowSelectionVm,
     /// The selection key of the row. `None` for a row with no checkbox.
     pub(crate) key: Option<DetailRowKey>,
+}
+
+/// The logo frame of a search row: the art and the kind of its frame (ADR
+/// 0084 Decision 12, task 030 decision D11). The view model selects the
+/// kind, so the renderer names no kind.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SearchRowArtVm {
+    /// The kind of the frame. It selects the frame color.
+    pub(crate) kind: CollectionKind,
+    /// The art in the frame.
+    pub(crate) art: CollectionArtVm,
 }
 
 /// The visible row of a release result.
@@ -246,7 +258,12 @@ pub(super) fn artist_row_vm(
         label: row.label.clone(),
         secondary_text: row.secondary_text.clone(),
         thumbnail_href: row.thumbnail_href.clone(),
-        art: row.art.clone(),
+        // A row with art is a Library name row of the Artists tab. Its
+        // frame has the artist kind, as on its Artists list row.
+        art: row.art.clone().map(|art| SearchRowArtVm {
+            kind: CollectionKind::Artist,
+            art,
+        }),
         a11y_label,
         state_word: None,
         badge,

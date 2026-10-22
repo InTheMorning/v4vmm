@@ -35,8 +35,9 @@ pub(crate) use columns::{
 pub(crate) use frame::{WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState};
 pub(crate) use nav::{
     release_download_updates_open_page, resolve_release_page_source, resolve_track_page_source,
-    track_download_updates_open_page, track_release_download_updates_open_page, DiscoverView,
-    FrameNavigationEntry, FrameNavigationState, MusicDestination, NavigationPathStart, ReleaseKey,
+    track_download_updates_open_page, track_release_download_updates_open_page, DetailScrollTarget,
+    DiscoverView, FrameNavigationEntry, FrameNavigationState, IndexTrackTarget, MusicDestination,
+    NavigationLocationId, NavigationPathStart, PendingToolbarSearchText, ReleaseKey,
     ReleasePageSource, TrackKey, TrackPageSource,
 };
 

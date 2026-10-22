@@ -294,6 +294,38 @@ mod tests {
         Ok(())
     }
 
+    /// R30-08 (ADR 0084 task 030, decision D4): the count of the removal
+    /// message equals the number of playlist names that the dialog lists.
+    #[test]
+    fn adr_0084_music_open_defects_r30_08_count_equals_listed_names() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_feed(&conn, "https://example.test/feed.xml")?;
+        let twice = create_track(&conn, feed_id, "twice", "https://example.test/1.mp3")?;
+        let spread = create_track(&conn, feed_id, "spread", "https://example.test/2.mp3")?;
+        let none = create_track(&conn, feed_id, "none", "https://example.test/3.mp3")?;
+        let first = db::playlist_create(&conn, "First")?;
+        let second = db::playlist_create(&conn, "Second")?;
+        db::playlist_append(&conn, first, twice)?;
+        db::playlist_append(&conn, first, twice)?;
+        db::playlist_append(&conn, first, spread)?;
+        db::playlist_append(&conn, second, spread)?;
+
+        for (track_id, expected) in [(twice, 1), (spread, 2), (none, 0)] {
+            let plan = plan_track_removal(&conn, track_id)?;
+            let LibraryRemovalImpact::Track {
+                playlist_reference_count,
+            } = plan.impact()
+            else {
+                panic!("a track removal has a track impact");
+            };
+            let names =
+                removal_referring_playlist_names(&conn, LibraryRemovalTarget::Track(track_id))?;
+            assert_eq!(playlist_reference_count, expected);
+            assert_eq!(usize::try_from(playlist_reference_count)?, names.len());
+        }
+        Ok(())
+    }
+
     fn create_feed(conn: &Connection, feed_url: &str) -> Result<i64> {
         conn.execute(
             "INSERT INTO feeds (feed_url, feed_guid, title)

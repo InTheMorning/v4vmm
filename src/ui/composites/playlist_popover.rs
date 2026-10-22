@@ -415,10 +415,75 @@ pub(crate) fn build_create_mode(
                 .my(Spacing::XS.scaled(cx))
                 .child(Divider::horizontal()),
         )
-        .child(
-            div()
+        .child({
+            let field = div()
                 .px(Spacing::XS.scaled(cx))
-                .child(Input::new(&name_input).with_primary_selection(&name_input)),
-        )
+                .child(Input::new(&name_input).with_primary_selection(&name_input));
+            #[cfg(test)]
+            let field = field.debug_selector(|| "pl-name-field".to_owned());
+            field
+        })
         .child(div().px(Spacing::XS.scaled(cx)).child(create_btn))
+}
+
+// ---------------------------------------------------------------------------
+// ADR 0084 task 030 P1: the popover of the release page header.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use gpui::{div, prelude::*, px, Modifiers, TestAppContext, VisualTestContext};
+
+    use super::{AddToPlaylistDisplay, AddToPlaylistPopover};
+
+    struct PopoverTest;
+
+    impl gpui::Render for PopoverTest {
+        fn render(
+            &mut self,
+            _window: &mut gpui::Window,
+            _cx: &mut gpui::Context<Self>,
+        ) -> impl gpui::IntoElement {
+            let popover = AddToPlaylistPopover::new(AddToPlaylistDisplay {
+                id: "hdr".into(),
+                playlists: Vec::new(),
+                trigger_label: "Add to playlist".into(),
+                trigger_a11y_label: "Add the release to a playlist".into(),
+                new_playlist_a11y_label: "New playlist".into(),
+                back_a11y_label: "Back".into(),
+                create_a11y_label: "Create and add".into(),
+            })
+            .on_create(|_, _, _| {});
+            div().w(px(900.0)).h(px(800.0)).p(px(100.0)).child(popover)
+        }
+    }
+
+    fn click(cx: &mut VisualTestContext, selector: &'static str) {
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        let bounds = cx
+            .debug_bounds(selector)
+            .unwrap_or_else(|| panic!("{selector} must have bounds"));
+        cx.simulate_click(bounds.center(), Modifiers::default());
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+    }
+
+    /// R30-04 (ADR 0083 Decision 6): the popover of the release page
+    /// header shows its create mode after a click on "New Playlist".
+    #[gpui::test]
+    fn adr_0084_music_open_defects_r30_04_header_popover_shows_create_mode(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_component::init);
+        let (_view, cx) = cx.add_window_view(|_, _| PopoverTest);
+        click(cx, "hdr-btn");
+        click(cx, "pl-new");
+        assert!(cx.debug_bounds("pl-name-field").is_some());
+        assert!(cx.debug_bounds("pl-create-confirm").is_some());
+    }
 }

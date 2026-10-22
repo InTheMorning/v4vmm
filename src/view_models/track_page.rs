@@ -14,16 +14,17 @@ use crate::metadata::{
     drop_placeholder_source_text, feed_nostr, feed_publication_pubdate, feed_website, TrackContext,
 };
 use crate::view_models::detail_selection::index_track_guid;
+use crate::view_models::download_progress::FeedKey;
 use crate::view_models::library::{
-    description_line_count, DescriptionDisclosureDisplay, DescriptionState, LibraryTrackActionVm,
-    LibraryViewModel,
+    description_line_count, BusyItems, DescriptionDisclosureDisplay, DescriptionState,
+    LibraryTrackActionVm, LibraryViewModel, TrackRowWork,
 };
 use crate::view_models::named_feeds::NamedFeed;
 use crate::view_models::track_detail::{
     LibraryTrackActionState, TrackDetailPageVm, TrackDetailSurfaceContext, TrackDetailVm,
     TrackNameLinkTarget, TrackPageAction, TrackPageActionDisplay,
 };
-use crate::view_models::workspace::TrackKey;
+use crate::view_models::workspace::{IndexTrackTarget, TrackKey};
 use crate::view_models::{
     playlist_option_displays, ActionStatusMessageDisplay, PlaylistOptionDisplayVm,
 };
@@ -138,8 +139,9 @@ pub(crate) struct LibraryTrackPageState {
 enum TrackPageOrigin {
     /// A Library track.
     Library(LibraryTrackPageState),
-    /// An Index track that the Library does not hold.
-    Index,
+    /// An Index track that the Library does not hold, with the work of its
+    /// download job (ADR 0084 task 030, decision D9).
+    Index(TrackRowWork),
 }
 
 /// The origin-neutral input of a track page.
@@ -177,12 +179,32 @@ impl TrackPageFacts {
         let named_feeds = track.named_feeds.clone();
         Self {
             track,
-            origin: TrackPageOrigin::Index,
+            origin: TrackPageOrigin::Index(TrackRowWork::Idle),
             named_feeds,
             feed: feed.map(TrackFeedFacts::from_feed_view),
             description_state: None,
             playlists: Vec::new(),
         }
+    }
+
+    /// Sets the queue phase of an Index track (ADR 0084 task 030,
+    /// decisions D8 and D9). The page reads the phase of a job of its own
+    /// track, then the phase of a release job of its feed. A Library track
+    /// does not change.
+    #[must_use]
+    pub(crate) fn with_index_track_work(mut self, busy: &BusyItems) -> Self {
+        if !matches!(self.origin, TrackPageOrigin::Index(_)) {
+            return self;
+        }
+        let key = FeedKey::new(self.track.feed_guid.as_deref(), None, None);
+        // A track with no GUID has no track job, so only a release job of
+        // its feed changes the page.
+        let guid = index_track_guid(&self.track).unwrap_or_default();
+        let work = key.map_or(TrackRowWork::Idle, |key| {
+            busy.index_track_work(&key, guid.trim())
+        });
+        self.origin = TrackPageOrigin::Index(work);
+        self
     }
 
     /// Sets the named feeds of the album feed of the track (ADR 0085
@@ -213,7 +235,7 @@ impl TrackPageFacts {
 /// activation target of the track, built the same way as the click key of
 /// a track row.
 #[must_use]
-pub(crate) fn index_track_description_key(track: &TrackView) -> String {
+pub(crate) fn index_track_description_key(track: &TrackView) -> IndexTrackTarget {
     TrackKey::from_index_track_target(
         track.feed_guid.as_deref(),
         index_track_guid(track).unwrap_or_default(),
@@ -303,7 +325,7 @@ pub(crate) struct TrackPageVm<'a> {
 pub(crate) fn track_page_vm(facts: &TrackPageFacts) -> TrackPageVm<'_> {
     let context = match &facts.origin {
         TrackPageOrigin::Library(_) => TrackDetailSurfaceContext::Library,
-        TrackPageOrigin::Index => TrackDetailSurfaceContext::Discover,
+        TrackPageOrigin::Index(_) => TrackDetailSurfaceContext::Discover,
     };
     let mut detail = TrackDetailVm::new(&facts.track, context)
         .with_named_feeds(&facts.named_feeds)
@@ -314,11 +336,14 @@ pub(crate) fn track_page_vm(facts: &TrackPageFacts) -> TrackPageVm<'_> {
             .with_album_feed_id(state.album_feed_id)
             .with_library_state(state.action_state);
     }
+    if let TrackPageOrigin::Index(work) = facts.origin {
+        detail = detail.with_index_download_busy(work.queue_word().is_some());
+    }
     let actions = track_page_action_row(facts, &detail);
     let description = track_page_description(facts, &detail);
     let (inspect_sources, container_id) = match &facts.origin {
         TrackPageOrigin::Library(state) => (true, state.container_id),
-        TrackPageOrigin::Index => (false, INDEX_CONTAINER_ID),
+        TrackPageOrigin::Index(_) => (false, INDEX_CONTAINER_ID),
     };
     TrackPageVm {
         page: detail.page(),
@@ -369,7 +394,7 @@ fn track_page_action_row(
                 playlists: facts.playlists.clone(),
             }
         }
-        TrackPageOrigin::Index => {
+        TrackPageOrigin::Index(work) => {
             let feed_guid = facts
                 .track
                 .feed_guid
@@ -400,7 +425,11 @@ fn track_page_action_row(
                 menu_id: format!("index-track-page-menu-{}", feed_guid.unwrap_or("unknown")),
                 menu_a11y_label: TRACK_PAGE_MENU_A11Y_LABEL,
                 a11y_label: TRACK_PAGE_ACTIONS_A11Y_LABEL,
-                message: None,
+                // The message slot of the Library track page shows the
+                // queue word (ADR 0084 task 030, decision D8).
+                message: work
+                    .queue_word()
+                    .and_then(|word| ActionStatusMessageDisplay::subscription(Some(word))),
                 playlist_popover_id: None,
                 playlists: Vec::new(),
             }
@@ -441,7 +470,7 @@ fn track_page_description(
         .unwrap_or_else(|| DescriptionState::project(description_line_count(Some(text))));
     let id = match &facts.origin {
         TrackPageOrigin::Library(_) => LIBRARY_DESCRIPTION_ID.to_owned(),
-        TrackPageOrigin::Index => format!(
+        TrackPageOrigin::Index(_) => format!(
             "index-track-description:{}",
             index_track_description_key(&facts.track)
         ),
@@ -867,5 +896,92 @@ mod tests {
                 feed_guid: "feed-guid".to_string()
             }
         );
+    }
+
+    /// The work of an Index track page with the jobs of `activity`.
+    fn index_page_row(
+        activity: crate::view_models::download_progress::DownloadActivity,
+    ) -> TrackPageActionRowVm {
+        let busy = BusyItems::new(activity, std::collections::BTreeSet::new());
+        let track = TrackView {
+            title: Some("Song A".to_owned()),
+            feed_guid: Some("index-feed".to_owned()),
+            track_guid: Some("guid-a".to_owned()),
+            ..TrackView::default()
+        };
+        let facts = TrackPageFacts::from_index_track(track, None).with_index_track_work(&busy);
+        track_page_vm(&facts).actions
+    }
+
+    fn message_text(row: &TrackPageActionRowVm) -> Option<String> {
+        row.message.as_ref().map(|message| message.text.clone())
+    }
+
+    /// R30-13 (ADR 0084 task 030, decision D8): an Index track page with no
+    /// job gives "Download album", available. A queued job makes it not
+    /// available, with "Queued". A running job makes it not available, with
+    /// "Downloading...".
+    #[test]
+    fn adr_0084_music_open_defects_r30_13_index_track_page_shows_the_queue_word() {
+        use crate::view_models::download_progress::{DownloadActivity, FeedKey};
+        use std::collections::BTreeSet;
+
+        let key = FeedKey::Guid("index-feed".to_owned());
+        let idle = index_page_row(DownloadActivity::default());
+        assert_eq!(idle.filled.action, TrackPageAction::DownloadAlbum);
+        assert!(idle.filled.available);
+        assert_eq!(message_text(&idle), None);
+
+        let queued = index_page_row(DownloadActivity {
+            keys: BTreeSet::from([key.clone()]),
+            release_keys: BTreeSet::from([key.clone()]),
+            ..DownloadActivity::default()
+        });
+        assert_eq!(queued.filled.action, TrackPageAction::DownloadAlbum);
+        assert!(!queued.filled.available);
+        assert_eq!(message_text(&queued).as_deref(), Some("Queued"));
+
+        let running = index_page_row(DownloadActivity {
+            keys: BTreeSet::from([key.clone()]),
+            release_keys: BTreeSet::from([key.clone()]),
+            in_flight_keys: BTreeSet::from([key.clone()]),
+            in_flight_release_keys: BTreeSet::from([key]),
+            ..DownloadActivity::default()
+        });
+        assert!(!running.filled.available);
+        assert_eq!(message_text(&running).as_deref(), Some("Downloading..."));
+    }
+
+    /// R30-14 (ADR 0084 task 030, decision D9): a job of another track of
+    /// the same release does not change the page. A job of the track
+    /// itself and a release job of the key do.
+    #[test]
+    fn adr_0084_music_open_defects_r30_14_only_own_jobs_change_the_page() {
+        use crate::view_models::download_progress::{DownloadActivity, FeedKey};
+        use std::collections::BTreeSet;
+
+        let key = FeedKey::Guid("index-feed".to_owned());
+        let other = index_page_row(DownloadActivity {
+            keys: BTreeSet::from([key.clone()]),
+            index_tracks: BTreeSet::from([(key.clone(), "guid-b".to_owned())]),
+            ..DownloadActivity::default()
+        });
+        assert!(other.filled.available);
+        assert_eq!(message_text(&other), None);
+
+        let own = index_page_row(DownloadActivity {
+            keys: BTreeSet::from([key.clone()]),
+            index_tracks: BTreeSet::from([(key.clone(), "guid-a".to_owned())]),
+            ..DownloadActivity::default()
+        });
+        assert!(!own.filled.available);
+        assert_eq!(message_text(&own).as_deref(), Some("Queued"));
+
+        let release = index_page_row(DownloadActivity {
+            keys: BTreeSet::from([key.clone()]),
+            release_keys: BTreeSet::from([key]),
+            ..DownloadActivity::default()
+        });
+        assert!(!release.filled.available);
     }
 }

@@ -26,6 +26,7 @@ pub mod library;
 pub mod library_removal_confirmation;
 pub mod name_level_page;
 pub mod playlist;
+pub(crate) mod playlist_delete_confirmation;
 pub(crate) mod playlist_removal_confirmation;
 pub mod publisher;
 pub mod queue_now_playing;

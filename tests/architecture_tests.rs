@@ -3429,10 +3429,10 @@ fn adr_0024_index_track_detail_uses_rich_track_view_path() {
     // Index track renders through the shared track surface.
     let track_page_vm_source = read_source(&manifest_path("src/view_models/track_page.rs"));
     if !track_page_vm_source
-        .contains("TrackPageOrigin::Index => TrackDetailSurfaceContext::Discover")
+        .contains("TrackPageOrigin::Index(_) => TrackDetailSurfaceContext::Discover")
     {
         violations.push(
-            "src/view_models/track_page.rs: ADR 0024 rich Index track detail must build the shared track view model; missing `TrackPageOrigin::Index => TrackDetailSurfaceContext::Discover`"
+            "src/view_models/track_page.rs: ADR 0024 rich Index track detail must build the shared track view model; missing `TrackPageOrigin::Index(_) => TrackDetailSurfaceContext::Discover`"
                 .to_string(),
         );
     }
@@ -5213,9 +5213,9 @@ fn adr_0084_detail_selection_r18_08_a_page_change_clears_the_detail_selection() 
                 .to_owned(),
         );
     }
-    if !app.contains("library.bind_detail_selection(entry)") {
+    if !app.contains("library.bind_detail_selection(entry, target)") {
         violations.push(
-            "src/app.rs: the top app render must call `library.bind_detail_selection(entry)`."
+            "src/app.rs: the top app render must call `library.bind_detail_selection(entry, target)`."
                 .to_owned(),
         );
     }
@@ -22507,4 +22507,276 @@ fn adr_0084_name_level_r17_one_count_function() {
     assert!(!name_level_one_count_violations(&no_grouping, &dispatches).is_empty());
     let no_match = library.replacen("self.name_feed_matches()", "NameFeedMatches::default()", 1);
     assert!(!name_level_one_count_violations(&no_match, &dispatches).is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// ADR 0084 task 030: the open defects of Music.
+// ---------------------------------------------------------------------------
+
+/// The body of the first function `fn {name}` in `source`, from its opening
+/// brace to the matching closing brace. `None` when no such function exists.
+fn music_open_defects_fn_body<'a>(source: &'a str, name: &str) -> Option<&'a str> {
+    let start = source
+        .find(&format!("fn {name}("))
+        .or_else(|| source.find(&format!("fn {name}<")))?;
+    let open = start + source[start..].find('{')?;
+    let mut depth = 0_usize;
+    for (offset, ch) in source[open..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&source[open..=open + offset]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The violations of the delete rule of a playlist in `slots`, the source
+/// of `src/ui/shells/library/playlist_detail.rs`.
+fn playlist_delete_violations(slots: &str) -> Vec<String> {
+    let mut violations = Vec::new();
+    let production = code_only(production_source(slots));
+    let Some(on_delete) = production.find("on_delete:") else {
+        return vec!["playlist_detail.rs: the page must give an `on_delete` slot".to_owned()];
+    };
+    let slot = &production[on_delete..];
+    let slot = &slot[..slot.find("on_check_rss:").unwrap_or(slot.len())];
+    match (
+        slot.find("open_playlist_delete_dialog("),
+        slot.find("delete_playlist("),
+    ) {
+        (Some(dialog), Some(delete)) if dialog < delete => {}
+        _ => violations.push(
+            "playlist_detail.rs: the `on_delete` slot must open `open_playlist_delete_dialog(` and call `delete_playlist(` only in its confirm handler".to_owned(),
+        ),
+    }
+    violations
+}
+
+/// Situational, ADR 0083 Decision 5 (packet 030 R30-06): "Delete…" of a
+/// playlist opens the confirmation, and only its confirm handler deletes
+/// the playlist. The walk of 2026-10-21 found a delete with no
+/// confirmation. Delete this guard when ADR 0083 Decision 5 is superseded.
+#[test]
+fn adr_0084_music_open_defects_r30_06_playlist_delete_opens_the_confirmation() {
+    const FIX: &str = "ADR 0083 §5 Destructive Actions Are Last And Ask: a playlist delete must ask for a confirmation.\nOpen `open_playlist_delete_dialog` from the \"Delete…\" slot, and call `LibraryApp::delete_playlist` only in its confirm handler.";
+    let slots = read_source(&manifest_path("src/ui/shells/library/playlist_detail.rs"));
+    let mut violations = playlist_delete_violations(&slots);
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        if file == "src/ui/shells/library/playlist_detail.rs" || file == "src/library/app_impl.rs" {
+            continue;
+        }
+        let source = code_only(production_source(&read_source(&path)));
+        if source.contains(".delete_playlist(") {
+            violations.push(format!(
+                "{file}: calls `delete_playlist(` outside the confirm handler of the playlist page"
+            ));
+        }
+    }
+    let app_impl = code_only(production_source(&read_source(&manifest_path(
+        "src/library/app_impl.rs",
+    ))));
+    if count_matches(&app_impl, ".delete_playlist(") > 0 {
+        violations.push(
+            "src/library/app_impl.rs: calls `delete_playlist(` with no confirmation".to_owned(),
+        );
+    }
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+
+    // A slot that deletes at once fails.
+    let direct = slots.replacen("open_playlist_delete_dialog(", "drop(", 1);
+    assert!(!playlist_delete_violations(&direct).is_empty());
+}
+
+/// Situational, ADR 0084 task 030 decision D5 (R30-10), corrected in the
+/// review of 2026-10-21. Back, Forward and a breadcrumb segment are
+/// history moves, and only they record the toolbar text of a restored
+/// search page. `restore_content_list_nav_entry` also restores a new
+/// submit and `open_music_page`, so it must not record the text itself: a
+/// typed query with a trailing space was rewritten by `set_value` while
+/// the field had focus. `apply_pending_toolbar_search` trims the field
+/// value before it compares. Delete this guard when decision D5 is
+/// superseded.
+#[test]
+fn adr_0084_music_open_defects_r30_10_each_restore_records_the_toolbar_text() {
+    const FIX: &str = "ADR 0084 task 030 D5, review of 2026-10-21: only a history move (Back, Forward, a breadcrumb segment) shows a restored query in the toolbar field.\nCall `self.pending_toolbar_search.record(&entry)` in each history-move handler. `restore_content_list_nav_entry`, `open_music_page` and `open_search_results_in_content_list` must not touch `pending_toolbar_search`. `apply_pending_toolbar_search` must compare `input.value().trim()`.";
+    let app = code_only(&read_source(&manifest_path("src/app.rs")));
+    let breadcrumb = code_only(&read_source(&manifest_path("src/app/breadcrumb.rs")));
+    let dispatch = code_only(&read_source(&manifest_path("src/app/search_dispatch.rs")));
+    let mut violations = Vec::new();
+    let app_body = |name: &str| music_open_defects_fn_body(&app, name).unwrap_or_default();
+    let breadcrumb_body =
+        |name: &str| music_open_defects_fn_body(&breadcrumb, name).unwrap_or_default();
+    let dispatch_body =
+        |name: &str| music_open_defects_fn_body(&dispatch, name).unwrap_or_default();
+
+    for name in [
+        "handle_content_list_back_select",
+        "handle_content_list_forward_select",
+    ] {
+        let body = app_body(name);
+        if !body.contains("self.pending_toolbar_search.record(") {
+            violations.push(format!(
+                "src/app.rs: `{name}` must record the toolbar text of the restored entry"
+            ));
+        }
+        if !body.contains("self.restore_content_list_nav_entry(") {
+            violations.push(format!(
+                "src/app.rs: `{name}` must restore through `restore_content_list_nav_entry`"
+            ));
+        }
+    }
+    let crumb_body = breadcrumb_body("handle_content_list_breadcrumb_select");
+    if !crumb_body.contains("self.pending_toolbar_search.record(") {
+        violations.push(
+            "src/app/breadcrumb.rs: a breadcrumb segment must record the toolbar text of the restored entry".to_owned(),
+        );
+    }
+    if !crumb_body.contains("self.restore_content_list_nav_entry(") {
+        violations.push("src/app/breadcrumb.rs: a breadcrumb segment must restore through `restore_content_list_nav_entry`".to_owned());
+    }
+    if app_body("restore_content_list_nav_entry").contains("pending_toolbar_search") {
+        violations.push(
+            "src/app.rs: `restore_content_list_nav_entry` must not touch `pending_toolbar_search`; a new submit and `open_music_page` reach it too".to_owned(),
+        );
+    }
+    if app_body("open_music_page").contains("pending_toolbar_search") {
+        violations.push(
+            "src/app.rs: `open_music_page` must not touch `pending_toolbar_search`".to_owned(),
+        );
+    }
+    if dispatch_body("open_search_results_in_content_list").contains("pending_toolbar_search") {
+        violations.push(
+            "src/app/search_dispatch.rs: `open_search_results_in_content_list` must not touch `pending_toolbar_search`".to_owned(),
+        );
+    }
+    if !app_body("apply_pending_toolbar_search").contains("input.value().trim() != text.as_str()") {
+        violations.push(
+            "src/app.rs: `apply_pending_toolbar_search` must compare `input.value().trim()` before a write".to_owned(),
+        );
+    }
+    if !app_body("render").contains("self.apply_pending_toolbar_search(window, cx)") {
+        violations.push(
+            "src/app.rs: `TopApp::render` must call `apply_pending_toolbar_search`".to_owned(),
+        );
+    }
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+}
+
+/// Situational, ADR 0084 packet 018 and Decision 9 amended on 2026-10-21
+/// (R30-12). Each Music detail page scrolls through
+/// `music_column_tracked_scrollbar` with the held handle. Thus the detail
+/// column can set the offset of each history entry. Delete this guard when
+/// ADR 0084 Decision 9 is superseded.
+#[test]
+fn adr_0084_music_open_defects_r30_12_detail_pages_scroll_with_the_held_handle() {
+    const FIX: &str = "ADR 0084 §9 One Navigation Stack (packet 018): a Music detail page must scroll with the held detail column handle.\nCall `music_column_tracked_scrollbar` with the handle of `LibraryApp::detail_scroll_handle`, not `music_column_scrollbar`.";
+    let pages = [
+        "src/ui/shells/track_page.rs",
+        "src/ui/shells/publisher.rs",
+        "src/ui/shells/name_level_page.rs",
+        "src/ui/shells/playlist.rs",
+        "src/ui/shells/library/singles_group.rs",
+    ];
+    let mut violations = Vec::new();
+    for page in pages {
+        let source = code_only(production_source(&read_source(&manifest_path(page))));
+        if !source.contains("music_column_tracked_scrollbar(") {
+            violations.push(format!(
+                "{page}: the page must call `music_column_tracked_scrollbar(`"
+            ));
+        }
+        if source.contains("music_column_scrollbar(") {
+            violations.push(format!(
+                "{page}: the page must not scroll with `music_column_scrollbar(`"
+            ));
+        }
+    }
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+}
+
+/// Situational, ADR 0084 task 030 decision D10 (R30-16): the Index track
+/// target is a type. The labels, the description states and the stale
+/// result check key on `IndexTrackTarget`, and no code makes a text key
+/// from it. Delete this guard when decision D10 is superseded.
+#[test]
+fn adr_0084_music_open_defects_r30_16_index_track_target_is_typed() {
+    const FIX: &str = "ADR 0084 task 030 D10: an Index track target joins two GUIDs, so a text of it can collide.\nKey each map and each check on `IndexTrackTarget`. Use its `Display` text only for a person.";
+    let app = code_only(production_source(&read_source(&manifest_path(
+        "src/app.rs",
+    ))));
+    let dispatch = code_only(production_source(&read_source(&manifest_path(
+        "src/app/search_dispatch.rs",
+    ))));
+    let track_page = code_only(production_source(&read_source(&manifest_path(
+        "src/view_models/track_page.rs",
+    ))));
+    let mut violations = Vec::new();
+    for (file, source, required) in [
+        (
+            "src/app.rs",
+            app.as_str(),
+            "track_page_labels: BTreeMap<IndexTrackTarget, String>",
+        ),
+        (
+            "src/app.rs",
+            app.as_str(),
+            "index_track_description_states: BTreeMap<IndexTrackTarget, DescriptionState>",
+        ),
+        (
+            "src/app/search_dispatch.rs",
+            dispatch.as_str(),
+            "target: &IndexTrackTarget,\n) -> bool",
+        ),
+        (
+            "src/view_models/track_page.rs",
+            track_page.as_str(),
+            "fn index_track_description_key(track: &TrackView) -> IndexTrackTarget",
+        ),
+    ] {
+        if !source.contains(required) {
+            violations.push(format!("{file}: expected `{required}`"));
+        }
+    }
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        for (line, code) in code_lines(production_source(&source)) {
+            let texts = ["format!(", ".to_string()", ".to_owned()"];
+            if code.contains("index_target()") && texts.iter().any(|text| code.contains(text)) {
+                violations.push(format!("{file}:{line}: makes a text from `index_target()`"));
+            }
+        }
+    }
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+}
+
+/// Situational, ADR 0084 Decision 12 and task 030 decision D11 (R30-18).
+/// The view model gives the frame kind of a search row. Thus the search row
+/// renderer names no `CollectionKind` variant. Delete this guard when ADR
+/// 0084 Decision 12 is superseded.
+#[test]
+fn adr_0084_music_open_defects_r30_18_search_rows_name_no_collection_kind() {
+    const FIX: &str = "ADR 0084 §12 The Logo Frame: the kind of a search row frame belongs to the view model.\nRead `SearchResultRowVm::art.kind` and do not name a `CollectionKind` variant in the renderer.";
+    let source = code_only(&read_source(&manifest_path(
+        "src/ui/shells/search_result_rows.rs",
+    )));
+    let named: Vec<&str> = [
+        "CollectionKind::Artist",
+        "CollectionKind::Playlist",
+        "CollectionKind::SinglesGroup",
+    ]
+    .into_iter()
+    .filter(|variant| source.contains(variant))
+    .collect();
+    assert!(
+        named.is_empty(),
+        "{FIX}\nsrc/ui/shells/search_result_rows.rs names {named:?}"
+    );
 }

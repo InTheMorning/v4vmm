@@ -316,11 +316,15 @@ fn description_preview(text: &str) -> String {
 /// [`toggle_keyed_description_state`] carry no GPUI type, so a test calls
 /// them directly, with a plain map.
 #[must_use]
-pub(crate) fn keyed_description_state(
-    states: &BTreeMap<String, DescriptionState>,
-    key: &str,
+pub(crate) fn keyed_description_state<K, Q>(
+    states: &BTreeMap<K, DescriptionState>,
+    key: &Q,
     description: &str,
-) -> DescriptionState {
+) -> DescriptionState
+where
+    K: Ord + std::borrow::Borrow<Q>,
+    Q: Ord + ?Sized,
+{
     states
         .get(key)
         .copied()
@@ -329,13 +333,16 @@ pub(crate) fn keyed_description_state(
 
 /// Toggle the disclosure state of a keyed description, in place (ADR 0084
 /// Decision 4). The caller's map holds the result for the session.
-pub(crate) fn toggle_keyed_description_state(
-    states: &mut BTreeMap<String, DescriptionState>,
-    key: &str,
+pub(crate) fn toggle_keyed_description_state<K, Q>(
+    states: &mut BTreeMap<K, DescriptionState>,
+    key: &Q,
     description: &str,
-) {
+) where
+    K: Ord + std::borrow::Borrow<Q>,
+    Q: Ord + ToOwned<Owned = K> + ?Sized,
+{
     let current = keyed_description_state(states, key, description);
-    states.insert(key.to_string(), current.toggle());
+    states.insert(key.to_owned(), current.toggle());
 }
 
 /// Library track inspector panels that require explicit disclosure.
@@ -5254,6 +5261,18 @@ pub(crate) enum TrackRowWork {
 }
 
 impl TrackRowWork {
+    /// The queue word of a download job: "Queued" or "Downloading...", the
+    /// words of a release page track row (ADR 0084 task 030, decision D8).
+    /// `None` when no download job waits or runs.
+    #[must_use]
+    pub(crate) const fn queue_word(self) -> Option<&'static str> {
+        match self {
+            Self::Queued => Some("Queued"),
+            Self::Downloading => Some("Downloading..."),
+            Self::Idle | Self::Removing => None,
+        }
+    }
+
     /// The work of a download phase. `None` gives `Idle`.
     #[must_use]
     pub(crate) const fn from_phase(phase: Option<DownloadPhase>) -> Self {
@@ -5722,12 +5741,48 @@ pub(crate) struct PlaylistDetailActionsDisplay {
     pub(crate) delete_button_id: String,
     pub(crate) delete_label: &'static str,
     pub(crate) delete_a11y_label: &'static str,
+    /// The confirmation that "Delete…" opens (ADR 0083 Decision 5, ADR 0084
+    /// task 030 decision D3).
+    pub(crate) delete_confirmation: PlaylistDeleteConfirmation,
     /// ADR 0076 Decision 2: the "Check RSS" action with typed availability.
     pub(crate) check_rss: super::playlist_rss_check::PlaylistCheckRssActionDisplay,
 }
 
 impl PlaylistDetailActionsDisplay {
     pub(crate) const RENAME_INPUT_PLACEHOLDER: &'static str = "Playlist name";
+}
+
+/// The texts of the delete confirmation of a playlist (ADR 0083 Decision 5,
+/// ADR 0084 task 030 decision D3).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct PlaylistDeleteConfirmation {
+    pub(crate) title: String,
+    pub(crate) message: String,
+    pub(crate) cancel_button_id: &'static str,
+    pub(crate) cancel_label: &'static str,
+    pub(crate) cancel_a11y_label: &'static str,
+    pub(crate) confirm_button_id: &'static str,
+    pub(crate) confirm_label: &'static str,
+    pub(crate) confirm_a11y_label: String,
+}
+
+/// The delete confirmation of the playlist `name` with `entries` entries.
+#[must_use]
+pub(crate) fn playlist_delete_confirmation(
+    name: &str,
+    entries: usize,
+) -> PlaylistDeleteConfirmation {
+    let noun = if entries == 1 { "entry" } else { "entries" };
+    PlaylistDeleteConfirmation {
+        title: format!("Delete the playlist \"{name}\"?"),
+        message: format!("It has {entries} {noun}. The tracks stay in the Library."),
+        cancel_button_id: "playlist-delete-cancel",
+        cancel_label: "Cancel",
+        cancel_a11y_label: "Keep the playlist",
+        confirm_button_id: "playlist-delete-confirm",
+        confirm_label: "Delete",
+        confirm_a11y_label: format!("Delete the playlist \"{name}\""),
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -6071,8 +6126,14 @@ impl<'a> PlaylistDetailVm<'a> {
             rename_cancel_label: "Cancel",
             rename_cancel_a11y_label: "Cancel playlist rename",
             delete_button_id: format!("playlist-delete-{playlist_id}"),
-            delete_label: "Delete",
+            delete_label: "Delete…",
             delete_a11y_label: "Delete playlist",
+            delete_confirmation: playlist_delete_confirmation(
+                &self.playlist.name,
+                usize::try_from(self.playlist.track_count)
+                    .unwrap_or(0)
+                    .max(self.tracks.len()),
+            ),
             check_rss: super::playlist_rss_check::PlaylistCheckRssActionDisplay::new(
                 playlist_id,
                 super::playlist_rss_check::availability(
@@ -7165,8 +7226,9 @@ mod tests {
                 rename_cancel_label: "Cancel",
                 rename_cancel_a11y_label: "Cancel playlist rename",
                 delete_button_id: "playlist-delete-42".into(),
-                delete_label: "Delete",
+                delete_label: "Delete…",
                 delete_a11y_label: "Delete playlist",
+                delete_confirmation: playlist_delete_confirmation("Mix", 0),
                 check_rss: crate::view_models::playlist_rss_check::PlaylistCheckRssActionDisplay {
                     button_id: "playlist-check-rss-42".into(),
                     label: "Check RSS",
@@ -7175,6 +7237,30 @@ mod tests {
                     enabled: false,
                 },
             }
+        );
+    }
+
+    /// R30-05 (ADR 0083 Decision 5): "Delete…" opens a confirmation. The
+    /// title holds the playlist name, and the body holds the entry count.
+    #[test]
+    fn adr_0084_music_open_defects_r30_05_playlist_delete_confirmation() {
+        let mut pl = playlist("Road mix");
+        pl.id = 42;
+        pl.track_count = 12;
+        let actions = PlaylistDetailVm::new(&pl, &[]).actions_display();
+        assert_eq!(actions.delete_label, "Delete…");
+        assert_eq!(actions.delete_a11y_label, "Delete playlist");
+        let confirmation = actions.delete_confirmation;
+        assert_eq!(confirmation.title, "Delete the playlist \"Road mix\"?");
+        assert_eq!(
+            confirmation.message,
+            "It has 12 entries. The tracks stay in the Library."
+        );
+        assert_eq!(confirmation.confirm_label, "Delete");
+        assert_eq!(confirmation.cancel_label, "Cancel");
+        assert_eq!(
+            playlist_delete_confirmation("One", 1).message,
+            "It has 1 entry. The tracks stay in the Library."
         );
     }
 

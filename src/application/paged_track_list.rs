@@ -303,7 +303,13 @@ mod tests {
             .query_row("SELECT count(*) FROM tracks", [], |row| row
                 .get::<_, i64>(0))
             .is_err());
-        let runtime = tokio::runtime::Runtime::new().unwrap();
+        // ADR 0084 task 030, decision D12. A current-thread runtime runs
+        // the actor only inside `block_on`. Thus the test has no wall-clock
+        // bound, and the speed of the machine does not change the result.
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
         let bus = VmBus::new();
         let session = bus.session().clone();
         let handle = {
@@ -313,7 +319,13 @@ mod tests {
                 .spawn(bus)
         };
         session.begin_drain();
-        session.wait_for_work(Duration::from_secs(1)).unwrap();
+        // Drive the runtime until the session has no work. The loop has a
+        // count bound and no time bound.
+        let drained = (0..1_000).any(|_| {
+            runtime.block_on(tokio::task::yield_now());
+            session.wait_for_work(Duration::ZERO).is_ok()
+        });
+        assert!(drained, "the actor must stop after the drain");
         assert!(!handle.try_send(PagedTrackListMsg::Refresh));
         assert_eq!(
             observer

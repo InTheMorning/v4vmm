@@ -141,9 +141,11 @@ impl RenderOnce for ReleaseDetailSurface {
 
         if scrollable {
             // ADR 0084 Decision 1, amended 2026-10-17: the release page
-            // scrolls with the shared gutter scrollbar. The caller gives
-            // an id for each release, so two release pages do not share
-            // one scroll position.
+            // scrolls with the shared gutter scrollbar. With a held scroll
+            // handle, the handle holds the offset, and the id gives no
+            // scroll position. The detail column sets the offset of each
+            // history entry (ADR 0084 Decision 9, amended 2026-10-21).
+            // With no handle, the id of each release keeps its own offset.
             let scrollbar_id = SharedString::from(format!("{id}-scrollbar"));
             let container = div()
                 .id(id)

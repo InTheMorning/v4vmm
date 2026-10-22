@@ -52,8 +52,8 @@ use crate::view_models::track_page::{
 use crate::view_models::workspace::{
     release_download_updates_open_page, resolve_release_page_source, resolve_track_page_source,
     track_download_updates_open_page, track_release_download_updates_open_page,
-    FrameNavigationEntry, FrameNavigationState, NavigationPathStart, ReleaseKey, ReleasePageSource,
-    TrackKey, TrackPageSource, WorkspaceFrameId,
+    FrameNavigationEntry, FrameNavigationState, IndexTrackTarget, NavigationPathStart, ReleaseKey,
+    ReleasePageSource, TrackKey, TrackPageSource, WorkspaceFrameId,
 };
 use crate::views::{FeedView, TrackView};
 
@@ -174,15 +174,15 @@ fn index_track_feed_read(
 #[derive(Clone, Debug)]
 pub(super) enum IndexTrackDetailState {
     Loading {
-        target: String,
+        target: IndexTrackTarget,
     },
     Loaded {
-        target: String,
+        target: IndexTrackTarget,
         // Boxed for the same reason as `IndexFeedDetailState::Loaded`.
         track: Box<TrackView>,
     },
     Failed {
-        target: String,
+        target: IndexTrackTarget,
         message: String,
     },
 }
@@ -190,7 +190,7 @@ pub(super) enum IndexTrackDetailState {
 impl IndexTrackDetailState {
     /// The activation target this state belongs to, regardless of its
     /// lifecycle step.
-    fn target(&self) -> &str {
+    fn target(&self) -> &IndexTrackTarget {
         match self {
             Self::Loading { target }
             | Self::Loaded { target, .. }
@@ -204,7 +204,7 @@ impl IndexTrackDetailState {
 /// `publisher_page_result_is_current` (R47-07).
 fn index_track_detail_result_is_current(
     current: Option<&IndexTrackDetailState>,
-    target: &str,
+    target: &IndexTrackTarget,
 ) -> bool {
     current.is_some_and(|state| state.target() == target)
 }
@@ -858,7 +858,7 @@ impl TopApp {
     /// The title `MusicIndex` gave for a track's own fetch, when it already
     /// loaded (ADR 0084 Decision 4). `None` before the fetch loads, after
     /// it fails, or when the title text is empty.
-    pub(super) fn index_track_loaded_title(&self, target: &str) -> Option<String> {
+    pub(super) fn index_track_loaded_title(&self, target: &IndexTrackTarget) -> Option<String> {
         match self.index_track_detail_state.as_ref()? {
             IndexTrackDetailState::Loaded {
                 target: loaded_target,
@@ -872,7 +872,7 @@ impl TopApp {
 
     /// The label an opening row gave a track, by its Index activation
     /// target (ADR 0084 Decision 4), or "Track" when none is known.
-    pub(super) fn track_opening_label(&self, target: &str) -> String {
+    pub(super) fn track_opening_label(&self, target: &IndexTrackTarget) -> String {
         self.track_page_labels
             .get(target)
             .cloned()
@@ -948,7 +948,11 @@ impl TopApp {
     /// The feed GUID of the open Index track page of `key`, with the
     /// activation target `target`: the feed GUID of the key or of the
     /// loaded track. `None` before the track names one.
-    fn index_track_page_feed_guid(&self, key: &TrackKey, target: &str) -> Option<String> {
+    fn index_track_page_feed_guid(
+        &self,
+        key: &TrackKey,
+        target: &IndexTrackTarget,
+    ) -> Option<String> {
         if let Some(feed_guid) = key.index_feed_guid() {
             return Some(feed_guid.to_owned());
         }
@@ -1041,7 +1045,7 @@ impl TopApp {
     /// loading state right away (ADR 0075 packet 047, Required Change 3).
     fn fetch_index_track_detail_page(
         &mut self,
-        target: String,
+        target: IndexTrackTarget,
         feed_guid: Option<String>,
         track_guid: String,
         cx: &mut Context<Self>,
@@ -1113,15 +1117,22 @@ impl TopApp {
     /// Selects the Index track detail display state to render (ADR 0075
     /// packet 047): the operator's own fetch, once it matches the mounted
     /// activation target, or a loading placeholder before it does.
-    pub(super) fn index_track_detail_display(&self, id: &str, label: &str) -> IndexDetailDisplay {
+    pub(super) fn index_track_detail_display(
+        &self,
+        id: &IndexTrackTarget,
+        label: &str,
+    ) -> IndexDetailDisplay {
+        // The display id is the text of the target for a person, for the
+        // "ID" row. It is not a key.
+        let shown_id = id.to_string();
         match self.index_track_detail_state.as_ref() {
             Some(IndexTrackDetailState::Loaded { target, track }) if target == id => {
-                IndexDetailDisplay::loaded_track((**track).clone(), id)
+                IndexDetailDisplay::loaded_track((**track).clone(), shown_id)
             }
             Some(IndexTrackDetailState::Failed { target, message }) if target == id => {
-                IndexDetailDisplay::failed(IndexDetailKind::Track, id, label, message.clone())
+                IndexDetailDisplay::failed(IndexDetailKind::Track, shown_id, label, message.clone())
             }
-            _ => IndexDetailDisplay::loading(IndexDetailKind::Track, id, label),
+            _ => IndexDetailDisplay::loading(IndexDetailKind::Track, shown_id, label),
         }
     }
 
@@ -1325,7 +1336,10 @@ impl TopApp {
             .feed_guid
             .as_deref()
             .and_then(|feed_guid| self.index_track_page_feed(feed_guid));
-        let mut facts = TrackPageFacts::from_index_track(track.clone(), feed);
+        // ADR 0084 task 030, decisions D8 and D9. The page reads the phase
+        // of a job of its track, then of a release job of its feed.
+        let mut facts = TrackPageFacts::from_index_track(track.clone(), feed)
+            .with_index_track_work(self.library.read(cx).busy_items());
         if let Some(description) = display_description_text(track.description.as_deref()) {
             let key = index_track_description_key(track);
             facts =
@@ -1870,13 +1884,17 @@ impl TopApp {
     /// activation target (ADR 0084 Decision 4, ADR 0047 item 8 amended
     /// 2026-10-16). The state lives for the session only; it is not
     /// stored.
-    fn index_track_description_state(&self, target: &str, description: &str) -> DescriptionState {
+    fn index_track_description_state(
+        &self,
+        target: &IndexTrackTarget,
+        description: &str,
+    ) -> DescriptionState {
         keyed_description_state(&self.index_track_description_states, target, description)
     }
 
     fn toggle_index_track_description(
         &mut self,
-        target: &str,
+        target: &IndexTrackTarget,
         description: &str,
         cx: &mut Context<Self>,
     ) {
@@ -2000,21 +2018,26 @@ mod index_detail_dispatch_tests {
         assert!(!index_feed_detail_result_is_current(None, "guid-a"));
     }
 
+    /// The typed Index target of a track key.
+    fn target(feed_guid: Option<&str>, item_guid: &str) -> IndexTrackTarget {
+        TrackKey::from_index_track_target(feed_guid, item_guid.to_owned()).index_target()
+    }
+
     /// R47-07: a detail result for a track the operator already navigated
     /// away from must not replace the mounted page.
     #[test]
     fn adr_0075_search_summary_r47_07_track_detail_stale_result_for_replaced_target_is_ignored() {
         let current = Some(IndexTrackDetailState::Loading {
-            target: "feed-guid:track-b".into(),
+            target: target(Some("feed-guid"), "track-b"),
         });
 
         assert!(!index_track_detail_result_is_current(
             current.as_ref(),
-            "feed-guid:track-a"
+            &target(Some("feed-guid"), "track-a")
         ));
         assert!(index_track_detail_result_is_current(
             current.as_ref(),
-            "feed-guid:track-b"
+            &target(Some("feed-guid"), "track-b")
         ));
     }
 
@@ -2023,24 +2046,27 @@ mod index_detail_dispatch_tests {
     #[test]
     fn adr_0075_search_summary_track_detail_result_is_current_for_any_lifecycle_step() {
         let loaded = Some(IndexTrackDetailState::Loaded {
-            target: "track-a".into(),
+            target: target(None, "track-a"),
             track: Box::default(),
         });
         assert!(index_track_detail_result_is_current(
             loaded.as_ref(),
-            "track-a"
+            &target(None, "track-a")
         ));
 
         let failed = Some(IndexTrackDetailState::Failed {
-            target: "track-a".into(),
+            target: target(None, "track-a"),
             message: "error".into(),
         });
         assert!(index_track_detail_result_is_current(
             failed.as_ref(),
-            "track-a"
+            &target(None, "track-a")
         ));
 
-        assert!(!index_track_detail_result_is_current(None, "track-a"));
+        assert!(!index_track_detail_result_is_current(
+            None,
+            &target(None, "track-a")
+        ));
     }
 }
 

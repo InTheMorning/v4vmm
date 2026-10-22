@@ -53,7 +53,11 @@ pub(crate) enum SearchRowLeading {
     /// The thumbnail, with its image when it loaded.
     Thumbnail(Option<Arc<Image>>),
     /// The logo frame of a Library name row, as the Artists list shows it.
-    Collection(CollectionArtImage),
+    /// The view model gives the kind of the frame.
+    Collection {
+        image: CollectionArtImage,
+        kind: CollectionKind,
+    },
 }
 
 /// Renders one search row.
@@ -98,13 +102,9 @@ pub(crate) fn render_result_row(
         SearchRowLeading::Thumbnail(thumbnail) => {
             list_row.child(Thumbnail::new(kind, ThumbnailSize::Sm).image(thumbnail))
         }
-        // A row with art is a name row of the Artists tab, so the frame
-        // uses the artist color, as on its Artists list row.
-        SearchRowLeading::Collection(image) => list_row.child(CollectionArt::new(
-            image,
-            CollectionKind::Artist,
-            ThumbnailSize::Sm,
-        )),
+        SearchRowLeading::Collection { image, kind } => {
+            list_row.child(CollectionArt::new(image, kind, ThumbnailSize::Sm))
+        }
     };
     list_row = list_row.child(result_row_text(&row));
     if let Some(state_word) = row.state_word.clone() {

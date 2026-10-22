@@ -124,6 +124,7 @@ Each entry names the step, the decision and the reason.
 | Packet 029: the link facts of search, the 0.13.0 contract | Implemented. V1 to V6 open | `e7c431b` |
 | Packet 026 Part A: the Index singles groups in the Releases list | Implemented. V1 to V6 and V10 open | `e091e18` |
 | Packet 026 Part B: the group page and "All n singles" with MusicIndex members | Implemented. V7 to V10 open | `2a0344c` |
+| Packet 030: the open defects of Music, and the scroll position of each history entry | Implemented. V1 to V6 open | this commit |
 
 ## Questions For The Operator
 

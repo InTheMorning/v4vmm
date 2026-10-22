@@ -441,8 +441,7 @@ impl RenderOnce for Button {
             visual = visual.w_full();
         }
 
-        let mut hit_target = div()
-            .id(self.id)
+        let mut hit_target = hit_target_base(self.id)
             .min_w(min_hit_target)
             .min_h(min_hit_target)
             .flex()
@@ -508,6 +507,18 @@ impl RenderOnce for Button {
             hit_target.child(visual.child(label))
         }
     }
+}
+
+/// The hit area of a button with the element id `id`. In a test, the id is
+/// also the debug selector, so a test can find the button by its id (ADR
+/// 0084 task 030).
+fn hit_target_base(id: ElementId) -> gpui::Stateful<gpui::Div> {
+    #[cfg(test)]
+    let selector = id.to_string();
+    let target = div().id(id);
+    #[cfg(test)]
+    let target = target.debug_selector(move || selector);
+    target
 }
 
 fn keyboard_button_focus(

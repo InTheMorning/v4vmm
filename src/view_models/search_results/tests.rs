@@ -1240,8 +1240,26 @@ fn adr_0084_search_open_defects_r28_04_library_name_row_carries_the_artists_list
         "the Index name row merges into the Library row"
     );
     assert_eq!(visible[0].id, "library-artist:Matt Finlay");
-    assert_eq!(visible[0].art, Some(art));
+    assert_eq!(
+        visible[0].art.as_ref().map(|row_art| &row_art.art),
+        Some(&art)
+    );
     assert_eq!(visible[0].thumbnail_href, None);
+}
+
+/// R30-17 (ADR 0084 Decision 12, task 030 decision D11): a Library name row
+/// of search gives its art with the artist frame kind.
+#[test]
+fn adr_0084_music_open_defects_r30_17_name_row_art_has_artist_kind() {
+    let mut row = ArtistResultDisplay::new("library-artist:Matt Finlay", "Matt Finlay");
+    row.art = Some(CollectionArtVm::EntityColor(CollectionKind::Artist));
+    let vm = super::rows::artist_row_vm(&row, &RecordedLibrary::default());
+    let art = vm.art.expect("a name row with art");
+    assert_eq!(art.kind, CollectionKind::Artist);
+    assert_eq!(
+        art.art,
+        CollectionArtVm::EntityColor(CollectionKind::Artist)
+    );
 }
 
 /// The artist rows of the Library search for `rows` with `facts`.

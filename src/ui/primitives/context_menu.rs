@@ -66,6 +66,31 @@ struct PointerMenuLevel {
     level: Option<usize>,
 }
 
+/// The open state of a [`ContextMenu`] that its host holds (ADR 0084 task
+/// 030). A host that must read the open state makes the handle at its own
+/// element position and gives it to the menu. GPUI puts each stateless
+/// component under its own element id. Thus a host that reads a keyed
+/// state of the menu at another position reads a different state.
+#[derive(Clone)]
+pub(crate) struct ContextMenuHandle(Entity<ContextMenuState>);
+
+impl ContextMenuHandle {
+    /// The held open state of the menu `id` at this element position. Call
+    /// it at the same position at each render.
+    pub(crate) fn new(id: &SharedString, window: &mut Window, cx: &mut App) -> Self {
+        Self(
+            window.use_keyed_state(ContextMenu::state_key(id), cx, |_, _| {
+                ContextMenuState::closed()
+            }),
+        )
+    }
+
+    /// `true` while the menu is open.
+    pub(crate) fn is_open(&self, cx: &App) -> bool {
+        self.0.read(cx).open
+    }
+}
+
 /// Row families expected to expose context-menu commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ContextMenuScope {
@@ -106,6 +131,7 @@ pub struct ContextMenu {
     disabled: bool,
     trigger_a11y_label: SharedString,
     items: Vec<ContextMenuItem>,
+    handle: Option<ContextMenuHandle>,
 }
 
 /// Controlled menu at a pointer position. The owner removes it on dismissal.
@@ -275,7 +301,15 @@ impl ContextMenu {
             disabled: false,
             trigger_a11y_label: trigger_a11y_label.into(),
             items: Vec::new(),
+            handle: None,
         }
+    }
+
+    /// Uses the open state that the host holds. Without a handle, the menu
+    /// keeps its open state at its own element position.
+    pub(crate) fn handle(mut self, handle: ContextMenuHandle) -> Self {
+        self.handle = Some(handle);
+        self
     }
 
     pub fn trigger_icon(mut self, icon: IconName) -> Self {
@@ -293,16 +327,6 @@ impl ContextMenu {
     pub fn trigger_tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
         self.trigger_tooltip = Some(tooltip.into());
         self
-    }
-
-    /// `true` while the menu with the id `id` is open. The caller must call
-    /// it at the same element position as the menu, so that it reads the
-    /// same keyed state. A row uses it to keep its menu button visible
-    /// while the menu is open (ADR 0083 Decision 6).
-    pub(crate) fn is_open(id: &SharedString, window: &mut Window, cx: &mut App) -> bool {
-        let state =
-            window.use_keyed_state(Self::state_key(id), cx, |_, _| ContextMenuState::closed());
-        state.read(cx).open
     }
 
     fn state_key(id: &SharedString) -> SharedString {
@@ -341,10 +365,10 @@ impl ContextMenuState {
 
 impl RenderOnce for ContextMenu {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let state: Entity<ContextMenuState> =
-            window.use_keyed_state(Self::state_key(&self.id), cx, |_window, _cx| {
-                ContextMenuState::closed()
-            });
+        let state: Entity<ContextMenuState> = match self.handle {
+            Some(handle) => handle.0,
+            None => ContextMenuHandle::new(&self.id, window, cx).0,
+        };
 
         let open = state.read(cx).open && !self.disabled;
         let items = self.items;

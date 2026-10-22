@@ -47,6 +47,7 @@ use crate::ui::shells::playlist::{
     click_slot, command_slot, render_playlist_detail_shell, reorder_slot,
     PlaylistDetailBehaviorSlots, PlaylistShellReadyRow, PlaylistShellRow, PlaylistTrackRowSlot,
 };
+use crate::ui::shells::playlist_delete_confirmation::open_playlist_delete_dialog;
 use crate::view_models::library::{
     playlist_row_add_choices, LibraryChromeDisplay, PlaylistDetailVm, PlaylistTrackRowVm,
     TrackRowWork,
@@ -196,7 +197,9 @@ fn behavior_slots(
 ) -> PlaylistDetailBehaviorSlots {
     let playlist_id = detail.playlist.id;
     let playlist_name = detail.playlist.name.clone();
-    let rename_placeholder = page.actions_display().rename_input_placeholder;
+    let actions = page.actions_display();
+    let rename_placeholder = actions.rename_input_placeholder;
+    let delete_confirmation = actions.delete_confirmation;
     PlaylistDetailBehaviorSlots {
         on_rename: Some(click_slot(cx.listener(move |this, _, window, cx| {
             this.begin_playlist_rename(
@@ -215,8 +218,17 @@ fn behavior_slots(
         on_cancel_rename: Some(click_slot(cx.listener(move |this, _, _, cx| {
             this.cancel_playlist_rename(cx);
         }))),
-        on_delete: Some(click_slot(cx.listener(move |this, _, _, cx| {
-            this.delete_playlist(playlist_id, cx);
+        // ADR 0083 Decision 5: "Delete…" opens the confirmation. Only its
+        // confirm handler deletes the playlist (ADR 0084 task 030).
+        on_delete: Some(click_slot(cx.listener(move |_, _, window, cx| {
+            open_playlist_delete_dialog(
+                window,
+                cx,
+                delete_confirmation.clone(),
+                move |this, cx| {
+                    this.delete_playlist(playlist_id, cx);
+                },
+            );
         }))),
         on_check_rss: Some(check_rss_slot(playlist_id, cx)),
         on_download_added_track: Some(download_added_track_slot(cx)),

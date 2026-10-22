@@ -29,8 +29,8 @@ use crate::ui::composites::playlist_popover::{
 };
 use crate::ui::icons::IconName;
 use crate::ui::primitives::{
-    Button, ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope, Divider,
-    MenuLevelControls, PointerContextMenu,
+    Button, ContextMenu, ContextMenuHandle, ContextMenuItem, ContextMenuItemDisplay,
+    ContextMenuScope, Divider, MenuLevelControls, PointerContextMenu,
 };
 use crate::ui::tokens::Spacing;
 use crate::view_models::release_page::{TrackRowMenuAction, TrackRowMenuVm};
@@ -251,8 +251,8 @@ pub(crate) fn track_row_pointer_menu(
 }
 
 /// The menu column cell of a track row. It holds the "⋯" button and
-/// applies the hover rule. It reads the open state of its menu at the
-/// element position of the menu.
+/// applies the hover rule. It holds the open state of its menu and gives
+/// it to the menu.
 #[derive(IntoElement)]
 pub(crate) struct TrackRowMenuCell {
     cell: Div,
@@ -292,7 +292,11 @@ impl RenderOnce for TrackRowMenuCell {
             return self.cell;
         };
         let id = SharedString::from(menu.id.clone());
-        let open = ContextMenu::is_open(&id, window, cx);
+        // The cell holds the open state and gives it to the menu. Thus the
+        // reset rule below reads the state of the open menu (ADR 0084 task
+        // 030, P1).
+        let handle = ContextMenuHandle::new(&id, window, cx);
+        let open = handle.is_open(cx);
         // A menu that closed from outside starts again at its list mode.
         let closed = !open && state.read(cx).pointer.is_none();
         if closed && state.read(cx).creating {
@@ -305,6 +309,7 @@ impl RenderOnce for TrackRowMenuCell {
         )
         .trigger_label("")
         .trigger_tooltip(menu.trigger_tooltip)
+        .handle(handle)
         .items(items);
         let cell = match menu_cell_visibility(self.focused, open) {
             MenuCellVisibility::Always => self.cell,
@@ -339,5 +344,171 @@ mod tests {
             menu_cell_visibility(false, false),
             MenuCellVisibility::OnHover
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ADR 0084 task 030 P1: "New Playlist" in the row menu shows the create mode.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod create_mode_tests {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use gpui::{
+        div, prelude::*, px, FocusHandle, Modifiers, MouseButton, TestAppContext, VisualTestContext,
+    };
+
+    use super::TrackRowMenuHandlers;
+    use crate::ui::composites::playlist_popover::{PlaylistOption, PlaylistOptionDisplay};
+    use crate::ui::composites::track_row::TrackRow;
+    use crate::view_models::release_page::{TrackRowMenuFacts, TrackRowMenuVm};
+    use crate::view_models::track_detail::TrackRowVm;
+
+    struct MenuRowTest {
+        focus: FocusHandle,
+        created: Rc<RefCell<Vec<String>>>,
+    }
+
+    impl gpui::Render for MenuRowTest {
+        fn render(
+            &mut self,
+            _window: &mut gpui::Window,
+            _cx: &mut gpui::Context<Self>,
+        ) -> impl gpui::IntoElement {
+            let mut facts = TrackRowMenuFacts::new("row", "Song", false);
+            facts.add_to_playlist = true;
+            let created = Rc::clone(&self.created);
+            let handlers = TrackRowMenuHandlers {
+                action: Rc::new(|_, _, _| {}),
+                select_playlist: Rc::new(|_, _, _| {}),
+                create_playlist: Rc::new(move |name: &String, _, _| {
+                    created.borrow_mut().push(name.clone());
+                }),
+            };
+            let playlists = vec![PlaylistOption::new(PlaylistOptionDisplay {
+                id: 7,
+                name: "Mix".into(),
+                a11y_label: "Add to Mix".into(),
+            })];
+            let row = TrackRow::from_vm(
+                "row",
+                &TrackRowVm {
+                    element_key: "track:1".to_owned(),
+                    number: Some("1".to_owned()),
+                    title: "Song".to_owned(),
+                    subtitle: None,
+                    duration: Some("3:00".to_owned()),
+                    date_text: None,
+                    a11y_label: "Song".to_owned(),
+                },
+            )
+            .menu(TrackRowMenuVm::project(&facts), playlists)
+            .on_menu_action(handlers, self.focus.clone());
+            div().w(px(900.0)).h(px(800.0)).p(px(200.0)).child(row)
+        }
+    }
+
+    fn draw(cx: &mut VisualTestContext) {
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+    }
+
+    fn click(cx: &mut VisualTestContext, selector: &'static str) {
+        draw(cx);
+        let bounds = cx
+            .debug_bounds(selector)
+            .unwrap_or_else(|| panic!("{selector} must have bounds"));
+        cx.simulate_click(bounds.center(), Modifiers::default());
+        draw(cx);
+    }
+
+    fn open_test(cx: &mut TestAppContext) -> (Rc<RefCell<Vec<String>>>, &mut VisualTestContext) {
+        cx.update(gpui_component::init);
+        cx.update(crate::ui::primitives::context_menu::init);
+        let created = Rc::new(RefCell::new(Vec::new()));
+        let shared = Rc::clone(&created);
+        let (_view, cx) = cx.add_window_view(move |_, cx| MenuRowTest {
+            focus: cx.focus_handle(),
+            created: shared,
+        });
+        (created, cx)
+    }
+
+    /// The level "Add to playlist", then "New Playlist", and the proof
+    /// that the create mode shows.
+    fn show_create_mode(cx: &mut VisualTestContext) {
+        click(cx, "row-menu:AddToPlaylist");
+        click(cx, "pl-new");
+        assert!(
+            cx.debug_bounds("pl-name-field").is_some(),
+            "after \"New Playlist\", the name field must show"
+        );
+        assert!(
+            cx.debug_bounds("pl-create-confirm").is_some(),
+            "after \"New Playlist\", \"Create & Add\" must show"
+        );
+    }
+
+    /// R30-01 (ADR 0083 Decision 6): "⋯", "Add to playlist" and "New
+    /// Playlist" show the create mode.
+    #[gpui::test]
+    fn adr_0084_music_open_defects_r30_01_menu_new_playlist_shows_create_mode(
+        cx: &mut TestAppContext,
+    ) {
+        let (_, cx) = open_test(cx);
+        draw(cx);
+        // The "⋯" cell shows on a hover of the row.
+        let row = cx
+            .debug_bounds("track-row")
+            .expect("the row must have bounds");
+        cx.simulate_mouse_move(row.center(), None, Modifiers::default());
+        click(cx, "row-menu-trigger");
+        show_create_mode(cx);
+    }
+
+    /// R30-03 (ADR 0083 Decision 6). In the create mode, a name and a click
+    /// on "Create & Add" call the create handler one time. The handler gets
+    /// that name. The menu then closes.
+    #[gpui::test]
+    fn adr_0084_music_open_defects_r30_03_create_and_add_calls_handler_once(
+        cx: &mut TestAppContext,
+    ) {
+        let (created, cx) = open_test(cx);
+        draw(cx);
+        let row = cx
+            .debug_bounds("track-row")
+            .expect("the row must have bounds");
+        cx.simulate_mouse_move(row.center(), None, Modifiers::default());
+        click(cx, "row-menu-trigger");
+        show_create_mode(cx);
+        click(cx, "pl-name-field");
+        cx.simulate_input("Road mix");
+        click(cx, "pl-create-confirm");
+        assert_eq!(*created.borrow(), vec!["Road mix".to_owned()]);
+        assert!(
+            cx.debug_bounds("pl-create-confirm").is_none(),
+            "the menu must close after \"Create & Add\""
+        );
+        assert!(cx.debug_bounds("context-menu-items").is_none());
+    }
+
+    /// R30-02 (ADR 0083 Decision 6): the same steps through the
+    /// right-click menu of the row.
+    #[gpui::test]
+    fn adr_0084_music_open_defects_r30_02_right_click_new_playlist_shows_create_mode(
+        cx: &mut TestAppContext,
+    ) {
+        let (_, cx) = open_test(cx);
+        draw(cx);
+        let row = cx
+            .debug_bounds("track-row")
+            .expect("the row must have bounds");
+        cx.simulate_mouse_down(row.center(), MouseButton::Right, Modifiers::default());
+        cx.simulate_mouse_up(row.center(), MouseButton::Right, Modifiers::default());
+        show_create_mode(cx);
     }
 }

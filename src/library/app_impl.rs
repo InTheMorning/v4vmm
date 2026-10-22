@@ -1093,6 +1093,7 @@ impl LibraryApp {
             spring_load: crate::view_models::library::SpringLoadVm::default(),
             detail_scroll_reveal: ScrollReveal::new(detail_column_scroll.clone()),
             detail_column_scroll,
+            detail_scroll_binding: super::detail_selection::DetailScrollBinding::default(),
             saved_searches: Vec::new(),
             open_saved_search: None,
         };
@@ -3410,6 +3411,9 @@ impl LibraryApp {
         let track_id = frame.entity_id;
         let state = frame.inspector_state.description_state;
         self.vm.set_track_description_state(track_id, state);
+        // Review of 2026-10-21: this click can grow the page. The pending
+        // restored offset must not jump the page once it grows.
+        self.clear_pending_detail_scroll();
         cx.notify();
     }
 
@@ -3419,6 +3423,9 @@ impl LibraryApp {
         };
         self.vm
             .toggle_album_description(feed_id, Some(description.as_str()));
+        // Review of 2026-10-21: this click can grow the page. The pending
+        // restored offset must not jump the page once it grows.
+        self.clear_pending_detail_scroll();
         cx.notify();
     }
 

@@ -45,9 +45,10 @@ use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchRes
 use crate::view_models::settings::{SettingsAction, SettingsVm};
 use crate::view_models::show::{EventSectionInput, ShowCommandState, ShowPageVm};
 use crate::view_models::workspace::{
-    ContentViewMode, DiscoverView, FrameNavigationEntry, FrameNavigationState, MusicDestination,
-    NavigationPathStart, ReleasePageSource, TrackPageSource, WorkspaceFrameId, WorkspaceFrameKind,
-    WorkspaceFrameState, WorkspaceLayout, WorkspaceLayoutConfig,
+    ContentViewMode, DiscoverView, FrameNavigationEntry, FrameNavigationState, IndexTrackTarget,
+    MusicDestination, NavigationPathStart, PendingToolbarSearchText, ReleasePageSource,
+    TrackPageSource, WorkspaceFrameId, WorkspaceFrameKind, WorkspaceFrameState, WorkspaceLayout,
+    WorkspaceLayoutConfig,
 };
 
 mod capabilities;
@@ -144,6 +145,9 @@ pub struct TopApp {
     /// shows on each section, beside the live status strip.
     download_status_view: Entity<DownloadStatusView>,
     global_search_input: Entity<InputState>,
+    /// The query that a restore of a search page writes into
+    /// `global_search_input` at the next render (ADR 0084 task 030, D5).
+    pending_toolbar_search: PendingToolbarSearchText,
     endpoint_input: Entity<InputState>,
     music_dir_input: Entity<InputState>,
     flac_path_input: Entity<InputState>,
@@ -261,7 +265,7 @@ pub struct TopApp {
     /// The label an opening row gave a track, by its Index activation
     /// target (ADR 0084 Decision 4). The breadcrumb and the Index loading
     /// page show it until the track's own title loads.
-    track_page_labels: BTreeMap<String, String>,
+    track_page_labels: BTreeMap<IndexTrackTarget, String>,
     /// The disclosure state of an Index release's description, by feed
     /// GUID (ADR 0084 Decision 4, ADR 0047 item 8 amended 2026-10-16). The
     /// state lives for the session only; it is not stored.
@@ -269,7 +273,7 @@ pub struct TopApp {
     /// The disclosure state of an Index track's description, by its Index
     /// activation target (ADR 0084 Decision 4, ADR 0047 item 8 amended
     /// 2026-10-16). Same rule as the release state above.
-    index_track_description_states: BTreeMap<String, DescriptionState>,
+    index_track_description_states: BTreeMap<IndexTrackTarget, DescriptionState>,
 }
 
 impl TopApp {
@@ -478,6 +482,7 @@ impl TopApp {
             library_detail_view,
             download_status_view,
             global_search_input,
+            pending_toolbar_search: PendingToolbarSearchText::default(),
             endpoint_input,
             music_dir_input,
             flac_path_input,
@@ -740,6 +745,10 @@ impl TopApp {
         };
 
         if let Some(entry) = self.workspace_layout.pop_nav(content_list_id) {
+            // ADR 0084 task 030, decision D5 (review of 2026-10-21): only a
+            // history move shows the query of a search page in the toolbar
+            // field.
+            self.pending_toolbar_search.record(&entry);
             self.restore_content_list_nav_entry(content_list_id, &entry, cx);
         }
     }
@@ -756,6 +765,10 @@ impl TopApp {
         };
 
         if let Some(entry) = self.workspace_layout.pop_nav_forward(content_list_id) {
+            // ADR 0084 task 030, decision D5 (review of 2026-10-21): only a
+            // history move shows the query of a search page in the toolbar
+            // field.
+            self.pending_toolbar_search.record(&entry);
             self.restore_content_list_nav_entry(content_list_id, &entry, cx);
         }
     }
@@ -808,8 +821,14 @@ impl TopApp {
         self.restore_content_list_nav_entry(content_list_id, &opened_entry, cx);
     }
 
-    /// Restores the page for a navigation entry that Back or Forward just
-    /// selected on the content-list frame (ADR 0046 Task 015).
+    /// Restores the page for a navigation entry that Back, Forward, a
+    /// breadcrumb segment, a new submit or `open_music_page` selected on
+    /// the content-list frame (ADR 0046 Task 015).
+    ///
+    /// This function does not touch the toolbar field. ADR 0084 task 030,
+    /// decision D5, corrected in the review of 2026-10-21: each caller
+    /// that is a history move records the toolbar text itself, so a new
+    /// submit does not overwrite a query the operator is still typing.
     fn restore_content_list_nav_entry(
         &mut self,
         content_list_id: WorkspaceFrameId,
@@ -829,6 +848,26 @@ impl TopApp {
             self.start_index_search_for_query(query, cx);
         }
         cx.notify();
+    }
+
+    /// Writes the recorded toolbar query into the search field. The write
+    /// does not move the focus and does not submit a search.
+    ///
+    /// ADR 0084 task 030, decision D5, corrected in the review of
+    /// 2026-10-21: the caller records the text only on a history move
+    /// (Back, Forward, a breadcrumb segment), never on a new submit or on
+    /// `open_music_page`. The comparison trims the field value first. A
+    /// typed query with a trailing space stays as typed, because the
+    /// recorded text is already trimmed and the two then compare equal.
+    fn apply_pending_toolbar_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(text) = self.pending_toolbar_search.take() else {
+            return;
+        };
+        self.global_search_input.update(cx, |input, cx| {
+            if input.value().trim() != text.as_str() {
+                input.set_value(text, window, cx);
+            }
+        });
     }
 
     pub(super) fn focus_global_search(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1302,7 +1341,7 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) -> BTreeMap<String, crate::ui::composites::CollectionArtImage> {
         rows.iter()
-            .filter_map(|row| Some((row.id.clone(), row.art.as_ref()?)))
+            .filter_map(|row| Some((row.id.clone(), &row.art.as_ref()?.art)))
             .map(|(id, art)| {
                 let image =
                     collection_art_image(self, art, crate::ui::composites::ThumbnailSize::Sm, cx);
@@ -1510,9 +1549,25 @@ impl TopApp {
 
         // ADR 0084 packet 018: the detail selection belongs to the open
         // page. A move to another page clears it and sets `Normal`.
-        if let (true, Some(entry)) = (fills_detail, &current_nav) {
-            self.library
-                .update(cx, |library, _cx| library.bind_detail_selection(entry));
+        // ADR 0084 Decision 9, amended on 2026-10-21. A new open shows the
+        // page at the top. Back and Forward show the stored offset of the
+        // history entry. The entry that closed keeps its offset.
+        if let (true, Some(entry), Some(target)) = (
+            fills_detail,
+            &current_nav,
+            self.workspace_layout
+                .frame_nav(content_frame_id)
+                .map(FrameNavigationState::detail_scroll_target),
+        ) {
+            let closed = self.library.update(cx, |library, _cx| {
+                library.bind_detail_selection(entry, target)
+            });
+            if let (Some((location, offset)), Some(nav)) = (
+                closed,
+                self.workspace_layout.frame_nav_mut(content_frame_id),
+            ) {
+                nav.record_detail_scroll(location, offset);
+            }
         }
         // ADR 0084 Decision 3, packet 012: the Discover column marks the
         // saved search of the current location as its open row.
@@ -1836,6 +1891,7 @@ impl Drop for TopApp {
 impl Render for TopApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.defer_application_event_drain(window, cx);
+        self.apply_pending_toolbar_search(window, cx);
         let mount = self.active_workspace_screen_mount();
         let show_window_width = f32::from(window.bounds().size.width);
         let live_status_strip = build_live_status_strip(self, mount, cx);

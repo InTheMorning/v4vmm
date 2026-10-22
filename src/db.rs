@@ -643,9 +643,11 @@ pub fn set_track_in_library(conn: &Connection, track_id: i64, in_library: bool) 
     Ok(())
 }
 
+/// The number of playlists that hold `track_id`. A playlist with two
+/// entries of the track counts one time (ADR 0084 task 030, decision D4).
 pub fn playlist_reference_count_for_track(conn: &Connection, track_id: i64) -> Result<i64> {
     conn.query_row(
-        "SELECT COUNT(*) FROM playlist_tracks WHERE track_id = ?1",
+        "SELECT COUNT(DISTINCT playlist_id) FROM playlist_tracks WHERE track_id = ?1",
         [track_id],
         |row| row.get(0),
     )
@@ -672,10 +674,9 @@ pub fn playlist_referenced_library_track_count_for_feed(
 pub fn playlist_names_referencing_track(conn: &Connection, track_id: i64) -> Result<Vec<String>> {
     let mut stmt = conn
         .prepare(
-            "SELECT DISTINCT p.name
+            "SELECT p.name
              FROM playlists p
-             JOIN playlist_tracks pt ON pt.playlist_id = p.id
-             WHERE pt.track_id = ?1
+             WHERE p.id IN (SELECT playlist_id FROM playlist_tracks WHERE track_id = ?1)
              ORDER BY p.name COLLATE NOCASE",
         )
         .context("prepare playlist_names_referencing_track")?;
@@ -6032,6 +6033,32 @@ mod tests {
             0
         );
 
+        Ok(())
+    }
+
+    /// R30-07 (ADR 0084 task 030, decision D4): the count is the number of
+    /// playlists that hold the track, not the number of entries.
+    #[test]
+    fn adr_0084_music_open_defects_r30_07_count_counts_each_playlist_once() -> Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = create_test_feed(&conn)?;
+        let twice = insert_track_full(&conn, feed_id, "Twice", Some(1), true)?;
+        let spread = insert_track_full(&conn, feed_id, "Spread", Some(2), true)?;
+        let none = insert_track_full(&conn, feed_id, "None", Some(3), true)?;
+        let first = playlist_create(&conn, "First")?;
+        let second = playlist_create(&conn, "Second")?;
+        playlist_append(&conn, first, twice)?;
+        playlist_append(&conn, first, twice)?;
+        playlist_append(&conn, first, spread)?;
+        playlist_append(&conn, second, spread)?;
+
+        assert_eq!(playlist_reference_count_for_track(&conn, twice)?, 1);
+        assert_eq!(playlist_reference_count_for_track(&conn, spread)?, 2);
+        assert_eq!(playlist_reference_count_for_track(&conn, none)?, 0);
+        assert_eq!(
+            playlist_names_referencing_track(&conn, twice)?,
+            vec!["First"]
+        );
         Ok(())
     }
 

@@ -38,10 +38,10 @@ pub mod tooltip;
 
 pub use button::{Button, ButtonLabelTreatment, ButtonSize, ButtonVariant};
 pub(crate) use checkbox::{Checkbox, CheckboxState};
-pub(crate) use context_menu::MenuLevelControls;
 pub use context_menu::{
     ContextMenu, ContextMenuItem, ContextMenuItemDisplay, ContextMenuScope, PointerContextMenu,
 };
+pub(crate) use context_menu::{ContextMenuHandle, MenuLevelControls};
 pub use divider::Divider;
 pub use image::{Image, ImageSize};
 pub use label::{Label, LabelVariant};

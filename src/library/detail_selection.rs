@@ -10,7 +10,9 @@
 
 #![warn(clippy::pedantic)]
 
-use gpui::{AnyElement, App, Context, FocusHandle, Modifiers, ScrollHandle, Window};
+use gpui::{
+    point, px, AnyElement, App, Context, FocusHandle, Modifiers, Pixels, ScrollHandle, Window,
+};
 
 use super::{LibraryApp, LibraryDetail};
 use crate::app::keyboard::primary_modifier_held;
@@ -26,8 +28,98 @@ use crate::view_models::detail_selection::{
 use crate::view_models::library::{ContentListSelectionTarget, PlaylistDetailVm};
 use crate::view_models::list_selection::{FocusStep, RowSelectionVm};
 use crate::view_models::workspace::{
-    DiscoverView, FrameNavigationEntry, NavigationPathStart, ReleaseKey,
+    DetailScrollTarget, DiscoverView, FrameNavigationEntry, NavigationLocationId,
+    NavigationPathStart, ReleaseKey,
 };
+
+/// The scroll binding of the detail column to the open history entry (ADR
+/// 0084 Decision 9, amended on 2026-10-21).
+///
+/// A move to another history entry stores the offset of the entry that
+/// closes and sets the offset of the new entry. GPUI keeps an offset in
+/// the length of the page, so a shorter page shows its end. A page that
+/// loads after its first draw gets the stored offset when it becomes long
+/// enough, until the operator scrolls it.
+#[derive(Debug, Default)]
+pub(crate) struct DetailScrollBinding {
+    bound: Option<NavigationLocationId>,
+    /// The restored offset that the page cannot hold yet.
+    pending: Option<Pixels>,
+}
+
+impl DetailScrollBinding {
+    /// Binds `handle` to `target`. Gives the history entry that closed and
+    /// its offset, in whole pixels, when the entry changes.
+    pub(crate) fn bind(
+        &mut self,
+        handle: &ScrollHandle,
+        target: DetailScrollTarget,
+        entry_changed: bool,
+    ) -> Option<(NavigationLocationId, u32)> {
+        if entry_changed || self.bound != Some(target.location) {
+            let closed = self.bound.map(|location| {
+                // A pending offset is the one the closing page could not
+                // hold yet. Store it, not the shorter offset that
+                // happened to show (review of 2026-10-21).
+                let offset = self.pending.unwrap_or_else(|| -handle.offset().y);
+                (location, whole_pixels(offset))
+            });
+            let offset = whole_pixels_to_offset(target.offset);
+            handle.set_offset(point(px(0.0), -offset));
+            self.bound = Some(target.location);
+            self.pending = (target.offset > 0).then_some(offset);
+            return closed;
+        }
+        if let Some(offset) = self.pending {
+            let current = -handle.offset().y;
+            let max = handle.max_offset().y;
+            if (current - offset.min(max)).abs() > px(1.0) {
+                // The operator scrolled the page.
+                self.pending = None;
+            } else if max >= offset {
+                self.pending = None;
+            } else {
+                handle.set_offset(point(px(0.0), -offset));
+            }
+        }
+        None
+    }
+
+    /// Clears the pending offset (review of 2026-10-21). The operator
+    /// interacted with the detail column: a scroll, a click or a key. A
+    /// page that grows later, for example through the description
+    /// toggle, must not jump to the offset the page could not hold when
+    /// it opened.
+    pub(crate) fn clear_pending(&mut self) {
+        self.pending = None;
+    }
+}
+
+/// The stored offset `offset` as a GPUI length.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "an f32 holds each whole pixel below 2^24 exactly"
+)]
+fn whole_pixels_to_offset(offset: u32) -> Pixels {
+    px(offset as f32)
+}
+
+/// The offset `offset` in whole pixels. A negative offset gives 0.
+fn whole_pixels(offset: Pixels) -> u32 {
+    let value = f32::from(offset).round();
+    if value <= 0.0 {
+        0
+    } else {
+        // The value is positive and below the length of a page.
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a positive scroll offset fits in u32"
+        )]
+        let whole = value as u32;
+        whole
+    }
+}
 
 impl LibraryApp {
     /// The focus handle of the Music detail column.
@@ -91,19 +183,39 @@ impl LibraryApp {
         self.vm.library_release_facts(key)
     }
 
-    /// A page change (ADR 0084 packet 018): clears the detail selection,
-    /// sets `Normal`, and scrolls the detail column to the top.
+    /// A page change (ADR 0084 packet 018): clears the detail selection and
+    /// sets `Normal`. The scroll offset changes at the next
+    /// [`Self::bind_detail_selection`], which first stores the offset of
+    /// the page that closes.
     pub(crate) fn reset_detail_selection(&mut self, entry: &FrameNavigationEntry) {
         self.detail_selection.reset(Some(entry.clone()));
-        self.detail_column_scroll.set_offset(gpui::Point::default());
     }
 
-    /// Binds the detail selection to the open page `entry`. A move to
-    /// another page clears it, the same as [`Self::reset_detail_selection`].
-    pub(crate) fn bind_detail_selection(&mut self, entry: &FrameNavigationEntry) {
-        if self.detail_selection.bind(entry) {
-            self.detail_column_scroll.set_offset(gpui::Point::default());
-        }
+    /// Binds the detail selection and the detail column offset to the open
+    /// history entry. A move to another page clears the selection, the
+    /// same as [`Self::reset_detail_selection`]. A move to another history
+    /// entry shows the page at `target` (ADR 0084 Decision 9, amended on
+    /// 2026-10-21). A new open gives the top. Back and Forward give the
+    /// stored offset. The caller stores the returned offset of the entry
+    /// that closed.
+    pub(crate) fn bind_detail_selection(
+        &mut self,
+        entry: &FrameNavigationEntry,
+        target: DetailScrollTarget,
+    ) -> Option<(NavigationLocationId, u32)> {
+        let entry_changed = self.detail_selection.bind(entry);
+        self.detail_scroll_binding
+            .bind(&self.detail_column_scroll, target, entry_changed)
+    }
+
+    /// Clears the pending restored offset of the detail column (review of
+    /// 2026-10-21). Call this from each click and key entry point of the
+    /// detail column, and from a click that can grow the open page, for
+    /// example the description toggle. A page the operator already acted
+    /// on must not later jump to an offset it could not hold when it
+    /// opened.
+    pub(crate) fn clear_pending_detail_scroll(&mut self) {
+        self.detail_scroll_binding.clear_pending();
     }
 
     /// The selectable rows of a detail page that this entity renders: a
@@ -164,6 +276,7 @@ impl LibraryApp {
         let open = self
             .detail_selection
             .click(key, click, &rows.selection_rows());
+        self.clear_pending_detail_scroll();
         cx.notify();
         open
     }
@@ -300,6 +413,7 @@ impl LibraryApp {
     /// A click on the checkbox of a detail row.
     pub(crate) fn toggle_detail_row(&mut self, key: &DetailRowKey, cx: &mut Context<Self>) {
         self.detail_selection.toggle_row(key);
+        self.clear_pending_detail_scroll();
         cx.notify();
     }
 
@@ -356,6 +470,7 @@ impl LibraryApp {
         if !self.detail_column_focus.contains_focused(window, cx) {
             return;
         }
+        self.clear_pending_detail_scroll();
         match rows.filter(|rows| rows.has_selectable_rows()) {
             Some(rows) => {
                 if self
@@ -390,6 +505,7 @@ impl LibraryApp {
             return;
         };
         self.detail_selection.toggle_focused(&rows.selection_rows());
+        self.clear_pending_detail_scroll();
         cx.notify();
     }
 
@@ -408,6 +524,7 @@ impl LibraryApp {
             return;
         };
         self.detail_selection.select_all(&rows.selection_rows());
+        self.clear_pending_detail_scroll();
         cx.notify();
     }
 
@@ -429,8 +546,163 @@ impl LibraryApp {
         }
         let ended = self.detail_selection.end_selecting();
         if ended {
+            self.clear_pending_detail_scroll();
             cx.notify();
         }
         ended
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use gpui::{point, px, ScrollHandle};
+
+    use super::DetailScrollBinding;
+    use crate::view_models::workspace::{
+        FrameNavigationEntry, FrameNavigationState, MusicDestination, TrackKey,
+    };
+
+    fn track(id: i64) -> FrameNavigationEntry {
+        FrameNavigationEntry::Track(TrackKey::from_index_track_target(None, id.to_string()))
+    }
+
+    /// Binds the open entry of `nav` and stores the offset of the entry
+    /// that closed, as the top app does at each render.
+    fn bind(
+        binding: &mut DetailScrollBinding,
+        handle: &ScrollHandle,
+        nav: &mut FrameNavigationState,
+        entry_changed: bool,
+    ) {
+        if let Some((location, offset)) =
+            binding.bind(handle, nav.detail_scroll_target(), entry_changed)
+        {
+            nav.record_detail_scroll(location, offset);
+        }
+    }
+
+    fn offset(handle: &ScrollHandle) -> gpui::Pixels {
+        -handle.offset().y
+    }
+
+    /// R30-11 (ADR 0084 Decision 9, amended on 2026-10-21): a second page
+    /// of the same type opens at the top. The same entry again does not
+    /// change the offset. Back and Forward show the stored offset of the
+    /// history entry. A new open of a page that is in the history shows it
+    /// at the top.
+    #[test]
+    fn adr_0084_music_open_defects_r30_11_offset_for_each_history_entry() {
+        let handle = ScrollHandle::new();
+        let mut binding = DetailScrollBinding::default();
+        let mut nav =
+            FrameNavigationState::new(FrameNavigationEntry::Destination(MusicDestination::Tracks));
+        nav.push(track(1));
+        bind(&mut binding, &handle, &mut nav, true);
+        assert_eq!(offset(&handle), px(0.0));
+
+        // The operator scrolls the first track page. The same entry again
+        // keeps the offset.
+        handle.set_offset(point(px(0.0), px(-400.0)));
+        bind(&mut binding, &handle, &mut nav, false);
+        assert_eq!(offset(&handle), px(400.0));
+
+        // A second track page opens at the top.
+        nav.push(track(2));
+        bind(&mut binding, &handle, &mut nav, true);
+        assert_eq!(offset(&handle), px(0.0));
+        handle.set_offset(point(px(0.0), px(-150.0)));
+
+        // Back shows the first page at its stored offset.
+        nav.go_back().unwrap();
+        bind(&mut binding, &handle, &mut nav, true);
+        assert_eq!(offset(&handle), px(400.0));
+
+        // Forward shows the second page at its stored offset.
+        nav.go_forward().unwrap();
+        bind(&mut binding, &handle, &mut nav, true);
+        assert_eq!(offset(&handle), px(150.0));
+
+        // A new open of the first page shows it at the top.
+        nav.push(track(1));
+        bind(&mut binding, &handle, &mut nav, true);
+        assert_eq!(offset(&handle), px(0.0));
+    }
+
+    /// Review of 2026-10-21, P5 point 2: a page can close while its
+    /// restored offset is still pending, because the page cannot hold it
+    /// yet. The close must store the pending offset, not the shorter
+    /// offset that happened to show.
+    #[test]
+    fn adr_0084_music_open_defects_review_closing_a_pending_offset_keeps_it_full() {
+        let handle = ScrollHandle::new();
+        let mut binding = DetailScrollBinding::default();
+        let mut nav =
+            FrameNavigationState::new(FrameNavigationEntry::Destination(MusicDestination::Tracks));
+        nav.push(track(1));
+        bind(&mut binding, &handle, &mut nav, true);
+        handle.set_offset(point(px(0.0), px(-400.0)));
+        bind(&mut binding, &handle, &mut nav, false);
+
+        nav.push(track(2));
+        bind(&mut binding, &handle, &mut nav, true);
+
+        // Back shows track 1 at its stored offset of 400. The page is
+        // short today, so it can only show 120 (the real element clamps
+        // the handle to the length of its content).
+        nav.go_back().unwrap();
+        bind(&mut binding, &handle, &mut nav, true);
+        handle.set_offset(point(px(0.0), px(-120.0)));
+
+        // Track 1 closes again while its offset of 400 is still pending.
+        nav.push(track(2));
+        bind(&mut binding, &handle, &mut nav, true);
+        nav.go_back().unwrap();
+        bind(&mut binding, &handle, &mut nav, true);
+        assert_eq!(
+            offset(&handle),
+            px(400.0),
+            "a pending offset must survive the close of its page"
+        );
+    }
+
+    /// Review of 2026-10-21, P5 point 3: an interaction with the detail
+    /// column, for example a click on the description toggle, clears the
+    /// pending offset. A page that closes after that interaction stores
+    /// where it actually showed, not the offset it never reached.
+    #[test]
+    fn adr_0084_music_open_defects_review_an_interaction_clears_the_pending_offset() {
+        let handle = ScrollHandle::new();
+        let mut binding = DetailScrollBinding::default();
+        let mut nav =
+            FrameNavigationState::new(FrameNavigationEntry::Destination(MusicDestination::Tracks));
+        nav.push(track(1));
+        bind(&mut binding, &handle, &mut nav, true);
+        handle.set_offset(point(px(0.0), px(-400.0)));
+        bind(&mut binding, &handle, &mut nav, false);
+
+        nav.push(track(2));
+        bind(&mut binding, &handle, &mut nav, true);
+
+        // Back shows track 1's stored offset of 400, but the page is
+        // short today and can only show 120.
+        nav.go_back().unwrap();
+        bind(&mut binding, &handle, &mut nav, true);
+        handle.set_offset(point(px(0.0), px(-120.0)));
+
+        // The operator clicks the description toggle: an interaction
+        // with the detail column, with no change of entry.
+        binding.clear_pending();
+
+        // Track 1 closes. The pending offset is gone, so the close
+        // stores where the page actually showed, not the unmet 400.
+        nav.push(track(2));
+        bind(&mut binding, &handle, &mut nav, true);
+        nav.go_back().unwrap();
+        bind(&mut binding, &handle, &mut nav, true);
+        assert_eq!(
+            offset(&handle),
+            px(120.0),
+            "a cleared pending offset must not jump the page later"
+        );
     }
 }
