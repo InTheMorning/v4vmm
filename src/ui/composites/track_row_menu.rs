@@ -128,7 +128,7 @@ pub(crate) fn track_row_menu_items(
         .map(|item| {
             let entry = ContextMenuItem::new(ContextMenuItemDisplay {
                 id: SharedString::from(item.id.clone()),
-                label: SharedString::from(item.label),
+                label: SharedString::from(item.label.clone()),
                 a11y_label: SharedString::from(item.a11y_label.clone()),
                 destructive: item.destructive,
                 disabled: false,

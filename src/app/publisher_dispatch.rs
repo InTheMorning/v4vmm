@@ -450,21 +450,38 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) -> ReleaseSectionRows {
         let library = self.library.read(cx);
-        for row in sections
-            .iter_mut()
-            .flat_map(|section| section.rows.iter_mut())
-        {
-            let key = row
-                .open
-                .as_ref()
-                .map(|open| DetailRowKey::Release(open.key.clone()));
-            let title = match &row.title {
-                TitleDisplay::Stated(text) | TitleDisplay::Missing(text) => text.as_str(),
-            };
-            row.selection = library
-                .detail_selection()
-                .row_selection(key.as_ref(), title);
+        for section in &mut sections {
+            for row in &mut section.rows {
+                let key = row
+                    .open
+                    .as_ref()
+                    .map(|open| DetailRowKey::Release(open.key.clone()));
+                let title = match &row.title {
+                    TitleDisplay::Stated(text) | TitleDisplay::Missing(text) => text.as_str(),
+                };
+                row.selection = library
+                    .detail_selection()
+                    .row_selection(key.as_ref(), title);
+                // ADR 0084 task 031: the one release row menu of the feed
+                // page rows and the name page rows. The Releases list rows
+                // use the same function. A row with no open action has no
+                // menu. The row id holds the section, so each row has its
+                // own menu state.
+                row.menu = row.open.as_ref().and_then(|open| {
+                    library.release_row_menu(
+                        &row.element_id(&section.heading),
+                        &open.key,
+                        title,
+                        row.kind,
+                    )
+                });
+            }
         }
+        // The right-click menu gives the focus back to the detail column.
+        let menu = library.release_row_menu_context(
+            self.library.downgrade(),
+            library.detail_column_focus().clone(),
+        );
         let scroll = library.detail_scroll_handle();
         let reveal = library.detail_scroll_reveal().clone();
         let entity = cx.entity();
@@ -488,6 +505,7 @@ impl TopApp {
             reveal,
             on_click_release,
             on_toggle_release,
+            menu,
         }
     }
 

@@ -23,6 +23,9 @@ use crate::view_models::list_selection::{
     FocusStep, ListSelection, RowSelectionVm, SelectionMode, SelectionRow,
 };
 use crate::view_models::publisher_page::{PublisherPageSectionVm, TitleDisplay};
+use crate::view_models::release_row_actions::{
+    ReleaseActionCounts, ReleaseRowAvailability, ReleaseRowState,
+};
 use crate::view_models::search_results::{
     FeedResultDisplay, SearchLibraryLookup, TrackResultDisplay,
 };
@@ -117,23 +120,82 @@ pub(crate) enum DetailRowClick {
     Extend,
 }
 
+/// The downloaded tracks of one Library release (ADR 0084 task 031).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ReleaseDownloaded {
+    /// No track of the release is downloaded. A release with no track
+    /// has this state.
+    NoTrack,
+    /// One or more tracks are downloaded, but not each track.
+    SomeTracks,
+    /// Each track of the release is downloaded.
+    EachTrack,
+}
+
+impl ReleaseDownloaded {
+    /// The state of a release with the download fact `downloaded` of
+    /// each track.
+    #[must_use]
+    pub(crate) fn of(downloaded: impl IntoIterator<Item = bool>) -> Self {
+        let (mut any, mut all, mut count) = (false, true, 0_usize);
+        for track in downloaded {
+            any |= track;
+            all &= track;
+            count += 1;
+        }
+        match (count > 0 && all, any) {
+            (true, _) => Self::EachTrack,
+            (false, true) => Self::SomeTracks,
+            (false, false) => Self::NoTrack,
+        }
+    }
+}
+
 /// The Library facts of one release.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct LibraryReleaseFacts {
     /// The Library feed id.
     pub(crate) feed_id: i64,
-    /// Each track of the release is downloaded.
-    pub(crate) fully_downloaded: bool,
+    /// The downloaded tracks of the release.
+    pub(crate) downloaded: ReleaseDownloaded,
     /// A download job of the release key is queued or in flight. "Remove"
     /// is then absent (orchestrator correction of 2026-10-20).
     pub(crate) download_active: bool,
+    /// A removal of the release runs. "Download" and "Remove" are then
+    /// absent (ADR 0084 task 031, decision D4).
+    pub(crate) removing: bool,
 }
 
 impl LibraryReleaseFacts {
-    /// Tells if "Remove" can act on the release.
+    /// Tells if each track of the release is downloaded.
+    #[must_use]
+    pub(crate) const fn fully_downloaded(self) -> bool {
+        matches!(self.downloaded, ReleaseDownloaded::EachTrack)
+    }
+
+    /// Tells if one or more tracks of the release are downloaded. The
+    /// release page shows "Remove <kind>…" for this state (ADR 0084 task
+    /// 031, operator answer of 2026-10-21).
+    #[must_use]
+    pub(crate) const fn has_library_track(self) -> bool {
+        !matches!(self.downloaded, ReleaseDownloaded::NoTrack)
+    }
+
+    /// Tells if "Remove" can act on the release: one or more tracks of
+    /// the release are downloaded, and no job or removal of it waits or
+    /// runs. The release page uses the same rule (ADR 0084 task 031,
+    /// operator answer of 2026-10-21).
     #[must_use]
     pub(crate) const fn removable(self) -> bool {
-        self.fully_downloaded && !self.download_active
+        self.has_library_track() && !self.download_active && !self.removing
+    }
+
+    /// Tells if "Download" can act on the release: the release is not
+    /// fully downloaded, and no job or removal of it waits or runs (ADR
+    /// 0084 task 031, decision D4).
+    #[must_use]
+    pub(crate) const fn downloadable(self) -> bool {
+        !self.fully_downloaded() && !self.download_active && !self.removing
     }
 }
 
@@ -173,6 +235,25 @@ pub(crate) struct DetailReleaseRow {
     pub(crate) title: String,
     /// The Library facts. `None` for a release that is only in the Index.
     pub(crate) library: Option<LibraryReleaseFacts>,
+}
+
+impl DetailReleaseRow {
+    /// The state of the row for its actions (ADR 0084 task 031). The
+    /// detail rows hold no job fact of an Index release.
+    #[must_use]
+    pub(crate) const fn state(&self) -> ReleaseRowState {
+        ReleaseRowState::of(self.library, false)
+    }
+}
+
+/// The plan of "Download n releases" of a detail bar (ADR 0084 Decision
+/// 10). [`DetailPageRows::release_download_plan`] makes it.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct DetailReleaseDownloadPlan {
+    /// The feed id of each Library release to download.
+    pub(crate) library_feed_ids: Vec<i64>,
+    /// The feed GUID and the title of each Index release to download.
+    pub(crate) index_releases: Vec<(String, String)>,
 }
 
 /// One entry row of a playlist page (packet 025).
@@ -360,15 +441,43 @@ impl DetailPageRows {
         }
     }
 
+    /// The plan of "Download n releases": each selected release that
+    /// [`ReleaseRowAvailability::of`] lets "Download" act on. The bar
+    /// count uses the same rule, so the plan holds one job for each
+    /// counted release (ADR 0084 task 031). An Index release with a key
+    /// that is not a feed GUID has no job.
+    #[must_use]
+    pub(crate) fn release_download_plan(
+        &self,
+        selection: &DetailSelection,
+    ) -> DetailReleaseDownloadPlan {
+        let mut plan = DetailReleaseDownloadPlan::default();
+        for row in self.selected_releases(selection) {
+            if !ReleaseRowAvailability::of(row.state()).download {
+                continue;
+            }
+            match (row.library, &row.key) {
+                (Some(facts), _) => plan.library_feed_ids.push(facts.feed_id),
+                (None, ReleaseKey::FeedGuid(feed_guid)) => plan
+                    .index_releases
+                    .push((feed_guid.clone(), row.title.clone())),
+                (None, ReleaseKey::LibraryFeed(_)) => {}
+            }
+        }
+        plan
+    }
+
     /// The action bar of the detail column, or `None` outside
     /// [`SelectionMode::Selecting`].
     ///
     /// Track rows: "Download" counts the tracks that are not downloaded,
     /// "Add to playlist" counts the Library tracks, and "Remove" counts
-    /// the downloaded tracks. Release rows: "Download" counts an Index
-    /// release and a Library release that is not fully downloaded. "Add
-    /// to playlist" counts each Library release. "Remove" counts each
-    /// Library release that is fully downloaded. Playlist entries: see
+    /// the downloaded tracks. Release rows: the counts of
+    /// [`ReleaseActionCounts::of`]. "Download" counts an Index release and
+    /// a Library release that is not fully downloaded, with no job and no
+    /// removal. "Add to playlist" counts each Library release. "Remove"
+    /// counts each Library release with one or more downloaded tracks, with
+    /// no job and no removal. Playlist entries: see
     /// [`Self::playlist_action_bar`].
     #[must_use]
     pub(crate) fn action_bar(&self, selection: &DetailSelection) -> Option<SelectionActionBarVm> {
@@ -393,20 +502,18 @@ impl DetailPageRows {
                     remove_count: selected.iter().filter(|row| row.removable()).count(),
                 }
             }
+            // ADR 0084 task 031: the release row menu and this bar count
+            // through the one availability rule. The detail rows hold no
+            // job fact of an Index release.
             Self::Releases(_) => {
                 let selected = self.selected_releases(selection);
+                let counts = ReleaseActionCounts::of(selected.iter().map(|row| row.state()));
                 SelectionActionCounts {
                     selected_count: selected.len(),
                     item_noun: DetailListKind::Releases.item_noun(),
-                    download_count: selected
-                        .iter()
-                        .filter(|row| row.library.is_none_or(|facts| !facts.fully_downloaded))
-                        .count(),
-                    add_count: selected.iter().filter(|row| row.library.is_some()).count(),
-                    remove_count: selected
-                        .iter()
-                        .filter(|row| row.library.is_some_and(LibraryReleaseFacts::removable))
-                        .count(),
+                    download_count: counts.download,
+                    add_count: counts.add_to_playlist,
+                    remove_count: counts.remove,
                 }
             }
         };
@@ -1030,8 +1137,13 @@ mod tests {
     fn library_facts(feed_id: i64, fully_downloaded: bool) -> LibraryReleaseFacts {
         LibraryReleaseFacts {
             feed_id,
-            fully_downloaded,
+            downloaded: if fully_downloaded {
+                ReleaseDownloaded::EachTrack
+            } else {
+                ReleaseDownloaded::NoTrack
+            },
             download_active: false,
+            removing: false,
         }
     }
 
@@ -1049,6 +1161,8 @@ mod tests {
                 a11y_label: format!("Open the release {title}"),
             }),
             selection: RowSelectionVm::none(),
+            kind: crate::view_models::release_kind::ReleaseKind::Album,
+            menu: None,
         }
     }
 
@@ -1382,6 +1496,95 @@ mod tests {
             .is_none());
         assert!(index_only.action(SelectionActionKind::Remove).is_none());
     }
+
+    /// ADR 0084 task 031, operator answer of 2026-10-21: the downloaded
+    /// tracks of a release select "Remove". A release with no track has
+    /// no downloaded track.
+    #[test]
+    fn adr_0084_release_row_actions_release_downloaded_state() {
+        assert_eq!(ReleaseDownloaded::of([]), ReleaseDownloaded::NoTrack);
+        assert_eq!(
+            ReleaseDownloaded::of([false, false]),
+            ReleaseDownloaded::NoTrack
+        );
+        assert_eq!(
+            ReleaseDownloaded::of([false, true]),
+            ReleaseDownloaded::SomeTracks
+        );
+        assert_eq!(
+            ReleaseDownloaded::of([true, true]),
+            ReleaseDownloaded::EachTrack
+        );
+    }
+
+    /// Review correction B of 2026-10-21 (ADR 0084 task 031): the plan of
+    /// "Download n releases" of a detail bar holds one job for each
+    /// release that the bar counts. A release that is fully downloaded,
+    /// with a job, or in a removal gets no job. The detail rows hold no
+    /// job fact of an Index release.
+    #[test]
+    fn adr_0084_release_row_actions_detail_download_plan_matches_the_bar_count() {
+        let facts = |feed_id, fully_downloaded, download_active, removing| LibraryReleaseFacts {
+            feed_id,
+            downloaded: if fully_downloaded {
+                ReleaseDownloaded::EachTrack
+            } else {
+                ReleaseDownloaded::SomeTracks
+            },
+            download_active,
+            removing,
+        };
+        let rows = DetailPageRows::Releases(vec![
+            DetailReleaseRow {
+                key: release_key("normal"),
+                title: "Normal".to_owned(),
+                library: Some(facts(1, false, false, false)),
+            },
+            DetailReleaseRow {
+                key: release_key("full"),
+                title: "Full".to_owned(),
+                library: Some(facts(2, true, false, false)),
+            },
+            DetailReleaseRow {
+                key: release_key("job"),
+                title: "Job".to_owned(),
+                library: Some(facts(3, false, true, false)),
+            },
+            DetailReleaseRow {
+                key: release_key("removing"),
+                title: "Removing".to_owned(),
+                library: Some(facts(4, false, false, true)),
+            },
+            DetailReleaseRow {
+                key: release_key("index"),
+                title: "Index".to_owned(),
+                library: None,
+            },
+        ]);
+        let mut selection = DetailSelection::new();
+        selection.bind(&FrameNavigationEntry::PublisherDetail(
+            "feed-artist".to_owned(),
+        ));
+        selection.select_all(&rows.selection_rows());
+
+        let plan = rows.release_download_plan(&selection);
+        assert_eq!(plan.library_feed_ids, [1]);
+        assert_eq!(
+            plan.index_releases,
+            [("index".to_owned(), "Index".to_owned())]
+        );
+        let bar = rows.action_bar(&selection).expect("Selecting shows a bar");
+        let download = bar
+            .action(SelectionActionKind::Download)
+            .expect("two releases can download");
+        assert_eq!(download.label, "Download 2 releases");
+        assert_eq!(
+            plan.library_feed_ids.len() + plan.index_releases.len(),
+            2,
+            "the plan size equals the bar count"
+        );
+    }
+
     fn discover_row(id: &str, title: &str) -> ContentListRowDisplay {
         ContentListRowDisplay::new(
             id,

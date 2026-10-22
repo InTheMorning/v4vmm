@@ -177,7 +177,8 @@ pub(crate) fn index_release_row(feed: &Feed) -> Option<DestinationListRowVm> {
         .episode_count
         .and_then(|count| usize::try_from(count).ok())
         .unwrap_or(0);
-    let kind = ReleaseKind::resolve(feed.release_kind.as_deref(), track_count).label();
+    let release_kind = ReleaseKind::resolve(feed.release_kind.as_deref(), track_count);
+    let kind = release_kind.label();
     let secondary_text = match feed
         .release_artist
         .as_deref()
@@ -198,6 +199,8 @@ pub(crate) fn index_release_row(feed: &Feed) -> Option<DestinationListRowVm> {
         art: None,
         open: DestinationListRowTarget::Release(key),
         selection: RowSelectionVm::none(),
+        release_kind: Some(release_kind),
+        menu: None,
     })
 }
 
@@ -363,6 +366,8 @@ pub(crate) mod tests {
                 art: None,
                 open: DestinationListRowTarget::Release(key),
                 selection: RowSelectionVm::none(),
+                release_kind: None,
+                menu: None,
             }),
         }
     }

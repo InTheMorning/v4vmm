@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::db::TrackRow;
 use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
-use crate::view_models::detail_selection::{DetailRowClick, DetailRowKey, LibraryReleaseFacts};
+use crate::view_models::detail_selection::{
+    DetailRowClick, DetailRowKey, LibraryReleaseFacts, ReleaseDownloaded,
+};
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::selection_action_bar::SelectionActionKind;
 use crate::view_models::workspace::{ReleaseKey, TrackKey};
@@ -44,8 +46,13 @@ impl RecordedLibrary {
             SearchLibraryRelease {
                 facts: LibraryReleaseFacts {
                     feed_id,
-                    fully_downloaded: fully,
+                    downloaded: if fully {
+                        ReleaseDownloaded::EachTrack
+                    } else {
+                        ReleaseDownloaded::NoTrack
+                    },
                     download_active: false,
+                    removing: false,
                 },
                 state_word: word.to_owned(),
                 kind: ReleaseKind::Album,

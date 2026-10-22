@@ -1,9 +1,11 @@
-//! The drag of one track to a playlist (ADR 0083 Decision 6, task 008).
+//! The drag of tracks to a playlist (ADR 0083 Decision 6, task 008).
 //!
 //! This composite holds the two drag payloads, the one drag preview, the
 //! drag source of a track row and the drop target of a playlist row.
 //!
-//! - A `TrackRow` and a Tracks list row start a [`TrackDragPayload`].
+//! - A `TrackRow` and a Tracks list row start a [`TrackDragPayload`]. In
+//!   selection mode, a checked row carries each checked track (ADR 0083
+//!   Decision 6, amended 2026-10-21; ADR 0084 task 031).
 //! - The drag handle of a playlist entry starts a
 //!   [`PlaylistTrackDragPayload`].
 //! - Both drags show [`TrackDragPreview`].
@@ -21,16 +23,21 @@ use gpui::{
     SharedString, Stateful, Window,
 };
 
+use gpui_base::GlobalState;
+
 use crate::ui::style::color;
 use crate::ui::tokens::{color as token_color, FontSize, Radius, SemanticColor, Spacing};
 use crate::view_models::library::{playlist_accepts_drop, TrackDragVm};
 
-/// The drag of one track from a `TrackRow` or from a Tracks list row
-/// (decision D2).
+/// The drag of tracks from a `TrackRow` or from a Tracks list row
+/// (decision D2). The payload keeps its own data, so the drop adds each
+/// track after the source row unmounts.
 #[derive(Clone, Debug)]
 pub(crate) struct TrackDragPayload {
-    pub(crate) track_id: i64,
-    pub(crate) title: SharedString,
+    /// The Library track ids, in list order.
+    pub(crate) track_ids: Vec<i64>,
+    /// The text of the preview: a title, or a count such as "3 tracks".
+    pub(crate) label: SharedString,
 }
 
 impl TrackDragPayload {
@@ -38,8 +45,8 @@ impl TrackDragPayload {
     #[must_use]
     pub(crate) fn from_vm(drag: &TrackDragVm) -> Self {
         Self {
-            track_id: drag.track_id,
-            title: SharedString::from(drag.title.clone()),
+            track_ids: drag.track_ids.clone(),
+            label: SharedString::from(drag.label.clone()),
         }
     }
 }
@@ -56,8 +63,9 @@ pub(crate) struct PlaylistTrackDragPayload {
     pub(crate) title: SharedString,
 }
 
-/// The one drag preview of a track (decision D9): the title in bold
-/// `FontSize::Micro` text, with an accent border.
+/// The one drag preview of a track (decision D9): the label in bold
+/// `FontSize::Micro` text, with an accent border. The label is a title or
+/// the count of a selection.
 pub(crate) struct TrackDragPreview {
     title: SharedString,
 }
@@ -91,23 +99,34 @@ impl Render for TrackDragPreview {
 ///
 /// - The drag starts only after the pointer moves. GPUI then clears the
 ///   pending click of `el`, so a drag never opens the row page.
-/// - The left mouse-down stops at `el`, so the window root does not start
-///   a text selection during the drag. The controls in `el` get the
-///   mouse-down before `el`.
+/// - The left mouse-down of `el` suppresses the text selection of the
+///   window root, so the drag selects no text. The controls in `el` get
+///   the mouse-down before `el`.
+/// - The mouse-down continues to the ancestors of `el`. Thus a click on
+///   the row gives the focus to its list column or detail column, also in
+///   selection mode (ADR 0084 task 031, review correction C of
+///   2026-10-21). Do not stop the propagation and do not prevent the
+///   default here: GPUI then does not move the focus.
 pub(crate) fn attach_track_drag(el: Stateful<Div>, payload: TrackDragPayload) -> Stateful<Div> {
-    el.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .on_drag(
-            payload,
-            |payload: &TrackDragPayload, _: Point<Pixels>, _: &mut Window, cx: &mut App| {
-                TrackDragPreview::build(&payload.title, cx)
-            },
-        )
+    el.on_mouse_down(MouseButton::Left, |_, _, cx| {
+        if cx.has_global::<GlobalState>() {
+            GlobalState::suppress_text_selection(cx);
+        }
+    })
+    .on_drag(
+        payload,
+        |payload: &TrackDragPayload, _: Point<Pixels>, _: &mut Window, cx: &mut App| {
+            TrackDragPreview::build(&payload.label, cx)
+        },
+    )
 }
 
-/// One drop of a track on a playlist row (ADR 0083 task 008).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// One drop of tracks on a playlist row (ADR 0083 task 008, ADR 0084
+/// task 031). The host adds each track of `track_ids`, in this order,
+/// through one append.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PlaylistDrop {
-    pub(crate) track_id: i64,
+    pub(crate) track_ids: Vec<i64>,
     pub(crate) playlist_id: i64,
 }
 
@@ -130,7 +149,8 @@ pub(crate) fn playlist_drop_handler(
 /// - An accepting row shows a 2 px accent outline while the pointer is on
 ///   it (decision D8). The outline is on a layer over the row, so the row
 ///   does not move.
-/// - A drop gives one [`PlaylistDrop`] to `on_drop`.
+/// - A drop gives one [`PlaylistDrop`] to `on_drop`, with each dragged
+///   track.
 pub(crate) fn playlist_drop_target(
     row: AnyElement,
     playlist_id: i64,
@@ -159,7 +179,7 @@ pub(crate) fn playlist_drop_target(
         .on_drop(
             move |payload: &TrackDragPayload, window: &mut Window, cx: &mut App| {
                 let drop = PlaylistDrop {
-                    track_id: payload.track_id,
+                    track_ids: payload.track_ids.clone(),
                     playlist_id,
                 };
                 on_track_drop(&drop, window, cx);
@@ -168,7 +188,7 @@ pub(crate) fn playlist_drop_target(
         .on_drop(
             move |payload: &PlaylistTrackDragPayload, window: &mut Window, cx: &mut App| {
                 let drop = PlaylistDrop {
-                    track_id: payload.track_id,
+                    track_ids: vec![payload.track_id],
                     playlist_id,
                 };
                 on_drop(&drop, window, cx);
@@ -195,6 +215,7 @@ mod track_drag_tests {
     use super::{playlist_drop_target, PlaylistDrop, PlaylistDropHandler};
     use crate::ui::composites::{ListRow, SelectableText, TrackRow};
     use crate::view_models::library::TrackDragVm;
+    use crate::view_models::list_selection::RowSelectionVm;
     use crate::view_models::track_detail::TrackRowVm;
 
     /// The recorded results of one test window.
@@ -206,7 +227,12 @@ mod track_drag_tests {
 
     struct DropTest {
         record: Rc<RefCell<Record>>,
+        /// The focus of the column that holds the source row.
+        column_focus: gpui::FocusHandle,
         drag: Option<TrackDragVm>,
+        /// The selection facts of the source row. A checkbox shows in
+        /// `Selecting`.
+        selection: RowSelectionVm,
         show_source: bool,
     }
 
@@ -230,11 +256,12 @@ mod track_drag_tests {
         ) -> impl gpui::IntoElement {
             let drops = Rc::clone(&self.record);
             let on_drop: PlaylistDropHandler = Rc::new(move |drop, _, _| {
-                drops.borrow_mut().drops.push(*drop);
+                drops.borrow_mut().drops.push(drop.clone());
             });
             let clicks = Rc::clone(&self.record);
             let source = self.show_source.then(|| {
                 TrackRow::from_vm("drag-source", &row_vm())
+                    .selection(self.selection.clone())
                     .drag(self.drag.clone())
                     .on_click(move |_, _, _| clicks.borrow_mut().clicks += 1)
             });
@@ -246,7 +273,12 @@ mod track_drag_tests {
                     "drop-text-before",
                     "Text before the track row",
                 ))
-                .child(div().w(gpui::px(400.)).children(source))
+                .child(
+                    div()
+                        .w(gpui::px(400.))
+                        .track_focus(&self.column_focus)
+                        .children(source),
+                )
                 .child(div().debug_selector(|| "drop-target-7".to_owned()).child(
                     playlist_drop_target(
                         ListRow::new("playlist-7").child("Mix").into_any_element(),
@@ -286,15 +318,29 @@ mod track_drag_tests {
         gpui::Entity<DropTest>,
         &mut VisualTestContext,
     ) {
+        open_with(cx, drag, RowSelectionVm::none())
+    }
+
+    fn open_with(
+        cx: &mut TestAppContext,
+        drag: Option<TrackDragVm>,
+        selection: RowSelectionVm,
+    ) -> (
+        Rc<RefCell<Record>>,
+        gpui::Entity<DropTest>,
+        &mut VisualTestContext,
+    ) {
         cx.update(gpui_component::init);
         let record = Rc::new(RefCell::new(Record::default()));
         let state_record = Rc::clone(&record);
         let state = Rc::new(RefCell::new(None));
         let state_out = Rc::clone(&state);
         let (_root, cx) = cx.add_window_view(move |window, cx| {
-            let view = cx.new(|_| DropTest {
+            let view = cx.new(|cx| DropTest {
                 record: state_record,
+                column_focus: cx.focus_handle(),
                 drag,
+                selection,
                 show_source: true,
             });
             *state_out.borrow_mut() = Some(view.clone());
@@ -308,10 +354,7 @@ mod track_drag_tests {
     }
 
     fn drag_fact() -> TrackDragVm {
-        TrackDragVm {
-            track_id: 42,
-            title: "Face Pale".to_owned(),
-        }
+        TrackDragVm::one(42, "Face Pale")
     }
 
     /// A point on the title of the source row, in its clickable body.
@@ -342,7 +385,7 @@ mod track_drag_tests {
         assert_eq!(
             record.borrow().drops,
             vec![PlaylistDrop {
-                track_id: 42,
+                track_ids: vec![42],
                 playlist_id: 7,
             }]
         );
@@ -377,7 +420,7 @@ mod track_drag_tests {
         assert_eq!(
             record.borrow().drops,
             vec![PlaylistDrop {
-                track_id: 42,
+                track_ids: vec![42],
                 playlist_id: 7,
             }]
         );
@@ -437,5 +480,88 @@ mod track_drag_tests {
         cx.simulate_mouse_up(target, MouseButton::Left, Modifiers::default());
         assert!(record.borrow().drops.is_empty());
         assert_eq!(record.borrow().clicks, 0);
+    }
+
+    /// R31-10 (ADR 0083 Decision 6, amended 2026-10-21): a drag from a
+    /// checked `TrackRow` in `Selecting` onto a playlist row calls the
+    /// drop handler one time, with each checked track id in list order.
+    #[gpui::test]
+    fn adr_0083_selection_drag_r31_10_checked_row_drops_the_selection(cx: &mut TestAppContext) {
+        let drag = TrackDragVm::selection(true, &[42, 7, 19]);
+        let checked = RowSelectionVm::for_row("Face Pale", true, false, true);
+        let (record, _view, cx) = open_with(cx, drag, checked);
+        let source = source_point(cx);
+        let target = target_point(cx);
+        cx.simulate_mouse_down(source, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(target, MouseButton::Left, Modifiers::default());
+        cx.update(|_, cx| assert!(cx.has_active_drag()));
+        cx.simulate_mouse_up(target, MouseButton::Left, Modifiers::default());
+        assert_eq!(
+            record.borrow().drops,
+            vec![PlaylistDrop {
+                track_ids: vec![42, 7, 19],
+                playlist_id: 7,
+            }]
+        );
+        assert_eq!(record.borrow().clicks, 0, "a drag changes no selection");
+    }
+
+    /// Review correction C of 2026-10-21 (ADR 0084 task 031): a click on
+    /// a checked `TrackRow` in `Selecting` gives the focus to its column.
+    /// The drag of the same row still starts and selects no text.
+    #[gpui::test]
+    fn adr_0083_selection_drag_click_on_a_checked_row_focuses_its_column(cx: &mut TestAppContext) {
+        let drag = TrackDragVm::selection(true, &[42, 7]);
+        let checked = RowSelectionVm::for_row("Face Pale", true, false, true);
+        let (record, view, cx) = open_with(cx, drag, checked);
+        let focus = cx.update(|_, cx| view.read(cx).column_focus.clone());
+        let source = source_point(cx);
+        cx.update(|window, _| assert!(!focus.is_focused(window)));
+        cx.simulate_mouse_down(source, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_up(source, MouseButton::Left, Modifiers::default());
+        cx.update(|window, _| {
+            assert!(
+                focus.is_focused(window),
+                "a click on a checked row must focus its column"
+            );
+        });
+        assert_eq!(record.borrow().clicks, 1);
+
+        let target = target_point(cx);
+        cx.simulate_mouse_down(source, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(target, MouseButton::Left, Modifiers::default());
+        cx.update(|window, cx| {
+            assert!(cx.has_active_drag(), "the drag still starts");
+            assert!(
+                !gpui_base::TextSelection::has_selection(window, cx),
+                "the drag must not select text"
+            );
+        });
+        cx.simulate_mouse_up(target, MouseButton::Left, Modifiers::default());
+        assert_eq!(
+            record.borrow().drops,
+            vec![PlaylistDrop {
+                track_ids: vec![42, 7],
+                playlist_id: 7,
+            }]
+        );
+    }
+
+    /// R31-11 (ADR 0083 Decision 6, amended 2026-10-21): a `TrackRow` that
+    /// is not checked in `Selecting` starts no drag. Its drag fact is
+    /// `None`.
+    #[gpui::test]
+    fn adr_0083_selection_drag_r31_11_unchecked_row_starts_no_drag(cx: &mut TestAppContext) {
+        let drag = TrackDragVm::selection(false, &[42, 7]);
+        assert_eq!(drag, None);
+        let unchecked = RowSelectionVm::for_row("Face Pale", false, false, true);
+        let (record, _view, cx) = open_with(cx, drag, unchecked);
+        let source = source_point(cx);
+        let target = target_point(cx);
+        cx.simulate_mouse_down(source, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(target, MouseButton::Left, Modifiers::default());
+        cx.update(|_, cx| assert!(!cx.has_active_drag()));
+        cx.simulate_mouse_up(target, MouseButton::Left, Modifiers::default());
+        assert!(record.borrow().drops.is_empty());
     }
 }

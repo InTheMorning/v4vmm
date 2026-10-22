@@ -39,7 +39,7 @@ use crate::view_models::artist_identity::{
 };
 use crate::view_models::artists_everything::{self, ArtistOrderKey, LibraryArtistRow};
 use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
-use crate::view_models::detail_selection::LibraryReleaseFacts;
+use crate::view_models::detail_selection::{LibraryReleaseFacts, ReleaseDownloaded};
 use crate::view_models::download_progress::{DownloadActivity, DownloadPhase, FeedKey};
 use crate::view_models::entity_detail::{
     EntityActionTarget, EntityActionVm, ReleaseMembershipState, TrackActionState,
@@ -69,6 +69,9 @@ use crate::view_models::recent_feeds::{
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::release_page::{
     LibraryTrackMenuAvailability, TrackRowMenuFacts, TrackRowMenuVm, TrackRowRemoveLabel,
+};
+use crate::view_models::release_row_actions::{
+    release_row_menu, ReleaseActionCounts, ReleaseRowActionFacts, ReleaseRowMenuVm, ReleaseRowState,
 };
 use crate::view_models::releases_everything::{
     self, add_state_word, loaded_index_release_title, LibraryReleaseEntry, ReleaseOrderKey,
@@ -618,13 +621,44 @@ pub(crate) struct PlaylistSidebarRowVm {
 }
 
 /// The drag fact of a track row (ADR 0083 Decision 6, task 008). A row
-/// with this fact starts a drag of one track. The drop adds the track to a
-/// playlist.
+/// with this fact starts a drag of its tracks. The drop adds each track to
+/// a playlist, in this order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct TrackDragVm {
-    pub(crate) track_id: i64,
-    /// The title that the drag preview shows.
-    pub(crate) title: String,
+    /// The Library track ids, in list order. Outside selection mode, the
+    /// list holds the one track of the row.
+    pub(crate) track_ids: Vec<i64>,
+    /// The text that the drag preview shows: the title of one track, or
+    /// the count of a selection, for example "3 tracks".
+    pub(crate) label: String,
+}
+
+impl TrackDragVm {
+    /// The drag of one track outside selection mode. The preview shows its
+    /// title (ADR 0084 task 031, decision D9).
+    #[must_use]
+    pub(crate) fn one(track_id: i64, title: &str) -> Self {
+        Self {
+            track_ids: vec![track_id],
+            label: title.to_owned(),
+        }
+    }
+
+    /// The drag of a row in selection mode (ADR 0083 Decision 6, amended
+    /// 2026-10-21). A checked row carries each checked Library track of
+    /// `checked_track_ids`, in list order, and the preview shows the
+    /// count. A row that is not checked, and an empty list, give `None`.
+    #[must_use]
+    pub(crate) fn selection(checked: bool, checked_track_ids: &[i64]) -> Option<Self> {
+        if !checked || checked_track_ids.is_empty() {
+            return None;
+        }
+        let count = checked_track_ids.len();
+        Some(Self {
+            track_ids: checked_track_ids.to_vec(),
+            label: format!("{count} track{}", plural(count)),
+        })
+    }
 }
 
 /// Whether a playlist row accepts a dropped track (ADR 0083 task 008,
@@ -1615,10 +1649,7 @@ fn content_list_row_drag(row: &ContentListRowDisplay) -> Option<TrackDragVm> {
     if row.readiness_state.is_some() {
         return None;
     }
-    Some(TrackDragVm {
-        track_id: row.id.parse().ok()?,
-        title: row.title().to_owned(),
-    })
+    Some(TrackDragVm::one(row.id.parse().ok()?, row.title()))
 }
 
 /// The menu of a Library track row of the Tracks list or of the Needs
@@ -1873,6 +1904,13 @@ pub(crate) struct DestinationListRowVm {
     /// [`RowSelectionVm::none`]. [`LibraryViewModel::releases_list_with_selection`]
     /// fills it for the Releases list.
     pub(crate) selection: RowSelectionVm,
+    /// The kind of a release row (ADR 0084 Decision 5). `None` for an
+    /// artist row.
+    pub(crate) release_kind: Option<ReleaseKind>,
+    /// The "⋯" menu and the right-click menu of a release row (ADR 0084
+    /// task 031). `None` for an artist row, and in selection mode.
+    /// [`LibraryViewModel::releases_list_with_selection`] fills it.
+    pub(crate) menu: Option<ReleaseRowMenuVm>,
 }
 
 /// One entry of the Releases destination list (ADR 0084 Decisions 2 and
@@ -2054,6 +2092,8 @@ pub(crate) fn destination_release_row(
         art: None,
         open: DestinationListRowTarget::Release(key),
         selection: RowSelectionVm::none(),
+        release_kind: Some(album.release_kind()),
+        menu: None,
     })
 }
 
@@ -2135,6 +2175,8 @@ fn artist_name_row(
             // ADR 0084 Decision 10 Exclusions: the Artists list has no
             // selection model, so its row never shows a checkbox.
             selection: RowSelectionVm::none(),
+            release_kind: None,
+            menu: None,
         },
     }
 }
@@ -2213,6 +2255,8 @@ fn artist_feed_row(
             art,
             open: DestinationListRowTarget::Publisher(feed_guid),
             selection: RowSelectionVm::none(),
+            release_kind: None,
+            menu: None,
         },
     }
 }
@@ -3402,6 +3446,7 @@ impl LibraryViewModel {
                             selecting,
                         );
                     }
+                    row.menu = self.destination_release_row_menu(&row, selecting);
                     ReleasesListEntryVm::Release(row)
                 }
                 ReleasesListEntryVm::SinglesGroup(mut group) => {
@@ -3428,6 +3473,7 @@ impl LibraryViewModel {
                                 selecting,
                             );
                         }
+                        single_row.menu = self.destination_release_row_menu(single_row, selecting);
                     }
                     ReleasesListEntryVm::SinglesGroup(group)
                 }
@@ -3445,17 +3491,6 @@ impl LibraryViewModel {
             .find(|album| album.release_key().as_ref() == Some(key))
     }
 
-    /// Tells if every track of the release `key` is downloaded (ADR 0084
-    /// Decision 4's "Not downloaded" state names the rest). Gives `false`
-    /// for a key the tree does not hold: that key is a `MusicIndex`
-    /// release (ADR 0084 packet 016 Required Change 14).
-    #[must_use]
-    fn release_is_fully_downloaded(&self, key: &ReleaseKey) -> bool {
-        self.album_for_release_key(key).is_some_and(|album| {
-            !album.tracks.is_empty() && album.tracks.iter().all(|track| track.is_in_library)
-        })
-    }
-
     /// The Library facts of the release `key`, for the detail column
     /// selection (ADR 0084 packet 018). `None` when the tree does not hold
     /// the release, or when the release has no Library feed id.
@@ -3464,21 +3499,20 @@ impl LibraryViewModel {
         let album = self.album_for_release_key(key)?;
         Some(LibraryReleaseFacts {
             feed_id: album.feed_id?,
-            fully_downloaded: !album.tracks.is_empty()
-                && album.tracks.iter().all(|track| track.is_in_library),
+            downloaded: ReleaseDownloaded::of(album.tracks.iter().map(|track| track.is_in_library)),
             download_active: self.busy.release_downloading(album),
+            removing: self.busy.removing(album),
         })
     }
 
-    /// Tells if "Remove" can act on the release `key`: the release is
-    /// fully downloaded, and no download job of its key is queued or in
-    /// flight (orchestrator correction of 2026-10-20).
+    /// Tells if "Remove" can act on the release `key`: one or more tracks
+    /// of the release are downloaded, and no download job of its key is
+    /// queued or in flight (orchestrator correction of 2026-10-20). No
+    /// removal of it runs (ADR 0084 task 031).
     #[must_use]
     fn release_is_removable(&self, key: &ReleaseKey) -> bool {
-        self.release_is_fully_downloaded(key)
-            && !self
-                .album_for_release_key(key)
-                .is_some_and(|album| self.busy.release_downloading(album))
+        self.library_release_facts(key)
+            .is_some_and(LibraryReleaseFacts::removable)
     }
 
     /// The release that holds the Library track `track_id`, when the tree
@@ -3524,38 +3558,95 @@ impl LibraryViewModel {
     /// - A key that the tree does not hold is a `MusicIndex` release. It
     ///   counts in "Download" only.
     /// - A Library release counts in "Add to playlist". It also counts in
-    ///   "Download" when it is not fully downloaded, and in "Remove" when
-    ///   it is removable.
+    ///   "Download" when [`LibraryReleaseFacts::downloadable`] is true, and
+    ///   in "Remove" when [`LibraryReleaseFacts::removable`] is true.
     #[must_use]
     pub(crate) fn releases_selection_action_bar(
         &self,
         selection: &ListSelection<ReleaseKey, ReleasesRowId>,
         mode: SelectionMode,
     ) -> Option<SelectionActionBarVm> {
-        let mut counts = SelectionActionCounts {
-            selected_count: selection.selected_count(),
-            item_noun: "release",
-            download_count: 0,
-            add_count: 0,
-            remove_count: 0,
+        // ADR 0084 task 031: the release row menu and this bar count
+        // through the one availability rule.
+        let counts = ReleaseActionCounts::of(
+            selection
+                .selected_keys()
+                .filter_map(|key| self.release_row_state(key)),
+        );
+        SelectionActionBarVm::from_counts(
+            mode,
+            SelectionActionCounts {
+                selected_count: selection.selected_count(),
+                item_noun: "release",
+                download_count: counts.download,
+                add_count: counts.add_to_playlist,
+                remove_count: counts.remove,
+            },
+        )
+    }
+
+    /// The menu of a release row of the Releases list (ADR 0084 task 031,
+    /// decision D1). The group row of a singles group gets no menu
+    /// (decision D2). A row with no release kind is not a release row.
+    fn destination_release_row_menu(
+        &self,
+        row: &DestinationListRowVm,
+        selecting: bool,
+    ) -> Option<ReleaseRowMenuVm> {
+        let DestinationListRowTarget::Release(key) = &row.open else {
+            return None;
         };
-        for key in selection.selected_keys() {
-            let Some(album) = self.album_for_release_key(key) else {
-                if matches!(key, ReleaseKey::FeedGuid(_)) {
-                    counts.download_count += 1;
-                }
-                continue;
-            };
-            if album.feed_id.is_some() {
-                counts.add_count += 1;
-            }
-            if !self.release_is_fully_downloaded(key) {
-                counts.download_count += 1;
-            } else if self.release_is_removable(key) {
-                counts.remove_count += 1;
-            }
+        self.release_row_menu(
+            &row.element_id,
+            key,
+            &row.label,
+            row.release_kind?,
+            selecting,
+        )
+    }
+
+    /// The state of the release `key` for its row actions (ADR 0084 task
+    /// 031). A key that the tree does not hold is a `MusicIndex` release,
+    /// with the job state of its key. `None` for a Library key that the
+    /// tree no longer holds, and for a Library release with no feed id.
+    #[must_use]
+    pub(crate) fn release_row_state(&self, key: &ReleaseKey) -> Option<ReleaseRowState> {
+        match self.album_for_release_key(key) {
+            Some(_) => self
+                .library_release_facts(key)
+                .map(ReleaseRowState::Library),
+            None => matches!(key, ReleaseKey::FeedGuid(_)).then(|| ReleaseRowState::Index {
+                job_active: self.busy.index_release_downloading(key),
+            }),
         }
-        SelectionActionBarVm::from_counts(mode, counts)
+    }
+
+    /// The menu of one release row (ADR 0084 task 031): the Releases list
+    /// row, the feed page row and the name page row use it. A Library
+    /// release names its kind from the Library. `kind` is the kind of an
+    /// Index release. `None` in selection mode and for a row with no
+    /// available action.
+    #[must_use]
+    pub(crate) fn release_row_menu(
+        &self,
+        row_id: &str,
+        key: &ReleaseKey,
+        title: &str,
+        kind: ReleaseKind,
+        selecting: bool,
+    ) -> Option<ReleaseRowMenuVm> {
+        let state = self.release_row_state(key)?;
+        let kind = self
+            .album_for_release_key(key)
+            .map_or(kind, AlbumNode::release_kind);
+        release_row_menu(&ReleaseRowActionFacts {
+            row_id,
+            key,
+            title,
+            kind,
+            state,
+            selecting,
+        })
     }
 
     /// The plan of "Download" of the Releases selection (ADR 0084 packet
@@ -3577,6 +3668,9 @@ impl LibraryViewModel {
         let index_releases = selection
             .selected_keys()
             .filter(|key| self.album_for_release_key(key).is_none())
+            // ADR 0084 task 031: the bar count leaves out an Index release
+            // with a job, so the plan leaves it out too.
+            .filter(|key| !self.busy.index_release_downloading(key))
             .filter_map(|key| match key {
                 ReleaseKey::FeedGuid(feed_guid) => Some(feed_guid),
                 ReleaseKey::LibraryFeed(_) => None,
@@ -3614,10 +3708,10 @@ impl LibraryViewModel {
             .collect()
     }
 
-    /// The feed id and the release name of each selected release that is
-    /// fully downloaded, for "Remove…" (ADR 0084 Decision 10: "Remove"
-    /// removes only an item that is in the Library). A release with a
-    /// queued or running download is not in the list.
+    /// The feed id and the release name of each selected release with one
+    /// or more downloaded tracks, for "Remove…" (ADR 0084 Decision 10:
+    /// "Remove" removes only an item that is in the Library). A release
+    /// with a queued or running download or a removal is not in the list.
     #[must_use]
     pub(crate) fn releases_removable_feed_ids(
         &self,
@@ -3633,9 +3727,11 @@ impl LibraryViewModel {
             .collect()
     }
 
-    /// The feed id of each selected release that is not fully
-    /// downloaded, newest first, for "Download n releases" (ADR 0084
-    /// Decision 10).
+    /// The feed id of each selected Library release that "Download" can
+    /// act on, newest first, for "Download n releases" (ADR 0084 Decision
+    /// 10). The rule is [`LibraryReleaseFacts::downloadable`], the rule of
+    /// the bar count (ADR 0084 task 031). Thus a release with a job or a
+    /// removal is not in the list.
     #[must_use]
     pub(crate) fn releases_downloadable_feed_ids(
         &self,
@@ -3643,7 +3739,10 @@ impl LibraryViewModel {
     ) -> Vec<i64> {
         let mut dated: Vec<(Option<i64>, i64)> = selection
             .selected_keys()
-            .filter(|key| !self.release_is_fully_downloaded(key))
+            .filter(|key| {
+                self.library_release_facts(key)
+                    .is_some_and(LibraryReleaseFacts::downloadable)
+            })
             .filter_map(|key| {
                 let album = self.album_for_release_key(key)?;
                 let feed_id = album.feed_id?;
@@ -3673,6 +3772,23 @@ impl LibraryViewModel {
         mode: SelectionMode,
     ) -> Vec<ContentListRowDisplay> {
         let selecting = mode.is_selecting();
+        // The checked Library tracks that a Tracks list row can drag, in
+        // list order (ADR 0084 task 031). A Needs attention row starts no
+        // drag (ADR 0083 task 008, decision D4).
+        let checked_track_ids: Vec<i64> = if selecting {
+            self.content_list_page
+                .visible_rows()
+                .into_iter()
+                .filter(|row| {
+                    self.content_list_track_row_key(&row.id)
+                        .is_some_and(|key| selection.is_selected(&key))
+                })
+                .filter_map(content_list_row_drag)
+                .flat_map(|drag| drag.track_ids)
+                .collect()
+        } else {
+            Vec::new()
+        };
         self.content_list_page
             .visible_rows()
             .into_iter()
@@ -3691,6 +3807,11 @@ impl LibraryViewModel {
                     if !selecting {
                         row.menu = self.content_list_row_menu(&row);
                         row.drag = content_list_row_drag(&row);
+                    } else if content_list_row_drag(&row).is_some() {
+                        // ADR 0083 Decision 6, amended 2026-10-21: a checked
+                        // row carries each checked track, in list order.
+                        row.drag =
+                            TrackDragVm::selection(selection.is_selected(&key), &checked_track_ids);
                     }
                 }
                 if selecting {
@@ -7866,7 +7987,7 @@ mod tests {
             .expect("a row in Normal has a menu")
             .items
             .iter()
-            .map(|item| item.label)
+            .map(|item| item.label.clone())
             .collect();
         assert_eq!(
             labels,
@@ -8856,6 +8977,161 @@ mod tests {
             releases_disclosure_step(None, true, &open),
             ReleasesDisclosureStep::None
         );
+    }
+
+    /// Each release row of the Releases list, in a group or not.
+    fn menu_release_rows(entries: &[ReleasesListEntryVm]) -> Vec<&DestinationListRowVm> {
+        entries
+            .iter()
+            .flat_map(|entry| match entry {
+                ReleasesListEntryVm::Release(row) => vec![row],
+                ReleasesListEntryVm::SinglesGroup(group) => group.singles.iter().collect(),
+            })
+            .collect()
+    }
+
+    fn item_labels(menu: Option<&ReleaseRowMenuVm>) -> Vec<String> {
+        menu.map(|menu| {
+            menu.menu
+                .items
+                .iter()
+                .map(|item| item.label.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+    }
+
+    /// R31-05 (ADR 0084 task 031, decision D7) and V2: in `Normal`, each
+    /// release row of the Releases list has the one release row menu. A
+    /// feed page row or a name page row of the same release gets the same
+    /// items. In `Selecting`, each menu is `None`.
+    #[test]
+    fn adr_0084_release_row_actions_r31_05_releases_list_menu() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+        let entries = |mode| {
+            vm.releases_list_with_selection(
+                MusicListScope::Library,
+                &IndexNameListPage::default(),
+                &IndexFeedSingles::default(),
+                &BTreeSet::new(),
+                &ListSelection::new(),
+                mode,
+            )
+        };
+        let normal = entries(SelectionMode::Normal);
+        let rows = menu_release_rows(&normal);
+        assert!(!rows.is_empty());
+        for row in &rows {
+            let DestinationListRowTarget::Release(key) = &row.open else {
+                panic!("a Releases row opens a release");
+            };
+            let labels = item_labels(row.menu.as_ref());
+            assert!(
+                labels.contains(&"Add to playlist".to_owned()),
+                "{}: {labels:?}",
+                row.label
+            );
+            // The feed page and the name page call the same function with
+            // their own row id and the kind of their row.
+            let page_menu = vm.release_row_menu(
+                "publisher-album:x",
+                key,
+                &row.label,
+                ReleaseKind::Album,
+                false,
+            );
+            assert_eq!(item_labels(page_menu.as_ref()), labels, "{}", row.label);
+            assert!(vm
+                .release_row_menu(
+                    "publisher-album:x",
+                    key,
+                    &row.label,
+                    ReleaseKind::Album,
+                    true
+                )
+                .is_none());
+        }
+        let saw = rows
+            .iter()
+            .find(|row| row.label == "Selected Ambient Works")
+            .expect("the album row");
+        assert_eq!(
+            item_labels(saw.menu.as_ref()),
+            ["Add to playlist", "Remove album\u{2026}"]
+        );
+
+        let selecting = entries(SelectionMode::Selecting);
+        assert!(menu_release_rows(&selecting)
+            .iter()
+            .all(|row| row.menu.is_none()));
+    }
+
+    /// R31-03 (ADR 0084 Decision 10): for each release of the Releases
+    /// list, the bar of a selection of that one release gives the actions
+    /// of its row menu.
+    #[test]
+    fn adr_0084_release_row_actions_r31_03_releases_list_bar_agrees() {
+        use crate::view_models::release_page::TrackRowMenuAction;
+        use crate::view_models::selection_action_bar::SelectionActionKind;
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+        let entries = vm.releases_list_with_selection(
+            MusicListScope::Library,
+            &IndexNameListPage::default(),
+            &IndexFeedSingles::default(),
+            &BTreeSet::new(),
+            &ListSelection::new(),
+            SelectionMode::Normal,
+        );
+        for row in menu_release_rows(&entries) {
+            let DestinationListRowTarget::Release(key) = &row.open else {
+                panic!("a Releases row opens a release");
+            };
+            let mut selection: ListSelection<ReleaseKey, ReleasesRowId> = ListSelection::new();
+            selection.toggle(&SelectionRow::new(
+                ReleasesRowId::Release(key.clone()),
+                vec![key.clone()],
+            ));
+            let bar: Vec<SelectionActionKind> = vm
+                .releases_selection_action_bar(&selection, SelectionMode::Selecting)
+                .expect("the bar shows in Selecting")
+                .actions
+                .iter()
+                .map(|action| action.kind)
+                .filter(|kind| *kind != SelectionActionKind::Clear)
+                .collect();
+            let menu: Vec<SelectionActionKind> = row
+                .menu
+                .as_ref()
+                .map(|menu| {
+                    menu.menu
+                        .items
+                        .iter()
+                        .map(|item| match item.action {
+                            TrackRowMenuAction::Download => SelectionActionKind::Download,
+                            TrackRowMenuAction::AddToPlaylist => SelectionActionKind::AddToPlaylist,
+                            TrackRowMenuAction::Remove => SelectionActionKind::Remove,
+                            other => panic!("a release row has no {other:?}"),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            assert_eq!(menu, bar, "{}", row.label);
+        }
+    }
+
+    /// R31-07 (task 031, decision D2): an Artists row has no release row
+    /// menu.
+    #[test]
+    fn adr_0084_release_row_actions_r31_07_artist_rows_have_no_menu() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+        let rows = vm.artists_list(MusicListScope::Library, &IndexNameListPage::default());
+        assert!(!rows.is_empty());
+        assert!(rows
+            .iter()
+            .all(|row| row.menu.is_none() && row.release_kind.is_none()));
     }
 
     #[test]
@@ -10828,7 +11104,8 @@ mod tests {
 
     /// R16-16 and R18-06: a `MusicIndex` release counts in "Download" only.
     /// A Library release counts in "Add to playlist", and in "Remove" when
-    /// it is removable.
+    /// it is removable. A release with one or more downloaded tracks is
+    /// removable (ADR 0084 task 031, operator answer of 2026-10-21).
     #[test]
     fn adr_0084_scopes_r16_16_bar_counts() {
         use crate::view_models::selection_action_bar::SelectionActionKind;
@@ -10866,7 +11143,7 @@ mod tests {
         );
         assert_eq!(
             label(&mixed, SelectionActionKind::Remove).as_deref(),
-            Some("Remove 1 release\u{2026}")
+            Some("Remove 2 releases\u{2026}")
         );
     }
 
@@ -10880,8 +11157,12 @@ mod tests {
             scopes_album("Alpha", 1, "alpha", 2, 2),
             scopes_album("Beta", 2, "beta", 1, 2),
         ]);
-        assert!(!vm.release_is_fully_downloaded(&guid_key("motive-album")));
-        assert!(vm.release_is_fully_downloaded(&guid_key("alpha")));
+        assert!(vm
+            .library_release_facts(&guid_key("motive-album"))
+            .is_none());
+        assert!(vm
+            .library_release_facts(&guid_key("alpha"))
+            .is_some_and(LibraryReleaseFacts::fully_downloaded));
         let page = releases_everything::tests::loaded_page(
             releases_everything::tests::recorded_rows(),
             false,
@@ -10902,6 +11183,60 @@ mod tests {
                 ("motive-album".to_owned(), Some("Motive to Kill".to_owned())),
                 ("not-loaded".to_owned(), None),
             ]
+        );
+    }
+
+    /// Review correction B of 2026-10-21 (ADR 0084 task 031): the plan of
+    /// "Download n releases" of the Releases list holds one job for each
+    /// release that the bar counts. A release that is fully downloaded,
+    /// with a job, or in a removal gets no job. An Index release with a
+    /// job gets no second job.
+    #[test]
+    fn adr_0084_release_row_actions_releases_download_plan_matches_the_bar_count() {
+        use crate::view_models::selection_action_bar::SelectionActionKind;
+        let job = scopes_album("Gamma", 3, "gamma", 0, 2);
+        let job_key = job.feed_key().expect("a key");
+        let mut vm = scopes_vm(vec![
+            scopes_album("Alpha", 1, "alpha", 2, 2),
+            scopes_album("Beta", 2, "beta", 1, 2),
+            job,
+            scopes_album("Delta", 4, "delta", 1, 2),
+        ]);
+        vm.busy = BusyItems::new(
+            DownloadActivity {
+                keys: BTreeSet::from([job_key, FeedKey::Guid("motive-album".to_owned())]),
+                ..DownloadActivity::default()
+            },
+            BTreeSet::from([4]),
+        );
+        let page = releases_everything::tests::loaded_page(
+            releases_everything::tests::recorded_rows(),
+            false,
+        );
+        let selection = select_releases(&[
+            guid_key("alpha"),
+            guid_key("beta"),
+            guid_key("gamma"),
+            guid_key("delta"),
+            guid_key("motive-album"),
+            guid_key("not-loaded"),
+        ]);
+
+        let plan = vm.releases_download_plan(&selection, &page, &IndexFeedSingles::default());
+        assert_eq!(plan.library_feed_ids, [2]);
+        assert_eq!(plan.index_releases, [("not-loaded".to_owned(), None)]);
+        let bar = vm
+            .releases_selection_action_bar(&selection, SelectionMode::Selecting)
+            .expect("a bar");
+        assert_eq!(
+            bar.action(SelectionActionKind::Download)
+                .map(|action| action.label.as_str()),
+            Some("Download 2 releases")
+        );
+        assert_eq!(
+            plan.library_feed_ids.len() + plan.index_releases.len(),
+            2,
+            "the plan size equals the bar count"
         );
     }
 
@@ -11659,16 +11994,103 @@ mod tests {
             vm.content_list_rows_with_selection(&ListSelection::new(), SelectionMode::Normal);
         assert_eq!(
             normal[0].drag,
-            Some(TrackDragVm {
-                track_id: rhubarb.id,
-                title: "Rhubarb".to_owned(),
-            })
+            Some(TrackDragVm::one(rhubarb.id, "Rhubarb"))
         );
         assert_eq!(normal[1].drag, None, "a Needs attention row has no drag");
         assert_eq!(normal[2].drag, None, "a row with no track key has no drag");
         let selecting =
             vm.content_list_rows_with_selection(&ListSelection::new(), SelectionMode::Selecting);
         assert!(selecting.iter().all(|row| row.drag.is_none()));
+    }
+
+    /// R31-09 (ADR 0083 Decision 6, amended 2026-10-21): in `Selecting`, a
+    /// checked Tracks list row carries each checked track, in list order,
+    /// with the label "2 tracks". A row that is not checked gives `None`.
+    #[test]
+    fn adr_0083_selection_drag_r31_09_tracks_list_rows_carry_the_selection() {
+        let mut tree = library_tree();
+        for (index, track) in tree.artists[0]
+            .albums
+            .iter_mut()
+            .flat_map(|album| album.tracks.iter_mut())
+            .enumerate()
+        {
+            track.item_guid = format!("item-{index}");
+        }
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(tree);
+        let albums = &vm.tree().artists[0].albums;
+        let tracks = [
+            albums[0].tracks[0].clone(),
+            albums[0].tracks[1].clone(),
+            albums[1].tracks[0].clone(),
+        ];
+        vm.content_list_page = ContentListPageVm::new(
+            tracks
+                .iter()
+                .map(ContentListRowDisplay::from_track)
+                .collect(),
+        );
+        let mut selection = ListSelection::new();
+        for track in [&tracks[0], &tracks[2]] {
+            selection.toggle(&SelectionRow::of_one(track.track_key()));
+        }
+        let rows = vm.content_list_rows_with_selection(&selection, SelectionMode::Selecting);
+        let checked_ids: Vec<i64> = rows
+            .iter()
+            .filter(|row| row.selection.is_marked())
+            .map(|row| row.id.parse().expect("a track id"))
+            .collect();
+        assert_eq!(checked_ids.len(), 2);
+        let expected = TrackDragVm {
+            track_ids: checked_ids,
+            label: "2 tracks".to_owned(),
+        };
+        for row in &rows {
+            if row.selection.is_marked() {
+                assert_eq!(row.drag.as_ref(), Some(&expected), "{}", row.id);
+            } else {
+                assert_eq!(row.drag, None, "{}: a row that is not checked", row.id);
+            }
+        }
+
+        // R31-08: in `Normal`, each row drags its one track.
+        let normal = vm.content_list_rows_with_selection(&selection, SelectionMode::Normal);
+        for row in &normal {
+            let id: i64 = row.id.parse().expect("a track id");
+            assert_eq!(row.drag, Some(TrackDragVm::one(id, row.title())));
+        }
+    }
+
+    /// R31-13 (task 031, decision D13): a playlist page row in `Selecting`
+    /// hides its drag handle, so it starts no drag, checked or not.
+    #[test]
+    fn adr_0083_selection_drag_r31_13_playlist_row_starts_no_drag() {
+        let pl = playlist("Mix");
+        let tracks = [row()];
+        let vm = PlaylistDetailVm::new(&pl, &tracks);
+        for checked in [true, false] {
+            let display = vm.track_rows()[0]
+                .display(pl.id)
+                .with_selection(RowSelectionVm::for_row("Song", checked, false, true));
+            assert!(!display.controls.reorder_visible, "checked {checked}");
+        }
+    }
+
+    /// The label of a selection drag counts the tracks. An empty list and
+    /// a row that is not checked give no drag.
+    #[test]
+    fn adr_0083_selection_drag_label_counts_the_tracks() {
+        assert_eq!(TrackDragVm::selection(true, &[]), None);
+        assert_eq!(TrackDragVm::selection(false, &[1, 2]), None);
+        assert_eq!(
+            TrackDragVm::selection(true, &[5, 1, 9]).map(|drag| drag.label),
+            Some("3 tracks".to_owned())
+        );
+        assert_eq!(
+            TrackDragVm::selection(true, &[5]).map(|drag| (drag.track_ids, drag.label)),
+            Some((vec![5], "1 track".to_owned()))
+        );
     }
 
     /// R83-8-12 (decision D1): the spring-load timer with recorded times.

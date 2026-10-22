@@ -209,6 +209,7 @@ pub(crate) fn name_level_rows(
             release.in_library,
             matched_by_name.then(|| matched_by_name_line(&release.artist_text)),
             release.release_key.clone(),
+            release.kind,
         );
         dated.push((
             release.newest_date,
@@ -227,6 +228,9 @@ pub(crate) fn name_level_rows(
             }
             let title = TitleDisplay::from_stated(release.title.as_deref(), &release.feed_guid);
             let artist_text = release.release_artist.as_deref().unwrap_or_default();
+            let track_count =
+                usize::try_from(release.episode_count.unwrap_or(0).max(0)).unwrap_or(0);
+            let kind = ReleaseKind::resolve(None, track_count);
             let row = row_vm(
                 Some(release.feed_guid.clone()),
                 title,
@@ -234,16 +238,9 @@ pub(crate) fn name_level_rows(
                 false,
                 matched_by_name.then(|| matched_by_name_line(artist_text)),
                 Some(ReleaseKey::from_index_feed_guid(release.feed_guid.clone())),
+                kind,
             );
-            let track_count =
-                usize::try_from(release.episode_count.unwrap_or(0).max(0)).unwrap_or(0);
-            dated.push((
-                release.newest_item_at,
-                NameLevelRow {
-                    kind: ReleaseKind::resolve(None, track_count),
-                    row,
-                },
-            ));
+            dated.push((release.newest_item_at, NameLevelRow { kind, row }));
         }
     }
     dated.sort_by(|(left_date, left), (right_date, right)| {
@@ -269,6 +266,7 @@ fn row_vm(
     in_library: bool,
     detail_line: Option<String>,
     key: Option<ReleaseKey>,
+    kind: ReleaseKind,
 ) -> PublisherPageAlbumVm {
     let open = key.map(|key| ReleaseRowOpenAction {
         key,
@@ -284,6 +282,8 @@ fn row_vm(
         detail_line,
         open,
         selection: RowSelectionVm::none(),
+        kind,
+        menu: None,
     }
 }
 

@@ -580,7 +580,7 @@ impl TrackRowMenuAction {
 pub(crate) struct TrackRowMenuItemVm {
     pub(crate) action: TrackRowMenuAction,
     pub(crate) id: String,
-    pub(crate) label: &'static str,
+    pub(crate) label: String,
     pub(crate) a11y_label: String,
     pub(crate) destructive: bool,
 }
@@ -717,7 +717,7 @@ impl TrackRowMenuVm {
             TrackRowMenuItemVm {
                 action,
                 id: format!("{id}:{action:?}"),
-                label,
+                label: label.to_owned(),
                 a11y_label,
                 destructive: action == TrackRowMenuAction::Remove,
             }
@@ -815,9 +815,10 @@ pub(crate) struct ReleaseTrackRowVm {
     pub(crate) open_label: Option<String>,
     pub(crate) selection: RowSelectionVm,
     pub(crate) thumbnail_url: Option<String>,
-    /// The drag fact of the row (ADR 0083 task 008, decision D2). `Some`
-    /// only for a Library row in `Normal`. An Index row has no drag
-    /// (decision D3), and no row starts a drag in `Selecting` (D5).
+    /// The drag fact of the row (ADR 0083 task 008, decision D2). An Index
+    /// row has no drag (decision D3). In `Selecting`, only a checked row
+    /// of a Library release page has a drag: it carries each checked track
+    /// (ADR 0083 Decision 6, amended 2026-10-21).
     pub(crate) drag: Option<TrackDragVm>,
 }
 
@@ -894,10 +895,10 @@ impl ReleaseTrackRowVm {
             remove: availability.remove.then_some(TrackRowRemoveLabel::Remove),
             ..TrackRowMenuFacts::new(&display.row_id, &row.title, selection.checkbox_visible)
         });
-        let drag = (!selection.checkbox_visible).then(|| TrackDragVm {
-            track_id: track.id,
-            title: row.title.clone(),
-        });
+        // ADR 0084 task 031: in `Selecting`, `release_page_vm` gives a
+        // checked row the drag of each checked track. A singles group row
+        // is a release, so it starts no drag in `Selecting` (decision D14).
+        let drag = (!selection.checkbox_visible).then(|| TrackDragVm::one(track.id, &row.title));
         Self {
             row_id: display.row_id,
             badges,
@@ -999,19 +1000,23 @@ pub(crate) fn release_page_vm(input: &ReleasePageFacts) -> ReleasePageVm<'_> {
     let page = detail.page();
     let named_feed_rows = detail.named_feed_rows();
     let rows = match &input.origin {
-        ReleasePageOrigin::Library { .. } => input
-            .library_tracks
-            .iter()
-            .enumerate()
-            .map(|(index, track)| {
-                ReleaseTrackRowVm::library(
-                    &track.track,
-                    track.mb.as_ref(),
-                    track.work,
-                    input.selection(index),
-                )
-            })
-            .collect(),
+        ReleasePageOrigin::Library { .. } => {
+            let mut rows: Vec<ReleaseTrackRowVm> = input
+                .library_tracks
+                .iter()
+                .enumerate()
+                .map(|(index, track)| {
+                    ReleaseTrackRowVm::library(
+                        &track.track,
+                        track.mb.as_ref(),
+                        track.work,
+                        input.selection(index),
+                    )
+                })
+                .collect();
+            apply_selection_drags(&mut rows, &input.library_tracks);
+            rows
+        }
         ReleasePageOrigin::Index { .. } => input
             .feed
             .tracks
@@ -1038,6 +1043,25 @@ pub(crate) fn release_page_vm(input: &ReleasePageFacts) -> ReleasePageVm<'_> {
         contributors_panel: matches!(input.origin, ReleasePageOrigin::Library { .. }),
         rows,
         playlists: input.playlists.clone(),
+    }
+}
+
+/// The drag of each checked row of a Library release page in `Selecting`
+/// (ADR 0083 Decision 6, amended 2026-10-21). A checked row carries each
+/// checked track, in list order. A row that is not checked starts no drag.
+/// A row in `Normal` keeps its drag of one track.
+fn apply_selection_drags(rows: &mut [ReleaseTrackRowVm], tracks: &[LibraryTrackFacts]) {
+    if !rows.iter().any(|row| row.selection.checkbox_visible) {
+        return;
+    }
+    let checked: Vec<i64> = rows
+        .iter()
+        .zip(tracks)
+        .filter(|(row, _)| row.selection.is_marked())
+        .map(|(_, track)| track.track.id)
+        .collect();
+    for row in rows.iter_mut() {
+        row.drag = TrackDragVm::selection(row.selection.is_marked(), &checked);
     }
 }
 
@@ -1699,7 +1723,7 @@ mod tests {
         let menu = index_row.menu.expect("a menu");
         assert_eq!(menu.trigger_tooltip, "More actions");
         assert_eq!(menu.trigger_a11y_label, "More actions for Song");
-        let labels: Vec<_> = menu.items.iter().map(|item| item.label).collect();
+        let labels: Vec<_> = menu.items.iter().map(|item| item.label.as_str()).collect();
         assert_eq!(labels, vec!["Add to playlist", "Download"]);
     }
 
@@ -1987,16 +2011,15 @@ mod tests {
         );
     }
 
-    /// R83-8-01 (ADR 0083 task 008, decisions D2, D3 and D5): a Library row
+    /// R83-8-01 (ADR 0083 task 008, decisions D2 and D3): a Library row
     /// in `Normal` gives its drag fact with the track id and the title. An
-    /// Index row and each row in `Selecting` give none.
+    /// Index row gives none. The row builder gives no drag in `Selecting`:
+    /// `release_page_vm` sets the drag of a selection (ADR 0084 task 031,
+    /// R31-09).
     #[test]
     fn adr_0083_track_drag_r83_8_01_release_row_drag() {
         use crate::view_models::library::TrackDragVm;
-        let expected = Some(TrackDragVm {
-            track_id: 4,
-            title: "Face Pale".to_owned(),
-        });
+        let expected = Some(TrackDragVm::one(4, "Face Pale"));
         for in_library in [true, false] {
             assert_eq!(
                 library_row(in_library, TrackRowWork::Idle).drag,
@@ -2015,7 +2038,7 @@ mod tests {
             key: ReleaseKey::FeedGuid("single-guid".to_owned()),
         };
         let single_row = ReleaseTrackRowVm::library_single(&single, None, RowSelectionVm::none());
-        assert_eq!(single_row.drag.map(|drag| drag.track_id), Some(9));
+        assert_eq!(single_row.drag.map(|drag| drag.track_ids), Some(vec![9]));
         let single_selected = ReleaseTrackRowVm::library_single(&single, None, selecting());
         assert_eq!(single_selected.drag, None);
 
@@ -2025,5 +2048,108 @@ mod tests {
                 ReleaseTrackRowVm::index(&feed, 0, &feed.tracks[0], selection, TrackRowWork::Idle);
             assert_eq!(index_row.drag, None);
         }
+    }
+
+    /// A Library album of four tracks, in track order.
+    fn four_track_album() -> AlbumNode {
+        AlbumNode {
+            tracks: vec![
+                library_track(1, "g-1", "One", true),
+                library_track(2, "g-2", "Two", true),
+                library_track(3, "g-3", "Three", false),
+                library_track(4, "g-4", "Four", true),
+            ],
+            ..recorded_album()
+        }
+    }
+
+    fn checked(title: &str, checked: bool) -> RowSelectionVm {
+        RowSelectionVm::for_row(title, checked, false, true)
+    }
+
+    /// R31-08 (ADR 0084 task 031, decision D9): in `Normal`, each row of a
+    /// Library release page drags its one track, and the preview shows its
+    /// title.
+    #[test]
+    fn adr_0083_selection_drag_r31_08_normal_drag_is_one_track() {
+        let album = four_track_album();
+        let facts = library_facts(&album);
+        let vm = release_page_vm(&facts);
+        let drags: Vec<_> = vm.rows.iter().map(|row| row.drag.clone()).collect();
+        assert_eq!(
+            drags,
+            vec![
+                Some(TrackDragVm::one(1, "One")),
+                Some(TrackDragVm::one(2, "Two")),
+                Some(TrackDragVm::one(3, "Three")),
+                Some(TrackDragVm::one(4, "Four")),
+            ]
+        );
+    }
+
+    /// R31-09 (ADR 0083 Decision 6, amended 2026-10-21): in `Selecting`, a
+    /// checked row carries each checked Library track, in list order, with
+    /// the label "3 tracks". A row that is not checked gives `None`. One
+    /// checked track gives "1 track".
+    #[test]
+    fn adr_0083_selection_drag_r31_09_checked_rows_carry_the_selection() {
+        let album = four_track_album();
+        let facts = library_facts(&album).with_row_selections(vec![
+            checked("One", false),
+            checked("Two", true),
+            checked("Three", true),
+            checked("Four", true),
+        ]);
+        let vm = release_page_vm(&facts);
+        let expected = TrackDragVm {
+            track_ids: vec![2, 3, 4],
+            label: "3 tracks".to_owned(),
+        };
+        assert_eq!(vm.rows[0].drag, None, "a row that is not checked");
+        for row in &vm.rows[1..] {
+            assert_eq!(row.drag.as_ref(), Some(&expected), "{}", row.row_id);
+        }
+
+        let one = library_facts(&album).with_row_selections(vec![
+            checked("One", false),
+            checked("Two", false),
+            checked("Three", true),
+            checked("Four", false),
+        ]);
+        let vm = release_page_vm(&one);
+        assert_eq!(
+            vm.rows[2].drag,
+            Some(TrackDragVm {
+                track_ids: vec![3],
+                label: "1 track".to_owned(),
+            })
+        );
+        assert!(vm
+            .rows
+            .iter()
+            .enumerate()
+            .all(|(index, row)| index == 2 || row.drag.is_none()));
+
+        let none = library_facts(&album).with_row_selections(vec![checked("One", false); 4]);
+        assert!(release_page_vm(&none)
+            .rows
+            .iter()
+            .all(|row| row.drag.is_none()));
+    }
+
+    /// R31-13 (task 031, decision D11): on an Index release page, a checked
+    /// row in `Selecting` starts no drag.
+    #[test]
+    fn adr_0083_selection_drag_r31_13_index_page_starts_no_drag() {
+        let feed = index_feed(vec![
+            index_track(Some("Song"), Some("guid-a")),
+            index_track(Some("Other"), Some("guid-b")),
+        ]);
+        let facts = ReleasePageFacts::from_index_feed(feed, None)
+            .with_row_selections(vec![checked("Song", true), checked("Other", true)]);
+        assert!(release_page_vm(&facts)
+            .rows
+            .iter()
+            .all(|row| row.drag.is_none()));
     }
 }

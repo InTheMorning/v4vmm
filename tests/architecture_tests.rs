@@ -22236,7 +22236,8 @@ for each payload."
             "{list_file}: each playlist row must take its drop through `playlist_drop_target`."
         ));
     }
-    let add = "this.add_tracks_to_playlist(vec![drop.track_id], drop.playlist_id, cx);";
+    // ADR 0084 task 031: the drop carries each dragged track.
+    let add = "this.add_tracks_to_playlist(drop.track_ids.clone(), drop.playlist_id, cx);";
     if list.matches("add_tracks_to_playlist(").count() != 1 || !list.contains(add) {
         violations.push(format!(
             "{list_file}: the drop handler must call `{add}` one time."
@@ -22260,6 +22261,132 @@ for each payload."
         "ADR 0083 Decision 6 (task 008, decision D6): a drop and the \"Add to playlist\" menu item \
 use the same add path. Keep the drop handlers in `playlist_drop_target` and give each drop to \
 `LibraryApp::add_tracks_to_playlist`. Fix:\n{}",
+        violations.join("\n")
+    );
+}
+
+/// R31-06 (ADR 0083 Decision 6, ADR 0084 task 031). Situational: delete
+/// this guard when ADR 0083 is superseded. The release rows of the
+/// Releases list, the feed page and the name page build their menu through
+/// `release_row_menu` and the `ListRow` menu cell, which uses
+/// `row_menu_parts`. Only `release_row_actions.rs` builds release row menu
+/// items.
+#[test]
+fn adr_0084_release_row_actions_r31_06_one_release_row_menu() {
+    const FIX: &str = "ADR 0083 Decision 6 (ADR 0084 task 031): one function gives the actions of each release row. Give the row `ListRow::menu_cell(release_row_menu(row.menu.as_ref(), context))`, and build the items only in `release_row_menu` of src/view_models/release_row_actions.rs. Fix:";
+    let lists_file = "src/ui/shells/library/destination_lists.rs";
+    let sections_file = "src/ui/composites/release_section_list.rs";
+    let lists = code_only(production_source(&read_source(&manifest_path(lists_file))));
+    let sections = code_only(production_source(&read_source(&manifest_path(
+        sections_file,
+    ))));
+    let composite = code_only(production_source(&read_source(&manifest_path(
+        "src/ui/composites/release_row_menu.rs",
+    ))));
+    let list_row = code_only(production_source(&read_source(&manifest_path(
+        "src/ui/composites/list_row.rs",
+    ))));
+    let mut violations = Vec::new();
+    for (file, source, required) in [
+        (
+            lists_file,
+            &lists,
+            "list_row.menu_cell(release_row_menu(row.menu.as_ref(), context))",
+        ),
+        (
+            sections_file,
+            &sections,
+            ".menu_cell(release_row_menu(row.menu.as_ref(), &rows.menu))",
+        ),
+    ] {
+        if source.matches(required).count() != 1 {
+            violations.push(format!(
+                "{file}: give the release row its menu with `{required}` one time."
+            ));
+        }
+        for forbidden in [
+            "ContextMenu::new(",
+            "ContextMenuItem::new(",
+            "MouseButton::Right",
+            "TrackRowMenuVm {",
+            "RowMenu {",
+        ] {
+            if source.contains(forbidden) {
+                violations.push(format!("{file}: `{forbidden}` is not permitted."));
+            }
+        }
+    }
+    if !composite.contains("Some(RowMenu {") || composite.contains("ContextMenuItem::new(") {
+        violations.push(
+            "src/ui/composites/release_row_menu.rs: `release_row_menu` gives the `RowMenu` of task 007 and builds no item.".to_owned(),
+        );
+    }
+    if !list_row.contains("row_menu_parts(self.menu, menu_cell(cx), focused, window, cx)") {
+        violations.push(
+            "src/ui/composites/list_row.rs: the `ListRow` menu cell must use `row_menu_parts`."
+                .to_owned(),
+        );
+    }
+    let mut files = Vec::new();
+    collect_rust_files(&manifest_path("src"), &mut files);
+    for file in files {
+        let path = rel_path(&file);
+        let code = code_only(production_source(&read_source(&file)));
+        let owner = path == "src/view_models/release_row_actions.rs";
+        if !owner
+            && path != "src/view_models/release_page.rs"
+            && code.contains("TrackRowMenuItemVm {")
+        {
+            violations.push(format!("{path}: build row menu items only in their owner."));
+        }
+        if !owner
+            && code.contains("release_row_menu(&ReleaseRowActionFacts")
+            && path != "src/view_models/library.rs"
+        {
+            violations.push(format!(
+                "{path}: get a release row menu from `LibraryViewModel::release_row_menu`."
+            ));
+        }
+    }
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+}
+
+/// R31-07 (ADR 0083 Decision 6, ADR 0084 task 031 decision D2).
+/// Situational: delete this guard when ADR 0083 is superseded. A singles
+/// group row, an Artists row and a Playlists row get no release row menu.
+#[test]
+fn adr_0084_release_row_actions_r31_07_rows_with_no_menu() {
+    let file = "src/ui/shells/library/destination_lists.rs";
+    let lists = code_only(production_source(&read_source(&manifest_path(file))));
+    let mut violations = Vec::new();
+    let group_row = source_between(
+        &lists,
+        "fn render_singles_group_rows(",
+        "for row in singles {",
+    );
+    if group_row.contains("menu_cell(") {
+        violations.push("the singles group row must have no menu cell".to_owned());
+    }
+    let artists = source_between(
+        &lists,
+        "pub(crate) fn render_library_destination_rows(",
+        "pub(crate) fn render_library_releases_list(",
+    );
+    if !artists.contains("render_destination_list_row(row, art, LeadingDisclosure::None, None, cx)")
+    {
+        violations.push("an Artists row must give `None` as its menu context".to_owned());
+    }
+    let playlists = source_between(
+        &lists,
+        "pub(crate) fn render_library_playlists_list(",
+        "music_column_scrollbar(container,",
+    );
+    if playlists.contains("menu_cell(") || playlists.contains("release_row_menu") {
+        violations.push("a Playlists row must have no release row menu".to_owned());
+    }
+    assert!(
+        violations.is_empty(),
+        "ADR 0084 task 031 D2: a group row, an Artists row and a Playlists row keep no menu; their page holds their actions. Fix in {file}:\n{}",
         violations.join("\n")
     );
 }

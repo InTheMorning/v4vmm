@@ -1506,7 +1506,11 @@ mod tests {
         });
     }
 
-    struct HiddenHandleTest;
+    /// A playlist row with its leading slot. `selection` gives the row
+    /// selection facts of `Selecting`. `None` keeps `Normal`.
+    struct HiddenHandleTest {
+        selection: Option<crate::view_models::list_selection::RowSelectionVm>,
+    }
 
     impl gpui::Render for HiddenHandleTest {
         fn render(
@@ -1519,8 +1523,11 @@ mod tests {
                 track_title: Some("Original track".into()),
                 ..Default::default()
             };
-            let display =
+            let mut display =
                 crate::view_models::library::PlaylistTrackRowVm::new(&track, 0, 1).display(1);
+            if let Some(selection) = self.selection.clone() {
+                display = display.with_selection(selection);
+            }
             gpui::div()
                 .size_full()
                 .flex()
@@ -1528,6 +1535,7 @@ mod tests {
                 .child(
                     gpui::div()
                         .id("hidden-handle-row")
+                        .debug_selector(|| "hidden-handle-row".to_owned())
                         .group(super::TRACK_ROW_GROUP)
                         .child(super::render_playlist_leading_slot(1, &display, None, cx)),
                 )
@@ -1547,7 +1555,7 @@ mod tests {
     #[gpui::test]
     fn adr_0083_list_row_actions_hidden_handle_starts_a_drag_after_hover(cx: &mut TestAppContext) {
         cx.update(gpui_component::init);
-        let (_view, cx) = cx.add_window_view(|_, _| HiddenHandleTest);
+        let (_view, cx) = cx.add_window_view(|_, _| HiddenHandleTest { selection: None });
         cx.update(|window, cx| {
             let _ = window.draw(cx);
         });
@@ -1561,6 +1569,49 @@ mod tests {
         cx.simulate_mouse_move(target, MouseButton::Left, Modifiers::default());
         cx.update(|_, cx| assert!(cx.has_active_drag(), "the shown handle must start a drag"));
         cx.simulate_mouse_up(target, MouseButton::Left, Modifiers::default());
+    }
+
+    /// R31-13 (ADR 0084 task 031, decision D13): a playlist page row in
+    /// `Selecting` starts no drag, checked or not. The row shows no drag
+    /// handle, and a press and a move on the row start no drag.
+    #[gpui::test]
+    fn adr_0083_selection_drag_r31_13_playlist_row_in_selecting_starts_no_drag(
+        cx: &mut TestAppContext,
+    ) {
+        cx.update(gpui_component::init);
+        for checked in [true, false] {
+            let selection = crate::view_models::list_selection::RowSelectionVm::for_row(
+                "Original track",
+                checked,
+                false,
+                true,
+            );
+            let (_view, cx) = cx.add_window_view(|_, _| HiddenHandleTest {
+                selection: Some(selection),
+            });
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            let row = cx.debug_bounds("hidden-handle-row").unwrap().center();
+            let target = cx.debug_bounds("hidden-handle-target").unwrap().center();
+            cx.simulate_mouse_move(row, None, Modifiers::default());
+            cx.update(|window, cx| {
+                let _ = window.draw(cx);
+            });
+            assert!(
+                cx.debug_bounds("playlist-drag-handle").is_none(),
+                "checked {checked}: a row in Selecting shows no drag handle"
+            );
+            cx.simulate_mouse_down(row, MouseButton::Left, Modifiers::default());
+            cx.simulate_mouse_move(target, MouseButton::Left, Modifiers::default());
+            cx.update(|_, cx| {
+                assert!(
+                    !cx.has_active_drag(),
+                    "checked {checked}: a row in Selecting must start no drag"
+                );
+            });
+            cx.simulate_mouse_up(target, MouseButton::Left, Modifiers::default());
+        }
     }
 
     struct EntryDropTest {
@@ -1583,7 +1634,10 @@ mod tests {
                 crate::view_models::library::PlaylistTrackRowVm::new(&track, 0, 1).display(1);
             let drops = std::rc::Rc::clone(&self.drops);
             let on_drop: PlaylistDropHandler = std::rc::Rc::new(move |drop, _, _| {
-                drops.borrow_mut().push((drop.track_id, drop.playlist_id));
+                // An entry drag carries one track (ADR 0084 task 031).
+                for track_id in &drop.track_ids {
+                    drops.borrow_mut().push((*track_id, drop.playlist_id));
+                }
             });
             let target = |playlist_id: i64, cx: &gpui::App| {
                 gpui::div()

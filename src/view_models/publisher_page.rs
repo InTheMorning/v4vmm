@@ -24,6 +24,7 @@ use crate::view_models::name_level_page::{
     name_level_rows, NameLevelIndexState, NameLevelLibraryRelease, ReleaseListStatus,
 };
 use crate::view_models::release_kind::ReleaseKind;
+use crate::view_models::release_row_actions::ReleaseRowMenuVm;
 use crate::view_models::role_words::{
     capitalize_first, role_contains_artist, role_list_text, role_words, stated_sides_text,
 };
@@ -238,6 +239,14 @@ pub(crate) struct PublisherPageAlbumVm {
     /// 018). [`Self::album_vm`] gives [`RowSelectionVm::none`]. The app
     /// layer sets the facts of the detail selection before it renders.
     pub(crate) selection: RowSelectionVm,
+    /// The kind of the release (ADR 0084 Decision 5), from its track
+    /// count. The row menu of a Library release names the kind of the
+    /// Library release.
+    pub(crate) kind: ReleaseKind,
+    /// The "⋯" menu and the right-click menu of the row (ADR 0084 task
+    /// 031). The view model gives `None`. The app layer sets the menu of
+    /// `release_row_menu` before it renders.
+    pub(crate) menu: Option<ReleaseRowMenuVm>,
 }
 
 impl PublisherPageAlbumVm {
@@ -247,6 +256,27 @@ impl PublisherPageAlbumVm {
 
     /// The mark on an album whose own feed is in the Library.
     pub(crate) const IN_LIBRARY_LABEL: &'static str = "In Library";
+
+    /// The element id of the row in the section with the heading
+    /// `section_heading`. The id of its menu starts with it. A release can
+    /// show in two sections of one page, so the id holds the section.
+    /// Thus each row has its own menu state (ADR 0084 task 031, review
+    /// correction F of 2026-10-21).
+    #[must_use]
+    pub(crate) fn element_id(&self, section_heading: &str) -> String {
+        match &self.feed_guid {
+            Some(feed_guid) => format!("publisher-album:{section_heading}:{feed_guid}"),
+            None => format!(
+                "publisher-album:{section_heading}:no-guid:{}",
+                self.title.text()
+            ),
+        }
+    }
+}
+
+/// The track count of a release row. A missing or negative count is 0.
+fn album_track_count(album: &PublisherPageAlbumFact) -> usize {
+    usize::try_from(album.track_count.unwrap_or(0)).unwrap_or(0)
 }
 
 /// One section of a feed page, ready to view (ADR 0085 Decision 3). A
@@ -721,8 +751,7 @@ impl PublisherPageVm {
             match Self::section_bucket(album) {
                 SectionBucket::Discography => {
                     let vm = Self::album_vm(album, None);
-                    let track_count = usize::try_from(album.track_count.unwrap_or(0)).unwrap_or(0);
-                    if ReleaseKind::resolve(None, track_count).is_single() {
+                    if vm.kind.is_single() {
                         singles.push(vm);
                     } else {
                         albums_and_eps.push(vm);
@@ -914,6 +943,8 @@ impl PublisherPageVm {
             detail_line: role_line,
             open,
             selection: RowSelectionVm::none(),
+            kind: ReleaseKind::resolve(None, album_track_count(album)),
+            menu: None,
         }
     }
 
@@ -1016,6 +1047,26 @@ enum SectionBucket {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Review correction F of 2026-10-21 (ADR 0084 task 031): the same
+    /// release in two sections of one page gets two element ids. Thus its
+    /// two rows have two menu ids, and one right-click opens one menu.
+    #[test]
+    fn adr_0084_release_row_actions_element_id_is_unique_for_each_section() {
+        let row = PublisherPageVm::album_vm(&owned_album(), None);
+        let albums = row.element_id("Albums and EPs");
+        let matched = row.element_id("Matched by name");
+        assert_ne!(albums, matched);
+        assert_eq!(albums, "publisher-album:Albums and EPs:album-guid");
+        let no_guid = PublisherPageAlbumVm {
+            feed_guid: None,
+            ..row
+        };
+        assert_ne!(
+            no_guid.element_id("Albums and EPs"),
+            no_guid.element_id("Matched by name")
+        );
+    }
 
     /// A named feed link: the album names this feed, with the given GUID,
     /// `album_names_as` and `role_agreement`.

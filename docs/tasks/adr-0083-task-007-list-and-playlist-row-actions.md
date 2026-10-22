@@ -77,7 +77,7 @@ The release rows and the artist rows get no "⋯" menu. Decision D2 gives the re
 The orchestrator made these decisions on 2026-10-20. The operator can audit each one. A decision with the mark **Operator-visible, no ADR decides it** changes what the operator sees in a way that no ADR decides. The operator must confirm it before the visual walk closes.
 
 - **D1 Scope.** This packet changes the playlist page rows, the Tracks list rows and the Needs attention rows. It does not change `TrackRow`, which task 006 owns.
-- **D2 No menu on release and artist rows.** These rows get no "⋯" and no right-click menu:
+- **D2 No menu on release and artist rows.** On 2026-10-21, ADR 0084 packet 031 D1 replaced it for the rows of the Releases list, the feed page and the name page. They get one shared release row menu. The rest of D2 stays for the other rows. These rows get no "⋯" and no right-click menu:
   - The Releases rows and the singles group rows.
   - The Artists rows and the Playlists rows.
   - The feed page release rows and the Discover release rows.

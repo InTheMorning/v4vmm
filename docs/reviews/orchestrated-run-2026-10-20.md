@@ -92,6 +92,8 @@ Each entry names the step, the decision and the reason.
 
 - Operator answers of 2026-10-21 after the short walk: a release row on an artist page or a name page gets the same actions as a row of the Releases list, with "Select" (packet 031). In selection mode, a drag that starts on a checked track row carries each checked track (packet 031, an amendment of ADR 0083 Decision 6). The operator walked 8 important checks in place of the full walk. The other checks stay open.
 
+- Packet 031, 2026-10-21: the operator decided that "Remove <kind>…" shows when one or more tracks of a release are in the Library, in the row menu, the bar and the release page. The orchestrator accepted the other deviations of the implementer: a MusicIndex release row offers only "Download <kind>", because no path adds a MusicIndex release to a playlist, and the release bars count through the same rule as the menu.
+
 - Packet 012 decisions of the implementer, accepted by the orchestrator on 2026-10-21. The "New releases" row shows the Discover icon, so the labels of "New releases" and of each saved search start at the same position (Flag decision 2). An Index result writes the mounted saved-search page when the id and the query agree, so a result that arrives after the operator leaves the page is not lost (decision 9, corrected in the orchestrator review). "Save search" and "Delete…" are on the query row of the search header (decision 5).
 
 ## Steps
@@ -125,6 +127,7 @@ Each entry names the step, the decision and the reason.
 | Packet 026 Part A: the Index singles groups in the Releases list | Implemented. V1 to V6 and V10 open | `e091e18` |
 | Packet 026 Part B: the group page and "All n singles" with MusicIndex members | Implemented. V7 to V10 open | `2a0344c` |
 | Packet 030: the open defects of Music, and the scroll position of each history entry | Implemented. V1 to V6 open | `5b5dbe0` |
+| Packet 031: one release row menu, and the drag of a selection | Implemented. V1 to V9 open | this commit |
 
 ## Questions For The Operator
 

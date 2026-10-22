@@ -50,6 +50,7 @@ use crate::runtime::musicbrainz_feed_saga::{MusicBrainzFeedSagaState, StartFeedL
 use crate::subscribe_service::{self, SubscribeFeedRequest, SubscribeTrackRequest};
 use crate::ui::composites::music_column_scroll::{music_column_scrollbar, ScrollReveal};
 use crate::ui::composites::page_scroll_content::page_scroll_content;
+use crate::ui::composites::release_row_menu::ReleaseRowMenuContext;
 use crate::ui::composites::{PlaylistOption, PlaylistOptionDisplay, StatusRole, ThumbnailSize};
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::Button as UiButton;
@@ -98,7 +99,12 @@ use crate::view_models::list_selection::{FocusStep, ListSelection, SelectionMode
 use crate::view_models::name_level_page::NameLevelLibraryRelease;
 use crate::view_models::playlist_option_displays;
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
+use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::release_page::TrackRowMenuAction;
+use crate::view_models::release_row_actions::{
+    ReleaseRowCommand, ReleaseRowMenuVm, ReleaseRowTarget,
+};
+use crate::view_models::releases_everything::ReleasesDownloadPlan;
 use crate::view_models::search_results::ArtistSearchFacts;
 use crate::view_models::selection_action_bar::{SelectionActionBarVm, SelectionActionKind};
 use crate::view_models::singles_group::{
@@ -2694,6 +2700,87 @@ impl LibraryApp {
             .map(|track| LibraryTrackRowVm::new(track, None).display_title())
     }
 
+    /// Runs one command of a release row menu (ADR 0084 task 031). The
+    /// Releases list, the feed page and the name page use this one host.
+    /// Each command uses the path of the matching action of the selection
+    /// action bar, for one release. "Remove <kind>…" uses the path of the
+    /// release page menu.
+    pub(crate) fn run_release_row_command(
+        &mut self,
+        target: &ReleaseRowTarget,
+        command: ReleaseRowCommand,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match (command, target.feed_id) {
+            (ReleaseRowCommand::Download, _) => {
+                let plan = ReleasesDownloadPlan {
+                    library_feed_ids: target.feed_id.into_iter().collect(),
+                    index_releases: target
+                        .index_feed_guid()
+                        .map(|feed_guid| (feed_guid.to_owned(), Some(target.title.clone())))
+                        .into_iter()
+                        .collect(),
+                };
+                self.download_release_plan(plan, cx);
+            }
+            (ReleaseRowCommand::AddToPlaylist(playlist_id), Some(feed_id)) => {
+                self.add_albums_to_playlist(&[feed_id], playlist_id, cx);
+            }
+            (ReleaseRowCommand::CreatePlaylist(name), Some(feed_id)) => {
+                self.create_playlist_and_add_albums(&name, vec![feed_id], cx);
+            }
+            (ReleaseRowCommand::Remove, Some(feed_id)) => {
+                self.remove_album_after_confirmation(feed_id, window, cx);
+            }
+            // An Index release has no "Add to playlist" and no "Remove"
+            // item (task 031, decision D5).
+            (
+                ReleaseRowCommand::AddToPlaylist(_)
+                | ReleaseRowCommand::CreatePlaylist(_)
+                | ReleaseRowCommand::Remove,
+                None,
+            ) => {}
+        }
+    }
+
+    /// The context of the release row menus of one list (ADR 0084 task
+    /// 031): the playlists, the focus that the right-click menu gives
+    /// back, and the handler that runs each command in this entity.
+    pub(crate) fn release_row_menu_context(
+        &self,
+        entity: gpui::WeakEntity<Self>,
+        return_focus: gpui::FocusHandle,
+    ) -> ReleaseRowMenuContext {
+        ReleaseRowMenuContext {
+            playlists: std::rc::Rc::new(playlist_options(self.vm.playlists())),
+            return_focus,
+            on_command: std::rc::Rc::new(move |target, command, window, cx| {
+                if let Some(entity) = entity.upgrade() {
+                    entity.update(cx, |this, cx| {
+                        this.run_release_row_command(target, command, window, cx);
+                    });
+                }
+            }),
+        }
+    }
+
+    /// The menu of a release row of a feed page or a name page (ADR 0084
+    /// task 031). The Releases list rows get the same menu from the view
+    /// model.
+    #[must_use]
+    pub(crate) fn release_row_menu(
+        &self,
+        row_id: &str,
+        key: &ReleaseKey,
+        title: &str,
+        kind: ReleaseKind,
+    ) -> Option<ReleaseRowMenuVm> {
+        let selecting = self.detail_selection().mode().is_selecting();
+        self.vm
+            .release_row_menu(row_id, key, title, kind, selecting)
+    }
+
     /// "Remove album…" of an album page: a destructive menu item, so it
     /// asks for each removal (ADR 0083 Decision 5).
     pub(crate) fn remove_album_after_confirmation(
@@ -4184,7 +4271,7 @@ impl LibraryApp {
 
     /// "Remove n releases…" of the Releases action bar (ADR 0084
     /// Decision 10): opens one confirmation that lists each selected
-    /// release that is fully downloaded.
+    /// release with one or more downloaded tracks.
     fn request_releases_selection_removal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let feed_ids = self
             .vm
@@ -4611,12 +4698,19 @@ impl LibraryApp {
                     };
                     (row, actions)
                 });
+                // ADR 0084 task 031: the release row menu. The right-click
+                // menu gives the focus back to the list column.
+                let menu = self.release_row_menu_context(
+                    cx.entity().downgrade(),
+                    self.list_column_focus.clone(),
+                );
                 let pane = render_library_releases_list(
                     entries,
                     status,
                     &thumbs,
                     &arts,
                     &self.releases_list_scroll,
+                    &menu,
                     cx,
                 );
                 if let Some(bar) = self.releases_selection_action_bar() {
@@ -5591,5 +5685,118 @@ mod tests {
             Some("https://example.test/audio.mp3")
         );
         assert_eq!(track.enclosure_type.as_deref(), Some("audio/mpeg"));
+    }
+
+    /// The window of the R31-12 test: one drag source with a selection
+    /// payload, and one playlist row with the id 7.
+    struct SelectionDropTest {
+        drag: crate::view_models::library::TrackDragVm,
+        drops:
+            std::rc::Rc<std::cell::RefCell<Vec<crate::ui::composites::track_drag::PlaylistDrop>>>,
+    }
+
+    impl gpui::Render for SelectionDropTest {
+        fn render(
+            &mut self,
+            _: &mut gpui::Window,
+            cx: &mut gpui::Context<Self>,
+        ) -> impl gpui::IntoElement {
+            use crate::ui::composites::track_drag::{
+                attach_track_drag, playlist_drop_handler, playlist_drop_target, TrackDragPayload,
+            };
+            use gpui::{div, prelude::*};
+            let drops = std::rc::Rc::clone(&self.drops);
+            let on_drop = playlist_drop_handler(move |drop, _, _| {
+                drops.borrow_mut().push(drop.clone());
+            });
+            let source = attach_track_drag(
+                div()
+                    .id("selection-drop-source")
+                    .debug_selector(|| "selection-drop-source".to_owned())
+                    .h(gpui::px(40.))
+                    .w(gpui::px(200.))
+                    .child("Face Pale"),
+                TrackDragPayload::from_vm(&self.drag),
+            );
+            div().size_full().flex().flex_col().child(source).child(
+                div()
+                    .debug_selector(|| "selection-drop-target".to_owned())
+                    .child(playlist_drop_target(
+                        crate::ui::composites::ListRow::new("playlist-7")
+                            .child("Focus")
+                            .into_any_element(),
+                        7,
+                        &on_drop,
+                        cx,
+                    )),
+            )
+        }
+    }
+
+    /// R31-12 (ADR 0083 Decision 6, amended 2026-10-21): the drag of a
+    /// checked row in `Selecting` carries several track ids. The drop on
+    /// a playlist row gives one `PlaylistDrop` with each id, in list
+    /// order. `add_tracks_to_playlist` then starts one append, and the
+    /// status names the count. The guard
+    /// `adr_0083_track_drag_r83_8_07_drop_uses_the_one_add_path` holds
+    /// the host call `add_tracks_to_playlist(drop.track_ids.clone(), ..)`.
+    /// This test does the view model step of that call.
+    #[gpui::test]
+    fn adr_0083_selection_drag_r31_12_drop_status_names_the_count(cx: &mut gpui::TestAppContext) {
+        use crate::ui::composites::track_drag::PlaylistDrop;
+        use crate::view_models::library::{PlaylistAppendOutcome, TrackDragVm};
+        use gpui::{Modifiers, MouseButton};
+
+        let drag = TrackDragVm::selection(true, &[9, 3, 5]).expect("a checked row drags");
+        assert_eq!(drag.label, "3 tracks");
+        let drops = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let window_drops = std::rc::Rc::clone(&drops);
+        let (_view, cx) = cx.add_window_view(move |_, _| SelectionDropTest {
+            drag,
+            drops: window_drops,
+        });
+        cx.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        let source = cx
+            .debug_bounds("selection-drop-source")
+            .expect("the source")
+            .center();
+        let target = cx
+            .debug_bounds("selection-drop-target")
+            .expect("the playlist row")
+            .center();
+        cx.simulate_mouse_down(source, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_move(target, MouseButton::Left, Modifiers::default());
+        cx.simulate_mouse_up(target, MouseButton::Left, Modifiers::default());
+        assert_eq!(
+            *drops.borrow(),
+            [PlaylistDrop {
+                track_ids: vec![9, 3, 5],
+                playlist_id: 7,
+            }]
+        );
+
+        let mut vm = LibraryViewModel::new();
+        vm.replace_playlists(vec![db::Playlist {
+            id: 7,
+            name: "Focus".to_owned(),
+            description: None,
+            track_count: 0,
+            created_at: 0,
+            updated_at: 0,
+        }]);
+        let intents: Vec<_> = drops
+            .borrow()
+            .iter()
+            .filter_map(|drop| vm.begin_playlist_append(drop.playlist_id, drop.track_ids.clone()))
+            .collect();
+        let [intent] = intents.as_slice() else {
+            panic!("one drop must give one append, not {}", intents.len());
+        };
+        assert_eq!(intent.track_ids(), &[9, 3, 5]);
+        assert_eq!(vm.status(), "Downloading 3 tracks...");
+        vm.finish_playlist_append(intent, PlaylistAppendOutcome::new(3, 0, 0));
+        assert_eq!(vm.status(), "Added 3 of 3 to Focus");
     }
 }

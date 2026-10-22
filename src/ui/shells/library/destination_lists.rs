@@ -22,6 +22,7 @@ use gpui_component::Size;
 use crate::library::LibraryApp;
 use crate::ui::composites::music_column_scroll::music_column_scrollbar;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
+use crate::ui::composites::release_row_menu::{release_row_menu, ReleaseRowMenuContext};
 use crate::ui::composites::track_drag::{self, playlist_drop_target, PlaylistDrop};
 use crate::ui::composites::{
     disclosure_column, CollectionArt, CollectionArtImage, DisclosureIndicator,
@@ -113,7 +114,8 @@ pub(crate) fn render_library_destination_rows(
     let mut children: Vec<AnyElement> = leading.into_iter().collect();
     children.extend(rows.into_iter().map(|row| {
         let art = RowArt::Collection(row_art(arts, &row.element_id, CollectionKind::Artist));
-        render_destination_list_row(row, art, LeadingDisclosure::None, cx)
+        // ADR 0084 task 031, decision D2: an Artists row has no menu.
+        render_destination_list_row(row, art, LeadingDisclosure::None, None, cx)
     }));
     children.extend(trailing);
     render_destination_list_container(children, empty_label, cx)
@@ -124,13 +126,15 @@ pub(crate) fn render_library_destination_rows(
 /// group row for each Library singles group. An open group row shows
 /// each of its singles below it, indented. `scroll_handle` is the held
 /// handle of ADR 0084 Decision 10, so a keyboard focus move keeps the
-/// focused row in view.
+/// focused row in view. `menu` gives each release row its "⋯" menu and
+/// its right-click menu (ADR 0084 task 031).
 pub(crate) fn render_library_releases_list(
     entries: Vec<ReleasesListEntryVm>,
     status: Option<(IndexListStatusRowVm, IndexListActions)>,
     thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
     arts: &RowArts,
     scroll_handle: &ScrollHandle,
+    menu: &ReleaseRowMenuContext,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let (leading, trailing) = split_status_row(status, cx);
@@ -143,11 +147,12 @@ pub(crate) fn render_library_releases_list(
                     row,
                     RowArt::Cover(thumbnail),
                     LeadingDisclosure::Empty,
+                    Some(menu),
                     cx,
                 ));
             }
             ReleasesListEntryVm::SinglesGroup(group) => {
-                render_singles_group_rows(group, thumbnails, arts, cx, &mut children);
+                render_singles_group_rows(group, thumbnails, arts, menu, cx, &mut children);
             }
         }
     }
@@ -162,6 +167,7 @@ fn render_singles_group_rows(
     group: SinglesGroupRowVm,
     thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
     arts: &RowArts,
+    menu: &ReleaseRowMenuContext,
     cx: &mut Context<LibraryApp>,
     children: &mut Vec<AnyElement>,
 ) {
@@ -264,6 +270,7 @@ fn render_singles_group_rows(
             row,
             RowArt::Cover(thumbnail),
             LeadingDisclosure::Indented,
+            Some(menu),
             cx,
         ));
     }
@@ -282,10 +289,15 @@ enum LeadingDisclosure {
     Indented,
 }
 
+/// One row of the Releases list or of the Artists list. `menu` is `Some`
+/// only for a release row: the row then has the menu cell of the one
+/// release row menu (ADR 0084 task 031). The view model gives `None` in
+/// selection mode, so the cell is then empty.
 fn render_destination_list_row(
     row: DestinationListRowVm,
     art: RowArt,
     leading_disclosure: LeadingDisclosure,
+    menu: Option<&ReleaseRowMenuContext>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let entity_kind = match &row.open {
@@ -328,6 +340,10 @@ fn render_destination_list_row(
             }))
             .into_any_element(),
         );
+    }
+
+    if let Some(context) = menu {
+        list_row = list_row.menu_cell(release_row_menu(row.menu.as_ref(), context));
     }
 
     list_row
@@ -489,7 +505,7 @@ pub(crate) fn render_library_playlists_list(
     let on_add =
         track_drag::playlist_drop_handler(cx.listener(|this, drop: &PlaylistDrop, _, cx| {
             this.end_track_drag();
-            this.add_tracks_to_playlist(vec![drop.track_id], drop.playlist_id, cx);
+            this.add_tracks_to_playlist(drop.track_ids.clone(), drop.playlist_id, cx);
         }));
     for row in rows {
         let PlaylistSidebarRowVm {

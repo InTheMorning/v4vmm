@@ -26,7 +26,7 @@ use crate::view_models::list_selection::FocusStep;
 use crate::view_models::search_results::IndexDetailDisplay;
 use crate::view_models::selection_action_bar::{SelectionActionBarVm, SelectionActionKind};
 use crate::view_models::workspace::{
-    FrameHeaderActionDisplay, FrameNavigationEntry, ReleaseKey, ReleasePageSource, TrackKey,
+    FrameHeaderActionDisplay, FrameNavigationEntry, ReleasePageSource, TrackKey,
 };
 use crate::views::FeedView;
 
@@ -431,27 +431,14 @@ impl TopApp {
                 self.download_index_track_keys(index_rows, cx);
             }
             DetailPageRows::Releases(_) => {
-                let selected = rows.selected_releases(selection);
-                let library_feed_ids: Vec<i64> = selected
-                    .iter()
-                    .filter_map(|row| row.library)
-                    .filter(|facts| !facts.fully_downloaded)
-                    .map(|facts| facts.feed_id)
-                    .collect();
-                let index_releases: Vec<(String, String)> = selected
-                    .iter()
-                    .filter(|row| row.library.is_none())
-                    .filter_map(|row| match &row.key {
-                        ReleaseKey::FeedGuid(feed_guid) => {
-                            Some((feed_guid.clone(), row.title.clone()))
-                        }
-                        ReleaseKey::LibraryFeed(_) => None,
-                    })
-                    .collect();
+                // ADR 0084 task 031: the plan and the bar count use the
+                // one availability rule. Thus a release with a job or a
+                // removal gets no second job.
+                let plan = rows.release_download_plan(selection);
                 self.library.update(cx, |library, cx| {
-                    library.download_library_feeds(&library_feed_ids, cx);
+                    library.download_library_feeds(&plan.library_feed_ids, cx);
                 });
-                for (feed_guid, title) in index_releases {
+                for (feed_guid, title) in plan.index_releases {
                     self.download_index_album_of_track(feed_guid, Some(title), cx);
                 }
             }
@@ -601,7 +588,8 @@ pub(super) fn detail_library_ids(
 }
 
 /// The removal items of "Remove n tracks…" and "Remove n releases…": each
-/// downloaded Library track, or each fully downloaded Library release.
+/// downloaded Library track, or each Library release with one or more
+/// downloaded tracks and no job or removal.
 pub(super) fn detail_removal_items(
     rows: &DetailPageRows,
     selection: &DetailSelection,

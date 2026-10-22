@@ -2015,6 +2015,8 @@ mod tests {
                     album.release_key().unwrap(),
                 ),
                 selection: RowSelectionVm::none(),
+                release_kind: None,
+                menu: None,
             })
         };
         let row = SinglesGroupRowVm::new(&groups[0], true, library_row);

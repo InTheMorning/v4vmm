@@ -19,6 +19,7 @@ use gpui::{
 };
 
 use crate::ui::composites::music_column_scroll::ScrollReveal;
+use crate::ui::composites::release_row_menu::{release_row_menu, ReleaseRowMenuContext};
 use crate::ui::composites::{
     EntityKind, ListRow, ListRowA11yLabel, TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize,
 };
@@ -55,6 +56,9 @@ pub(crate) struct ReleaseSectionRows {
     pub(crate) on_click_release: ClickReleaseCallback,
     /// A click on the checkbox of a release row.
     pub(crate) on_toggle_release: ToggleReleaseCallback,
+    /// The context of the release row menus (ADR 0084 task 031). The app
+    /// layer sets `PublisherPageAlbumVm::menu` on each row.
+    pub(crate) menu: ReleaseRowMenuContext,
 }
 
 /// One section, with its heading, its note, its status and its release
@@ -90,7 +94,7 @@ pub(crate) fn render_release_section(
                 section
                     .rows
                     .iter()
-                    .map(|row| render_release_row(row, album_thumbs, rows, cx)),
+                    .map(|row| render_release_row(row, &section.heading, album_thumbs, rows, cx)),
             ),
     )
     .into_any_element()
@@ -131,6 +135,7 @@ pub(crate) fn render_release_list_status(status: &ReleaseListStatus, cx: &App) -
 
 fn render_release_row(
     row: &PublisherPageAlbumVm,
+    section_heading: &str,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     rows: &ReleaseSectionRows,
     cx: &App,
@@ -182,7 +187,7 @@ fn render_release_row(
     // ADR 0084 packet 018: the selection facts of the row come from the
     // view model. The checkbox shows only in selection mode.
     let selection = &row.selection;
-    let mut list_row = ListRow::new(SharedString::from(format!("publisher-album:{row_id}")))
+    let mut list_row = ListRow::new(SharedString::from(row.element_id(section_heading)))
         .selected(selection.is_marked())
         .focused(selection.focused)
         .scroll_probe(selection.focused.then(|| rows.reveal.probe()));
@@ -243,7 +248,11 @@ fn render_release_row(
         list_row = list_row.child(trailing);
     }
 
-    list_row.into_any_element()
+    // ADR 0084 task 031: the one release row menu, the same as a row of
+    // the Releases list. The view model gives `None` in selection mode.
+    list_row
+        .menu_cell(release_row_menu(row.menu.as_ref(), &rows.menu))
+        .into_any_element()
 }
 
 /// Maps the typed check state of the view model to the state of the
