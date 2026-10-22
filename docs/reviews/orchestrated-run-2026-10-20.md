@@ -94,6 +94,8 @@ Each entry names the step, the decision and the reason.
 
 - Packet 031, 2026-10-21: the operator decided that "Remove <kind>…" shows when one or more tracks of a release are in the Library, in the row menu, the bar and the release page. The orchestrator accepted the other deviations of the implementer: a MusicIndex release row offers only "Download <kind>", because no path adds a MusicIndex release to a playlist, and the release bars count through the same rule as the menu.
 
+- Operator answers of 2026-10-22: each member of a singles group page uses one track row style, so the columns line up (this replaces packet 026 D13). The singles of a name that matches exactly one artist feed join the group of that feed (ADR 0084 Decision 6, amended on 2026-10-22). Packet 032 builds both.
+
 - Packet 012 decisions of the implementer, accepted by the orchestrator on 2026-10-21. The "New releases" row shows the Discover icon, so the labels of "New releases" and of each saved search start at the same position (Flag decision 2). An Index result writes the mounted saved-search page when the id and the query agree, so a result that arrives after the operator leaves the page is not lost (decision 9, corrected in the orchestrator review). "Save search" and "Delete…" are on the query row of the search header (decision 5).
 
 ## Steps
@@ -128,6 +130,7 @@ Each entry names the step, the decision and the reason.
 | Packet 026 Part B: the group page and "All n singles" with MusicIndex members | Implemented. V7 to V10 open | `2a0344c` |
 | Packet 030: the open defects of Music, and the scroll position of each history entry | Implemented. V1 to V6 open | `5b5dbe0` |
 | Packet 031: one release row menu, and the drag of a selection | Implemented. V1 to V9 open | `5486f0b` |
+| Packet 032: one track row style on the group page, and the matched singles in the feed group | Implemented. V1 to V7 open | this commit |
 
 ## Questions For The Operator
 
@@ -207,6 +210,10 @@ The operator sends screenshots, and the orchestrator records each result here wi
 | 2026-10-21 | 026 V7: the Haleen group page from "Library" and "Everything" | Pass | |
 | 2026-10-21 | 023 V4: "Download release" on an Index track page | Pass | |
 | 2026-10-21 | 012 V6: delete a saved search | Pass | |
+| 2026-10-22 | 031: the release row menu on the three lists, and "Remove" on a partly downloaded album | Pass | |
+| 2026-10-22 | 031: the drag of a selection | Pass | |
+| 2026-10-22 | Singles group page: Library singles are track rows and MusicIndex singles are release rows, so the rows do not line up | Fail | Haleen group page. Packet 032 |
+| 2026-10-22 | Releases "Library": "Haleen · 5 singles · Artist feed" and "Haleen · 2 singles · By name" show as two groups | Fail, operator decision | Packet 032 joins them (ADR 0084 Decision 6, amended on 2026-10-22) |
 
 ## Final Walk
 

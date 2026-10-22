@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::api::Feed;
 use crate::db::TrackRow;
 use crate::view_models::album_page::{AlbumNameLinkTarget, AlbumNameLinkVm};
-use crate::view_models::artist_identity::{ArtistIdentity, UNKNOWN_ARTIST_TEXT};
+use crate::view_models::artist_identity::{ArtistIdentity, NameFeedMatch, UNKNOWN_ARTIST_TEXT};
 use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
 use crate::view_models::format::{fmt_date, plural};
 use crate::view_models::index_feed_singles::{
@@ -28,14 +28,17 @@ use crate::view_models::index_name_list::{
     name_sort_key, IndexListActionDisplay, IndexListStatusRowVm,
 };
 use crate::view_models::library::{
-    AlbumNode, ArtistNode, BusyItems, DestinationListRowVm, LibraryTree, TrackRowWork,
+    tree_name_feed_matches, AlbumNode, ArtistNode, BusyItems, DestinationListRowVm, LibraryTree,
+    TrackRowWork,
 };
 use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::named_feeds::{index_named_feeds, NamedFeed};
+use crate::view_models::publisher_page::PublisherPageVm;
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::releases_everything::{
     index_release_row, index_release_title, ReleasesDownloadPlan,
 };
+use crate::view_models::track::fmt_dur;
 use crate::view_models::workspace::ReleaseKey;
 use crate::views::FeedView;
 
@@ -174,6 +177,11 @@ pub(crate) struct SinglesGroup<'a> {
     /// The `MusicIndex` singles, newest first. Empty in the scope
     /// "Library".
     pub(crate) index_singles: Vec<IndexGroupSingle<'a>>,
+    /// The Library singles of a name that matches this feed, newest
+    /// first (ADR 0084 Decision 6, amended 2026-10-22, packet 032). Empty
+    /// for a group of a name, and for a feed that no name matches. The
+    /// group page lists them after `singles`, under "Matched by name".
+    pub(crate) matched_by_name: Vec<GroupSingle<'a>>,
     /// The channel image of the artist feed of a feed-level group, from
     /// [`LibraryTree::feed_images`]. `None` for a group of a name.
     pub(crate) feed_image: Option<&'a str>,
@@ -186,11 +194,12 @@ impl<'a> SinglesGroup<'a> {
         SinglesGroupKey(self.identity.clone())
     }
 
-    /// The number of singles in the group: the Library singles and the
-    /// `MusicIndex` singles.
+    /// The number of singles in the group: the Library singles, the
+    /// `MusicIndex` singles, and the singles that a matched name joins
+    /// to this group (ADR 0084 Decision 6, amended 2026-10-22).
     #[must_use]
     pub(crate) fn count(&self) -> usize {
-        self.singles.len() + self.index_singles.len()
+        self.singles.len() + self.index_singles.len() + self.matched_by_name.len()
     }
 
     /// Each member, newest first (packet 026): a member with no date comes
@@ -216,18 +225,35 @@ impl<'a> SinglesGroup<'a> {
     /// D5).
     #[must_use]
     pub(crate) fn first_title_sort_key(&self) -> String {
-        self.members()
+        self.position_members()
             .iter()
             .map(GroupMember::sort_key)
             .min()
             .unwrap_or_default()
     }
 
-    /// The number of singles in the Library.
+    /// The members that give the place and the art of the group row. The
+    /// matched singles count only when the group has no other member, so
+    /// a group of matched singles alone keeps a title and its images
+    /// (packet 032 review). Else they do not move the row (decision D3).
+    fn position_members(&self) -> Vec<GroupMember<'_, 'a>> {
+        let members = self.members();
+        if !members.is_empty() {
+            return members;
+        }
+        self.matched_by_name
+            .iter()
+            .map(GroupMember::Library)
+            .collect()
+    }
+
+    /// The number of singles in the Library: `singles` and
+    /// `matched_by_name`, which are both Library singles.
     #[must_use]
     pub(crate) fn in_library_count(&self) -> usize {
         self.singles
             .iter()
+            .chain(&self.matched_by_name)
             .filter(|single| single.in_library)
             .count()
     }
@@ -257,7 +283,8 @@ impl<'a> SinglesGroup<'a> {
     /// The Library state of [`Self::summary_text`]. `None` for a group with
     /// no Library single (packet 026 decision D9).
     fn library_state_part(&self) -> Option<String> {
-        (!self.singles.is_empty()).then(|| self.library_state_text())
+        (!self.singles.is_empty() || !self.matched_by_name.is_empty())
+            .then(|| self.library_state_text())
     }
 
     /// "In Library" when each single is in the Library, else "5 in
@@ -286,7 +313,7 @@ impl<'a> SinglesGroup<'a> {
     /// group of a name gives no image of its own.
     #[must_use]
     pub(crate) fn collection_art(&self) -> CollectionArtVm {
-        let members = self.members();
+        let members = self.position_members();
         CollectionArtVm::resolve(
             self.feed_image,
             members.iter().filter_map(GroupMember::image),
@@ -294,11 +321,13 @@ impl<'a> SinglesGroup<'a> {
         )
     }
 
-    /// Tells if the group holds the release `key`.
+    /// Tells if the group holds the release `key`, in `singles`, in
+    /// `index_singles`, or in `matched_by_name`.
     #[must_use]
     pub(crate) fn contains(&self, key: &ReleaseKey) -> bool {
         self.singles.iter().any(|single| single.key == *key)
             || self.index_singles.iter().any(|single| single.key == *key)
+            || self.matched_by_name.iter().any(|single| single.key == *key)
     }
 }
 
@@ -306,41 +335,75 @@ impl<'a> SinglesGroup<'a> {
 /// Decisions 6 and 7).
 ///
 /// A single is an album whose kind is [`ReleaseKind::Single`] and that has
-/// a release key. A group holds two or more singles. One single makes no
-/// group. Each group gives its singles newest first: the date of a single
-/// is the latest `pub_date` of its tracks, a single with no date comes
-/// last, and equal dates sort by the lowercase release name. The groups
-/// come in the order of their identity.
+/// a release key. A group holds two or more singles, counting its
+/// `matched_by_name` singles (ADR 0084 Decision 6, amended 2026-10-22,
+/// packet 032). One single makes no group. Each group gives its singles
+/// newest first: the date of a single is the latest `pub_date` of its
+/// tracks, a single with no date comes last, and equal dates sort by the
+/// lowercase release name. The groups come in the order of their identity.
 #[must_use]
 pub(crate) fn singles_groups(tree: &LibraryTree) -> Vec<SinglesGroup<'_>> {
     let feed_images = tree.feed_images();
-    library_singles_by_identity(tree)
+    let LibrarySinglesGrouping {
+        mut own,
+        mut matched_by_name,
+    } = library_singles_grouped(tree);
+    let identities: BTreeSet<ArtistIdentity> = own
+        .keys()
+        .cloned()
+        .chain(
+            matched_by_name
+                .keys()
+                .cloned()
+                .map(ArtistIdentity::Publisher),
+        )
+        .collect();
+    identities
         .into_iter()
-        .filter(|(_, singles)| singles.len() >= 2)
-        .map(|(identity, mut singles)| {
+        .filter_map(|identity| {
+            let mut singles = own.remove(&identity).unwrap_or_default();
+            let mut matched = feed_matched_singles(&identity, &mut matched_by_name);
+            if singles.len() + matched.len() < 2 {
+                return None;
+            }
             singles.sort_by(newest_first);
-            let display_artist = singles[0].artist.name.as_str();
+            matched.sort_by(newest_first);
+            let display_artist = singles.first().or(matched.first())?.artist.name.as_str();
             let feed_image = match &identity {
                 ArtistIdentity::Publisher(feed_guid) => feed_images.get(feed_guid),
                 ArtistIdentity::Name(_) => None,
             };
-            SinglesGroup {
+            Some(SinglesGroup {
                 identity,
                 display_artist,
                 singles,
                 index_singles: Vec::new(),
+                matched_by_name: matched,
                 feed_image,
-            }
+            })
         })
         .collect()
 }
 
-/// The Library singles of the tree by artist identity, one or more for
-/// each identity, in no order.
-fn library_singles_by_identity(
-    tree: &LibraryTree,
-) -> BTreeMap<ArtistIdentity, Vec<GroupSingle<'_>>> {
-    let mut by_identity: BTreeMap<ArtistIdentity, Vec<GroupSingle<'_>>> = BTreeMap::new();
+/// The Library singles of the tree, split by the match-by-name rule (ADR
+/// 0084 Decision 6, amended 2026-10-22, packet 032). `own` holds the
+/// singles of each identity that keeps its own group: every publisher
+/// identity, and a name identity whose match is `NoFeed` or `Ambiguous`.
+/// `matched_by_name` holds the singles of a name whose match is
+/// `MatchedFeed(guid)`, keyed by `guid`, in no order within each key.
+struct LibrarySinglesGrouping<'a> {
+    own: BTreeMap<ArtistIdentity, Vec<GroupSingle<'a>>>,
+    matched_by_name: BTreeMap<String, Vec<GroupSingle<'a>>>,
+}
+
+/// Builds [`LibrarySinglesGrouping`] from `tree`, through
+/// [`tree_name_feed_matches`], the one function that matches a name to a
+/// Library artist feed. The Artists list and the feed page's "Matched by
+/// name" section read that same function.
+fn library_singles_grouped(tree: &LibraryTree) -> LibrarySinglesGrouping<'_> {
+    let matches = tree_name_feed_matches(tree);
+    let mut own: BTreeMap<ArtistIdentity, Vec<GroupSingle<'_>>> = BTreeMap::new();
+    let mut matched_by_name: BTreeMap<String, Vec<GroupSingle<'_>>> = BTreeMap::new();
     for artist in &tree.artists {
         for album in &artist.albums {
             if album.release_kind() != ReleaseKind::Single {
@@ -349,33 +412,61 @@ fn library_singles_by_identity(
             let Some(key) = album.release_key() else {
                 continue;
             };
-            by_identity
-                .entry(album.artist_identity(&artist.name))
-                .or_default()
-                .push(GroupSingle {
-                    artist,
-                    album,
-                    key,
-                    date: album.tracks.iter().filter_map(|track| track.pub_date).max(),
-                    in_library: !album.tracks.is_empty()
-                        && album.tracks.iter().all(|track| track.is_in_library),
-                });
+            let single = GroupSingle {
+                artist,
+                album,
+                key,
+                date: album.tracks.iter().filter_map(|track| track.pub_date).max(),
+                in_library: !album.tracks.is_empty()
+                    && album.tracks.iter().all(|track| track.is_in_library),
+            };
+            let identity = album.artist_identity(&artist.name);
+            if let ArtistIdentity::Name(name_key) = &identity {
+                if let NameFeedMatch::MatchedFeed(feed_guid) = matches.get(name_key) {
+                    matched_by_name.entry(feed_guid).or_default().push(single);
+                    continue;
+                }
+            }
+            own.entry(identity).or_default().push(single);
         }
     }
-    by_identity
+    LibrarySinglesGrouping {
+        own,
+        matched_by_name,
+    }
 }
 
-/// The GUID of each artist feed with one or more Library singles (ADR 0084
-/// packet 026). Page 1 of the scope "Everything" reads the `MusicIndex`
-/// singles of each of these feeds.
+/// The singles that a matched name joins to the feed of `identity`, taken
+/// out of `matched_by_name`. Empty for a name identity: a name never
+/// matches a name.
+fn feed_matched_singles<'a>(
+    identity: &ArtistIdentity,
+    matched_by_name: &mut BTreeMap<String, Vec<GroupSingle<'a>>>,
+) -> Vec<GroupSingle<'a>> {
+    match identity {
+        ArtistIdentity::Publisher(guid) => matched_by_name.remove(guid).unwrap_or_default(),
+        ArtistIdentity::Name(_) => Vec::new(),
+    }
+}
+
+/// The GUID of each artist feed with one or more Library singles, its own
+/// or joined by a matched name (ADR 0084 packet 026, amended 2026-10-22
+/// by packet 032). Page 1 of the scope "Everything" reads the
+/// `MusicIndex` singles of each of these feeds.
 #[must_use]
 pub(crate) fn library_single_artist_feeds(tree: &LibraryTree) -> Vec<String> {
-    library_singles_by_identity(tree)
+    let grouping = library_singles_grouped(tree);
+    let own_feeds = grouping
+        .own
         .into_keys()
         .filter_map(|identity| match identity {
             ArtistIdentity::Publisher(feed_guid) => Some(feed_guid),
             ArtistIdentity::Name(_) => None,
-        })
+        });
+    own_feeds
+        .chain(grouping.matched_by_name.into_keys())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
         .collect()
 }
 
@@ -465,7 +556,10 @@ fn everything_groups<'a>(
         .flat_map(|artist| artist.albums.iter())
         .filter_map(AlbumNode::release_key)
         .collect();
-    let mut library = library_singles_by_identity(tree);
+    let LibrarySinglesGrouping {
+        mut own,
+        mut matched_by_name,
+    } = library_singles_grouped(tree);
     let mut index: BTreeMap<ArtistIdentity, Vec<IndexGroupSingle<'a>>> = BTreeMap::new();
     for (feed_guid, singles) in fills.iter() {
         let mut seen: BTreeSet<ReleaseKey> = BTreeSet::new();
@@ -491,18 +585,29 @@ fn everything_groups<'a>(
             index.insert(ArtistIdentity::Publisher(feed_guid.to_owned()), members);
         }
     }
-    let identities: BTreeSet<ArtistIdentity> =
-        library.keys().chain(index.keys()).cloned().collect();
+    let identities: BTreeSet<ArtistIdentity> = own
+        .keys()
+        .cloned()
+        .chain(
+            matched_by_name
+                .keys()
+                .cloned()
+                .map(ArtistIdentity::Publisher),
+        )
+        .chain(index.keys().cloned())
+        .collect();
     let feed_images = tree.feed_images();
     identities
         .into_iter()
         .filter_map(|identity| {
-            let mut singles = library.remove(&identity).unwrap_or_default();
+            let mut singles = own.remove(&identity).unwrap_or_default();
             let mut index_singles = index.remove(&identity).unwrap_or_default();
-            if singles.len() + index_singles.len() < min_members.max(1) {
+            let mut matched = feed_matched_singles(&identity, &mut matched_by_name);
+            if singles.len() + index_singles.len() + matched.len() < min_members.max(1) {
                 return None;
             }
             singles.sort_by(newest_first);
+            matched.sort_by(newest_first);
             index_singles.sort_by(|left, right| {
                 newest_date_first(left.date, right.date)
                     .then_with(|| left.sort_key.cmp(&right.sort_key))
@@ -511,7 +616,7 @@ fn everything_groups<'a>(
                 ArtistIdentity::Publisher(feed_guid) => Some(feed_guid.as_str()),
                 ArtistIdentity::Name(_) => None,
             };
-            let display_artist = match singles.first() {
+            let display_artist = match singles.first().or(matched.first()) {
                 Some(newest) => newest.artist.name.as_str(),
                 None => index_group_label(&index_singles[0], feed_guid),
             };
@@ -521,6 +626,7 @@ fn everything_groups<'a>(
                 display_artist,
                 singles,
                 index_singles,
+                matched_by_name: matched,
                 feed_image,
             })
         })
@@ -600,12 +706,17 @@ pub(crate) struct SinglesGroupRowVm {
     pub(crate) disclosure_element_id: String,
     /// "Show singles" or "Hide singles".
     pub(crate) disclosure_a11y_label: &'static str,
-    /// The release row of each single, newest first, when `expanded` is
-    /// true. Empty when it is false.
+    /// The release row of each single that the group row counts, when
+    /// `expanded` is true. Empty when it is false. The feed's own singles
+    /// come first, newest first. A single that a matched name joins to
+    /// the group comes after them, with "Matched by name" added to its
+    /// subtitle (orchestrator decision of 2026-10-22, packet 032, which
+    /// replaces decision D2: the count and this list must agree).
     pub(crate) singles: Vec<DestinationListRowVm>,
-    /// The release key of each single of the group, in the same order,
-    /// whatever `expanded` is (ADR 0084 Decision 6). The group row's
-    /// checkbox toggles every one of these.
+    /// The release key of each single that the group row counts, in the
+    /// same order as [`Self::singles`], whatever `expanded` is (ADR 0084
+    /// Decision 6, amended 2026-10-22). The group row's checkbox toggles
+    /// every one of these.
     pub(crate) single_keys: Vec<ReleaseKey>,
     /// The checkbox facts of the group row (ADR 0084 Decision 10). The
     /// group's own checkbox, not one for each single.
@@ -616,7 +727,10 @@ impl SinglesGroupRowVm {
     /// Builds the group row. `release_row` gives the release row of one
     /// Library single, the same row that a release that is not in a group
     /// gets. A `MusicIndex` single gets the `MusicIndex` release row
-    /// ([`index_release_row`], packet 026).
+    /// ([`index_release_row`], packet 026). A single that a matched name
+    /// joins to the group gets the same Library release row, with
+    /// [`mark_matched_by_name`] added (orchestrator decision of
+    /// 2026-10-22, packet 032, which replaces decision D2).
     #[must_use]
     pub(crate) fn new(
         group: &SinglesGroup<'_>,
@@ -653,20 +767,55 @@ impl SinglesGroupRowVm {
                 SHOW_SINGLES_LABEL
             },
             singles: if expanded {
-                members
+                let mut rows: Vec<DestinationListRowVm> = members
                     .iter()
                     .filter_map(|member| match member {
                         GroupMember::Library(single) => release_row(single.artist, single.album),
                         GroupMember::Index(single) => index_release_row(single.feed),
                     })
-                    .collect()
+                    .collect();
+                rows.extend(group.matched_by_name.iter().filter_map(|single| {
+                    let mut row = release_row(single.artist, single.album)?;
+                    mark_matched_by_name(&mut row);
+                    Some(row)
+                }));
+                rows
             } else {
                 Vec::new()
             },
-            single_keys: members.iter().map(|member| member.key().clone()).collect(),
+            single_keys: members
+                .iter()
+                .map(|member| member.key().clone())
+                .chain(
+                    group
+                        .matched_by_name
+                        .iter()
+                        .map(|single| single.key.clone()),
+                )
+                .collect(),
             selection: RowSelectionVm::none(),
         }
     }
+}
+
+/// Marks a disclosure row of the Releases list as a single that a
+/// matched name joins to the group (orchestrator decision of
+/// 2026-10-22, packet 032, which replaces decision D2). Unlike a feed
+/// page row, this row has no field of its own for an inferred relation,
+/// so the mark goes into the subtitle text the view model already
+/// gives, the same words as the group page's "Matched by name" heading.
+fn mark_matched_by_name(row: &mut DestinationListRowVm) {
+    row.secondary_text = format!(
+        "{}{SUMMARY_SEPARATOR}{}",
+        row.secondary_text,
+        PublisherPageVm::MATCHED_BY_NAME_HEADING
+    );
+    // Packet 032 review: a screen reader also hears the inferred relation.
+    row.a11y_label = format!(
+        "{}, {}",
+        row.a11y_label,
+        PublisherPageVm::MATCHED_BY_NAME_HEADING
+    );
 }
 
 /// The element id of a group row. It carries the publisher GUID or the
@@ -820,9 +969,9 @@ pub(crate) struct SinglesGroupPageRowVm {
     pub(crate) key: ReleaseKey,
 }
 
-/// One `MusicIndex` single row of a group page (packet 026 decision D13):
-/// the image, the title and the date. It has no state word, as a row of
-/// the feed page. A click opens the release page of the single.
+/// One `MusicIndex` single row of a group page: the same track row as a
+/// Library single (operator decision of 2026-10-22, replacing packet 026
+/// decision D13). A click opens the release page of the single.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SinglesGroupIndexRowVm {
     /// Stable element id, from the release GUID.
@@ -833,47 +982,51 @@ pub(crate) struct SinglesGroupIndexRowVm {
     pub(crate) title: String,
     /// The date text of `newest_item_at`. `None` when the row has no date.
     pub(crate) date_text: Option<String>,
+    /// The duration of the single's one track, when the `MusicIndex` data
+    /// the app already holds gives one. `None` keeps the duration column
+    /// empty, with its token width (operator decision of 2026-10-22).
+    pub(crate) duration: Option<String>,
     /// The release image.
     pub(crate) image_url: Option<String>,
-    /// The accessibility label, for example "Release: Night Drive, Apr 5,
-    /// 2024".
-    pub(crate) a11y_label: String,
-    /// The element id of the row's checkbox, built once with the row.
-    pub(crate) checkbox_id: String,
+    /// The download or the removal of the release that is in progress.
+    pub(crate) work: TrackRowWork,
 }
 
 impl SinglesGroupIndexRowVm {
-    fn new(single: &IndexGroupSingle<'_>) -> Self {
+    fn new(single: &IndexGroupSingle<'_>, work: TrackRowWork) -> Self {
         let title = index_release_title(single.feed);
         let date_text = single.date.and_then(fmt_date);
-        let a11y_label = match &date_text {
-            Some(date) => format!("Release: {title}, {date}"),
-            None => format!("Release: {title}"),
-        };
         let element_id = match &single.key {
             ReleaseKey::FeedGuid(guid) => format!("singles-group-index-row:{guid}"),
             ReleaseKey::LibraryFeed(feed_id) => format!("singles-group-index-row:{feed_id}"),
         };
-        let checkbox_id = format!("{element_id}-checkbox");
+        let duration = single
+            .feed
+            .tracks
+            .as_deref()
+            .and_then(|tracks| tracks.first())
+            .and_then(|track| track.duration_secs)
+            .map(fmt_dur);
         Self {
             element_id,
             key: single.key.clone(),
             title,
             date_text,
+            duration,
             image_url: single
                 .feed
                 .image_url
                 .clone()
                 .filter(|url| !url.trim().is_empty()),
-            a11y_label,
-            checkbox_id,
+            work,
         }
     }
 }
 
-/// One row of a group page: a Library single or a `MusicIndex` single
-/// (packet 026 decision D13). The two row forms share one list and one
-/// date order.
+/// One row of a group page: a Library single or a `MusicIndex` single.
+/// Both show through the same track row (operator decision of
+/// 2026-10-22, replacing packet 026 decision D13), and share one list
+/// and one date order.
 #[derive(Clone, Debug)]
 pub(crate) enum SinglesGroupPageEntryVm {
     /// A Library single keeps the shared Library track row. The row holds
@@ -905,8 +1058,8 @@ pub(crate) struct SinglesGroupPageVm {
     /// The note that names the identity level of the group. `None` for
     /// the empty state.
     pub(crate) identity_note: Option<&'static str>,
-    /// One row for each single, newest first: the Library rows and the
-    /// `MusicIndex` rows (packet 026 decision D13).
+    /// One row for each single: the feed's own Library and `MusicIndex`
+    /// rows, newest first, then the rows of a matched name (packet 032).
     pub(crate) rows: Vec<SinglesGroupPageEntryVm>,
     /// The loading row or the error row of the request for the
     /// `MusicIndex` singles of the feed (packet 026 Part B). `None` for a
@@ -922,6 +1075,22 @@ pub(crate) struct SinglesGroupPageVm {
     /// The header art in the logo frame (ADR 0084 Decision 12). `None`
     /// for the empty state.
     pub(crate) art: Option<CollectionArtVm>,
+    /// The heading and the note of the trailing "Matched by name" rows
+    /// (ADR 0084 Decision 6, amended 2026-10-22, packet 032). `None` when
+    /// the group has no such row. The heading goes before the last
+    /// `MatchedByNameHeadingVm::count` rows of `rows`.
+    pub(crate) matched_by_name: Option<MatchedByNameHeadingVm>,
+}
+
+/// The heading and the note of the trailing "Matched by name" rows of a
+/// group page (ADR 0084 Decision 6, amended 2026-10-22, packet 032): the
+/// same heading and note as the feed page's section of the same name.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct MatchedByNameHeadingVm {
+    pub(crate) heading: &'static str,
+    pub(crate) note: &'static str,
+    /// The count of rows after this heading, at the end of `rows`.
+    pub(crate) count: usize,
 }
 
 impl SinglesGroupPageVm {
@@ -961,22 +1130,31 @@ impl SinglesGroupPageVm {
                 page.more_note = more_note;
                 page
             }
-            group if index_status.is_some() => Self {
-                title: group.map_or_else(
-                    || EMPTY_GROUP_TITLE.to_owned(),
-                    |group| singles_group_title(group.display_artist),
-                ),
-                subtitle: None,
-                identity_note: Some(PUBLISHER_LEVEL_NOTE),
-                rows: group
+            group if index_status.is_some() => {
+                let mut rows = group
                     .map(|group| page_rows(group, busy))
-                    .unwrap_or_default(),
-                index_status,
-                more_note: None,
-                main_action: None,
-                empty_message: None,
-                art: group.map(SinglesGroup::collection_art),
-            },
+                    .unwrap_or_default();
+                let matched = group
+                    .map(|group| matched_by_name_rows(group, busy))
+                    .unwrap_or_default();
+                let matched_by_name = matched_by_name_heading(&matched);
+                rows.extend(matched);
+                Self {
+                    title: group.map_or_else(
+                        || EMPTY_GROUP_TITLE.to_owned(),
+                        |group| singles_group_title(group.display_artist),
+                    ),
+                    subtitle: None,
+                    identity_note: Some(PUBLISHER_LEVEL_NOTE),
+                    rows,
+                    index_status,
+                    more_note: None,
+                    main_action: None,
+                    empty_message: None,
+                    art: group.map(SinglesGroup::collection_art),
+                    matched_by_name,
+                }
+            }
             _ => Self {
                 title: EMPTY_GROUP_TITLE.to_owned(),
                 subtitle: None,
@@ -987,6 +1165,7 @@ impl SinglesGroupPageVm {
                 main_action: None,
                 empty_message: Some(EMPTY_GROUP_MESSAGE),
                 art: None,
+                matched_by_name: None,
             },
         }
     }
@@ -995,13 +1174,19 @@ impl SinglesGroupPageVm {
     /// row.
     #[must_use]
     pub(crate) fn new(group: &SinglesGroup<'_>, busy: &BusyItems) -> Self {
-        let group_busy =
-            group.singles.iter().any(|single| {
-                busy.release_downloading(single.album) || busy.removing(single.album)
-            }) || group
+        let group_busy = group
+            .singles
+            .iter()
+            .chain(&group.matched_by_name)
+            .any(|single| busy.release_downloading(single.album) || busy.removing(single.album))
+            || group
                 .index_singles
                 .iter()
                 .any(|single| busy.index_release_downloading(&single.key));
+        let mut rows = page_rows(group, busy);
+        let matched = matched_by_name_rows(group, busy);
+        let matched_by_name = matched_by_name_heading(&matched);
+        rows.extend(matched);
         Self {
             title: singles_group_title(group.display_artist),
             subtitle: Some(group.summary_text()),
@@ -1009,39 +1194,73 @@ impl SinglesGroupPageVm {
                 ArtistIdentity::Name(_) => Some(NAME_LEVEL_NOTE),
                 ArtistIdentity::Publisher(_) => Some(PUBLISHER_LEVEL_NOTE),
             },
-            rows: page_rows(group, busy),
+            rows,
             index_status: None,
             more_note: None,
             main_action: Some(main_action(group, group_busy)),
             empty_message: None,
             art: Some(group.collection_art()),
+            matched_by_name,
         }
     }
 }
 
-/// The rows of a group page, newest first by the date rule of the group
-/// (packet 026 decision D13).
+/// The rows of the feed's own members of a group page, newest first by
+/// the date rule of the group (packet 026 decision D13). The rows of a
+/// matched name come after them, from [`matched_by_name_rows`].
 fn page_rows(group: &SinglesGroup<'_>, busy: &BusyItems) -> Vec<SinglesGroupPageEntryVm> {
     group
         .members()
         .iter()
         .filter_map(|member| match member {
-            GroupMember::Library(single) => {
-                let track = single.album.tracks.first()?;
-                Some(SinglesGroupPageEntryVm::Library(Box::new(
-                    SinglesGroupPageRowVm {
-                        track: track.clone(),
-                        date_text: single.date.and_then(fmt_date),
-                        work: busy.track_row_work(single.album, track),
-                        key: single.key.clone(),
-                    },
-                )))
-            }
+            GroupMember::Library(single) => library_single_row(single, busy),
             GroupMember::Index(single) => Some(SinglesGroupPageEntryVm::Index(
-                SinglesGroupIndexRowVm::new(single),
+                SinglesGroupIndexRowVm::new(single, busy.index_release_work(&single.key)),
             )),
         })
         .collect()
+}
+
+/// The row of one Library single of a group page: the shared Library
+/// track row. `None` when the single has no track.
+fn library_single_row(
+    single: &GroupSingle<'_>,
+    busy: &BusyItems,
+) -> Option<SinglesGroupPageEntryVm> {
+    let track = single.album.tracks.first()?;
+    Some(SinglesGroupPageEntryVm::Library(Box::new(
+        SinglesGroupPageRowVm {
+            track: track.clone(),
+            date_text: single.date.and_then(fmt_date),
+            work: busy.track_row_work(single.album, track),
+            key: single.key.clone(),
+        },
+    )))
+}
+
+/// The rows of the trailing "Matched by name" section of a group page
+/// (ADR 0084 Decision 6, amended 2026-10-22, packet 032), newest first.
+/// Empty when the group has no matched single.
+fn matched_by_name_rows(
+    group: &SinglesGroup<'_>,
+    busy: &BusyItems,
+) -> Vec<SinglesGroupPageEntryVm> {
+    group
+        .matched_by_name
+        .iter()
+        .filter_map(|single| library_single_row(single, busy))
+        .collect()
+}
+
+/// The heading of [`matched_by_name_rows`], when it has a row. The
+/// heading and the note are the same text as the feed page's section
+/// "Matched by name" (ADR 0084 Decision 7, amendment of 2026-10-20).
+fn matched_by_name_heading(rows: &[SinglesGroupPageEntryVm]) -> Option<MatchedByNameHeadingVm> {
+    (!rows.is_empty()).then_some(MatchedByNameHeadingVm {
+        heading: PublisherPageVm::MATCHED_BY_NAME_HEADING,
+        note: PublisherPageVm::MATCHED_BY_NAME_NOTE,
+        count: rows.len(),
+    })
 }
 
 /// The loading row or the error row of a group page for the state of the
@@ -1084,10 +1303,12 @@ pub(crate) fn singles_group_title(display_artist: &str) -> String {
 /// Library singles that are not each in the Library and each `MusicIndex`
 /// single (packet 026 Part B).
 fn main_action(group: &SinglesGroup<'_>, busy: bool) -> SinglesGroupActionVm {
+    // The Library part of each action reads `singles` and
+    // `matched_by_name` together: both are Library singles of this group
+    // (ADR 0084 Decision 6, amended 2026-10-22, packet 032).
+    let library_singles = || group.singles.iter().chain(&group.matched_by_name);
     let missing = ReleasesDownloadPlan {
-        library_feed_ids: group
-            .singles
-            .iter()
+        library_feed_ids: library_singles()
             .filter(|single| !single.in_library)
             .filter_map(|single| single.album.feed_id)
             .collect(),
@@ -1116,9 +1337,7 @@ fn main_action(group: &SinglesGroup<'_>, busy: bool) -> SinglesGroupActionVm {
             a11y_label,
         )
     } else {
-        let all: Vec<i64> = group
-            .singles
-            .iter()
+        let all: Vec<i64> = library_singles()
             .filter_map(|single| single.album.feed_id)
             .collect();
         (
@@ -1263,9 +1482,12 @@ mod tests {
         assert!(singles_groups(&tree).is_empty());
     }
 
-    /// R15-03: a publisher identity and a name identity with the same
-    /// text, and an album or an EP make no group. R17-02 (packet 017
-    /// decision D3): names that differ only in case make one group.
+    /// R15-03: an album or an EP makes no group. R17-02 (packet 017
+    /// decision D3): names that differ only in case make one group. A
+    /// publisher identity and a name identity with the same text, but no
+    /// feed that the name matches, stay two groups: see
+    /// `adr_0084_singles_group_rows_r32_08_name_matched_to_one_feed_joins_its_group`
+    /// (packet 032) for the name that matches one feed by text.
     #[test]
     fn adr_0084_singles_group_r15_03_different_identities_and_kinds_do_not_group() {
         let case_tree = LibraryTree {
@@ -1275,17 +1497,6 @@ mod tests {
             ],
         };
         assert_eq!(singles_groups(&case_tree).len(), 1);
-
-        let level_tree = LibraryTree {
-            artists: vec![artist(
-                "Haleen",
-                vec![
-                    with_publisher(single("A", 1, Some(1), true), "Haleen"),
-                    single("B", 2, Some(2), true),
-                ],
-            )],
-        };
-        assert!(singles_groups(&level_tree).is_empty());
 
         let kind_tree = LibraryTree {
             artists: vec![artist(
@@ -1308,6 +1519,233 @@ mod tests {
             )],
         };
         assert!(singles_groups(&kind_tree).is_empty());
+    }
+
+    /// R32-08 (ADR 0084 Decision 6, amended 2026-10-22, packet 032): a
+    /// name that matches exactly one artist feed has no group of its
+    /// own. Its singles join the group of that feed, in the Library
+    /// scope. This is the tree of the old
+    /// `adr_0084_singles_group_r15_03_different_identities_and_kinds_do_not_group`
+    /// `level_tree`, which gave no group before this decision.
+    #[test]
+    fn adr_0084_singles_group_rows_r32_08_name_matched_to_one_feed_joins_its_group() {
+        let tree = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![
+                    with_publisher(single("A", 1, Some(1), true), "Haleen"),
+                    single("B", 2, Some(2), true),
+                ],
+            )],
+        };
+        let groups = singles_groups(&tree);
+        assert_eq!(groups.len(), 1, "A and B join one group");
+        assert_eq!(
+            groups[0].identity,
+            ArtistIdentity::Publisher("Haleen".to_owned())
+        );
+        assert_eq!(groups[0].count(), 2);
+        assert_eq!(groups[0].singles.len(), 1);
+        assert_eq!(groups[0].matched_by_name.len(), 1);
+        assert_eq!(groups[0].matched_by_name[0].album.name, "B");
+        let matched_key = groups[0].matched_by_name[0].key.clone();
+        assert!(groups[0].contains(&matched_key));
+    }
+
+    /// R32-09: the same join also applies in the scope "Everything", with
+    /// the `MusicIndex` singles of the feed added in.
+    #[test]
+    fn adr_0084_singles_group_rows_r32_09_matched_group_in_everything_scope() {
+        let tree = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![
+                    with_publisher(single("A", 1, Some(1), true), HALEEN),
+                    single("B", 2, Some(2), true),
+                ],
+            )],
+        };
+        let store = fills(HALEEN, vec![single_naming("i1", "Index One", HALEEN, 300)]);
+        let groups = singles_groups_everything(&tree, &store);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].count(), 3, "A, B and the MusicIndex single");
+        assert_eq!(groups[0].matched_by_name.len(), 1);
+        assert_eq!(groups[0].index_singles.len(), 1);
+    }
+
+    /// R32-10: a name that matches two artist feeds keeps its own group.
+    /// Neither feed's singles gain a `matched_by_name` member.
+    #[test]
+    fn adr_0084_singles_group_rows_r32_10_name_matched_to_two_feeds_keeps_its_own_group() {
+        let tree = LibraryTree {
+            artists: vec![
+                artist(
+                    "Haleen",
+                    vec![with_publisher(single("A", 1, Some(1), true), HALEEN)],
+                ),
+                artist(
+                    "Haleen",
+                    vec![with_publisher(single("C", 3, Some(3), true), HALEEN_2)],
+                ),
+                artist(
+                    "Haleen",
+                    vec![single("B", 2, Some(2), true), single("D", 4, Some(4), true)],
+                ),
+            ],
+        };
+        let groups = singles_groups(&tree);
+        assert_eq!(
+            groups.len(),
+            1,
+            "A and C each have one single; only the name group has two"
+        );
+        assert_eq!(
+            groups[0].identity,
+            ArtistIdentity::Name("haleen".to_owned())
+        );
+        assert_eq!(groups[0].count(), 2);
+        assert!(groups[0].matched_by_name.is_empty());
+    }
+
+    /// R32-11: the group page lists the matched singles under the
+    /// heading and the note of the feed page's "Matched by name" section,
+    /// after the feed's own singles.
+    #[test]
+    fn adr_0084_singles_group_rows_r32_11_page_lists_matched_singles_under_their_heading() {
+        let tree = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![
+                    with_publisher(single("A", 1, Some(1), true), HALEEN),
+                    single("B", 2, Some(2), true),
+                ],
+            )],
+        };
+        let groups = singles_groups(&tree);
+        let page = SinglesGroupPageVm::new(&groups[0], &BusyItems::default());
+        let heading = page.matched_by_name.expect("one matched row");
+        assert_eq!(heading.heading, PublisherPageVm::MATCHED_BY_NAME_HEADING);
+        assert_eq!(heading.note, PublisherPageVm::MATCHED_BY_NAME_NOTE);
+        assert_eq!(heading.count, 1);
+        assert_eq!(page.rows.len(), 2);
+        assert_eq!(
+            *page.rows[1].key(),
+            ReleaseKey::FeedGuid("guid-2".to_owned()),
+            "B's row comes after A's own row"
+        );
+    }
+
+    /// R32-12: `library_single_artist_feeds` gives the feed GUID of a
+    /// feed whose Library singles are only `matched_by_name`, once, with
+    /// no duplicate when the feed also has its own singles.
+    #[test]
+    fn adr_0084_singles_group_rows_r32_12_library_single_artist_feeds_includes_matched_feeds() {
+        let own_and_matched = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![
+                    with_publisher(single("A", 1, Some(1), true), HALEEN),
+                    single("B", 2, Some(2), true),
+                ],
+            )],
+        };
+        assert_eq!(
+            library_single_artist_feeds(&own_and_matched),
+            vec![HALEEN.to_owned()],
+            "once, with no duplicate"
+        );
+
+        let matched_only = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![
+                    with_publisher(
+                        release(
+                            "Long Player",
+                            1,
+                            vec![track(10, 1, Some(1), true), track(11, 1, Some(1), true)],
+                            None,
+                        ),
+                        HALEEN,
+                    ),
+                    single("B", 2, Some(2), true),
+                    single("C", 3, Some(3), true),
+                ],
+            )],
+        };
+        assert_eq!(
+            library_single_artist_feeds(&matched_only),
+            vec![HALEEN.to_owned()],
+            "the feed has no own single, only matched ones"
+        );
+    }
+
+    /// R32-13: "All n singles" on the release page of a matched single
+    /// counts the joined group.
+    #[test]
+    fn adr_0084_singles_group_rows_r32_13_name_link_counts_the_joined_group() {
+        let tree = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![
+                    with_publisher(single("A", 1, Some(1), true), HALEEN),
+                    single("B", 2, Some(2), true),
+                ],
+            )],
+        };
+        let empty = IndexFeedSingles::default();
+        let groups = singles_groups_everything(&tree, &empty);
+        let link = singles_group_name_link(&groups, &ReleaseKey::FeedGuid("guid-2".to_owned()))
+            .expect("B's key is in the joined group");
+        assert_eq!(link.label, "All 2 singles");
+        assert_eq!(
+            link.target,
+            AlbumNameLinkTarget::SinglesGroup(SinglesGroupKey(ArtistIdentity::Publisher(
+                HALEEN.to_owned()
+            )))
+        );
+    }
+
+    /// R32-15: `main_action`'s download plan and "Add to playlist" list
+    /// each include a `matched_by_name` single of the group.
+    #[test]
+    fn adr_0084_singles_group_rows_r32_15_main_action_includes_matched_singles() {
+        let missing = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![
+                    with_publisher(single("A", 1, Some(1), true), HALEEN),
+                    single("B", 2, Some(2), false),
+                ],
+            )],
+        };
+        let groups = singles_groups(&missing);
+        let action = main_action(&groups[0], false);
+        let SinglesGroupAction::DownloadSingles(plan) = action.action else {
+            panic!("B is missing");
+        };
+        assert_eq!(
+            plan.library_feed_ids,
+            vec![2],
+            "B's feed id, from matched_by_name"
+        );
+
+        let all_in = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![
+                    with_publisher(single("A", 1, Some(1), true), HALEEN),
+                    single("B", 2, Some(2), true),
+                ],
+            )],
+        };
+        let groups = singles_groups(&all_in);
+        let action = main_action(&groups[0], false);
+        let SinglesGroupAction::AddToPlaylist(mut ids) = action.action else {
+            panic!("all in Library");
+        };
+        ids.sort_unstable();
+        assert_eq!(ids, vec![1, 2], "A and B");
     }
 
     /// R15-03: two singles that name one publisher feed make one group,
@@ -1792,6 +2230,40 @@ mod tests {
         .unwrap()
     }
 
+    /// R32-05 (ADR 0084 packet 032): `SinglesGroupIndexRowVm::new` reads
+    /// the duration from the first track of its `Feed`, and gives `None`
+    /// when the `Feed` has no `tracks`.
+    #[test]
+    fn adr_0084_singles_group_rows_r32_05_index_row_reads_duration_from_tracks() {
+        let plain = single_naming("i9", "Night Drive", HALEEN, 1);
+        assert!(
+            plain.tracks.is_none(),
+            "the recorded row has no tracks fact"
+        );
+        let no_duration = IndexGroupSingle {
+            feed: &plain,
+            key: ReleaseKey::FeedGuid("i9".to_owned()),
+            date: Some(1),
+            sort_key: "night drive".to_owned(),
+        };
+        let row = SinglesGroupIndexRowVm::new(&no_duration, TrackRowWork::Idle);
+        assert_eq!(row.duration, None);
+
+        let mut with_track = plain;
+        with_track.tracks = Some(vec![crate::api::Track {
+            duration_secs: Some(225),
+            ..crate::api::Track::default()
+        }]);
+        let dated = IndexGroupSingle {
+            feed: &with_track,
+            key: ReleaseKey::FeedGuid("i9".to_owned()),
+            date: Some(1),
+            sort_key: "night drive".to_owned(),
+        };
+        let row = SinglesGroupIndexRowVm::new(&dated, TrackRowWork::Idle);
+        assert_eq!(row.duration.as_deref(), Some("3:45"));
+    }
+
     /// R26-04: the identity of a recorded Haleen single is the feed. "You
     /// Are Enough" and a release with no named feed have the name level.
     #[test]
@@ -2050,6 +2522,106 @@ mod tests {
         assert_eq!(groups[0].first_title_sort_key(), "b tie");
     }
 
+    /// Orchestrator decision of 2026-10-22, which replaces D2 of packet
+    /// 032: the Releases list disclosure of a group row lists every
+    /// single the group row counts, so the two numbers agree. The
+    /// matched-by-name single comes after the feed's own single, and its
+    /// subtitle marks the inferred relation.
+    #[test]
+    fn adr_0084_singles_group_rows_d2_disclosure_lists_every_counted_member() {
+        let tree = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![
+                    with_publisher(single("A", 1, Some(1), true), HALEEN),
+                    single("B", 2, Some(2), true),
+                ],
+            )],
+        };
+        let groups = singles_groups(&tree);
+        let group = &groups[0];
+        assert_eq!(
+            group.count(),
+            2,
+            "A, the feed's own single, and B, matched by name"
+        );
+        let library_row = |artist: &ArtistNode, album: &AlbumNode| {
+            Some(DestinationListRowVm {
+                element_id: album.name.clone(),
+                label: album.name.clone(),
+                secondary_text: format!("{} \u{b7} Single", artist.name),
+                a11y_label: String::new(),
+                thumbnail_href: None,
+                art: None,
+                open: crate::view_models::library::DestinationListRowTarget::Release(
+                    album.release_key().unwrap(),
+                ),
+                selection: RowSelectionVm::none(),
+                release_kind: None,
+                menu: None,
+            })
+        };
+        let row = SinglesGroupRowVm::new(group, true, library_row);
+        assert_eq!(
+            row.singles.len(),
+            group.count(),
+            "the disclosure lists every single the group row counts"
+        );
+        assert_eq!(row.single_keys.len(), group.count());
+        assert_eq!(
+            row.singles[0].label, "A",
+            "the feed's own single comes first"
+        );
+        assert_eq!(
+            row.singles[1].label, "B",
+            "the matched single comes after it"
+        );
+        assert_eq!(
+            row.singles[1].secondary_text, "Haleen \u{b7} Single \u{b7} Matched by name",
+            "the matched single's subtitle marks the inferred relation"
+        );
+        assert_eq!(
+            row.single_keys[1], group.matched_by_name[0].key,
+            "the checkbox of the group row also toggles the matched single"
+        );
+        assert!(
+            row.singles[1].a11y_label.ends_with(", Matched by name"),
+            "a screen reader also hears the inferred relation"
+        );
+    }
+
+    /// Packet 032 review: a group of matched singles alone takes its place
+    /// and its art from those singles. A group with other members keeps
+    /// its place from them (decision D3).
+    #[test]
+    fn adr_0084_singles_group_rows_matched_only_group_keeps_its_place() {
+        let tree = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![
+                    with_publisher(single("Zed", 1, Some(1), true), HALEEN),
+                    single("Beta", 2, Some(2), true),
+                    single("Alpha", 3, Some(3), true),
+                ],
+            )],
+        };
+        let groups = singles_groups(&tree);
+        let group = &groups[0];
+        assert_eq!(group.matched_by_name.len(), 2);
+        assert_eq!(
+            group.first_title_sort_key(),
+            name_sort_key("Zed"),
+            "the own single gives the place; a matched single does not move the row"
+        );
+        let mut matched_only = group.clone();
+        matched_only.singles.clear();
+        assert_eq!(
+            matched_only.first_title_sort_key(),
+            name_sort_key("Alpha"),
+            "with no other member, the matched singles give the place"
+        );
+    }
+
     /// R26-19: the scope "Library" keeps its groups: `singles_groups` gives
     /// no `MusicIndex` single, and a group of Library singles keeps its
     /// order of singles.
@@ -2138,7 +2710,7 @@ mod tests {
             Some("https://img.test/i52.jpg")
         );
         assert_eq!(index_row.element_id, "singles-group-index-row:i52");
-        assert!(index_row.a11y_label.starts_with("Release: Index 52"));
+        assert_eq!(index_row.duration, None, "the row has no `tracks` fact");
         assert_eq!(page.title, "Singles by Haleen");
         assert_eq!(
             page.subtitle.as_deref(),

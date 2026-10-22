@@ -13,8 +13,9 @@ use super::{LibraryApp, LibraryDetail};
 use crate::db::TrackRow;
 use crate::ui::shells::release_page::click_modifiers;
 use crate::view_models::release_page::{inspect_sources_entry, ReleasePageCommand};
+use crate::view_models::releases_everything::ReleasesDownloadPlan;
 use crate::view_models::singles_group::SinglesGroupPageEntryVm;
-use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
+use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart, ReleaseKey};
 
 impl LibraryApp {
     /// Runs one command of the open Library release page or singles group
@@ -138,8 +139,10 @@ impl LibraryApp {
                     FrameNavigationEntry::Track(track.track_key()),
                 )
             }),
-            // Packet 026 decision D13: a `MusicIndex` row has no track. The
-            // group page shell sends its click and its toggle directly.
+            // A `MusicIndex` row has no Library track. Its own dispatch,
+            // `run_singles_group_index_row_command`, sends its click and
+            // its toggle directly (operator decision of 2026-10-22,
+            // replacing packet 026 decision D13).
             LibraryDetail::SinglesGroup(key) => {
                 let page = self.singles_group_page(key);
                 match page.rows.into_iter().nth(row)? {
@@ -151,5 +154,56 @@ impl LibraryApp {
             }
             _ => None,
         }
+    }
+
+    /// Runs one command of a `MusicIndex` single's track row on a
+    /// singles group page (operator decision of 2026-10-22, replacing
+    /// packet 026 decision D13). The row has no Library track and no
+    /// track page, so it runs its own commands here, apart from
+    /// `release_page_row`.
+    pub(crate) fn run_singles_group_index_row_command(
+        &mut self,
+        key: &ReleaseKey,
+        title: &str,
+        command: &ReleasePageCommand,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match command {
+            ReleasePageCommand::DownloadTrack(_) => {
+                if let ReleaseKey::FeedGuid(feed_guid) = key {
+                    self.download_release_plan(
+                        ReleasesDownloadPlan {
+                            library_feed_ids: Vec::new(),
+                            index_releases: vec![(feed_guid.clone(), Some(title.to_owned()))],
+                        },
+                        cx,
+                    );
+                }
+            }
+            ReleasePageCommand::ClickRow(_, modifiers) => {
+                self.click_library_detail_row(
+                    &FrameNavigationEntry::Release(key.clone()),
+                    click_modifiers(*modifiers),
+                    cx,
+                );
+            }
+            ReleasePageCommand::ToggleRow(_) => {
+                self.toggle_library_detail_row(&FrameNavigationEntry::Release(key.clone()), cx);
+            }
+            ReleasePageCommand::DownloadRelease
+            | ReleasePageCommand::CopyFeedUrl
+            | ReleasePageCommand::MusicBrainzLookup
+            | ReleasePageCommand::RemoveRelease
+            | ReleasePageCommand::AddReleaseToPlaylist(_)
+            | ReleasePageCommand::CreatePlaylistForRelease(_)
+            | ReleasePageCommand::ToggleDescription
+            | ReleasePageCommand::OpenNameLink(_)
+            | ReleasePageCommand::RemoveTrack(_)
+            | ReleasePageCommand::InspectSources(_)
+            | ReleasePageCommand::AddTrackToPlaylist(..)
+            | ReleasePageCommand::CreatePlaylistForTrack(..) => return,
+        }
+        cx.notify();
     }
 }

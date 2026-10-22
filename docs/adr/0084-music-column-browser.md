@@ -26,6 +26,8 @@ Amended 2026-10-18 by [ADR 0085](0085-artists-by-confirmation.md): in Decision 7
 
 Amended 2026-10-20: the operator decided the download rules of the action bar. Decision 10 now gives one download queue and a progress item. The operator also decided that an image that an artist feed gives replaces the logo mosaic (Decision 12). The name level uses the sort key of a name (Decision 7). A feed page lists the releases that match its name (Decision 7).
 
+Amended 2026-10-22 by operator decision: in Decision 6, a name that matches exactly one artist feed has no group. Its singles join the group of that feed. [Task 032](../tasks/adr-0084-task-032-singles-group-rows.md) builds it.
+
 Amended 2026-10-21 by operator decision: in Decision 9, Back and Forward show a page at its scroll position of that history entry. A new open shows a page at the top. [Task 030](../tasks/adr-0084-task-030-music-open-defects.md) builds it.
 
 Amended 2026-10-17 by operator decision: Decision 1 adds a visible scrollbar to each Music column that scrolls. [Task 014](../tasks/archive/adr-0084-task-014-music-column-scrollbars.md) builds it.
@@ -124,6 +126,8 @@ In the Releases list, two or more singles of one artist in the current scope sho
 - On an artist page, inside each group of [ADR 0082](0082-publisher-roles-belong-to-each-album-link.md) Decision 2, "Albums and EPs" come before "Singles".
 
 The group key is the artist identity of Decision 7. Two artists with the same name never share a group.
+
+A name that matches exactly one artist feed has no group of its own. Its singles join the group of that feed, and the group page shows them under "Matched by name", marked as inferred, as the feed page does (Decision 7). A name that matches two or more feeds keeps its own group. The operator decided this on 2026-10-22.
 
 ### 7. One Artist Page With Two Levels
 

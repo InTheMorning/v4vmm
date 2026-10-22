@@ -219,7 +219,7 @@ The app reads the singles of a feed G before the rows of the page that needs G s
   - The empty state text "This artist has fewer than two singles in the Library." becomes "This artist has fewer than two singles."
   - Alternative: the page follows the scope of the list that opened it. This gives two pages for one key, which ADR 0084 Decision 4 does not permit.
   - **Recommendation:** the page is not scoped.
-- **D13. The row of a MusicIndex single on the group page.** **Flag.**
+- **D13. The row of a MusicIndex single on the group page.** **Flag.** Replaced on 2026-10-22 by packet 032: each member of the group page uses one track row style (operator decision of 2026-10-22).
   - Option A: a Library single keeps the shared track row (operator decision of 2026-10-17). A MusicIndex single shows as a release row with its image, title and date.
   - Option B: each member shows as a release row, also a Library single. The track row and its toggle go from the group page.
   - Option C: each MusicIndex single shows as a track row. This needs a track read for each single, which ADR 0075 section 6 does not permit.

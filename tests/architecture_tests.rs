@@ -22907,3 +22907,76 @@ fn adr_0084_music_open_defects_r30_18_search_rows_name_no_collection_kind() {
         "{FIX}\nsrc/ui/shells/search_result_rows.rs names {named:?}"
     );
 }
+
+/// R32-06 (ADR 0084 Decision 6, amended 2026-10-22, packet 032).
+/// Situational: delete this guard when that decision is superseded. The
+/// singles group page renders a `MusicIndex` single's row through the
+/// shared track row, the same as a Library single's row, not a `ListRow`
+/// built in the shell.
+#[test]
+fn adr_0084_singles_group_rows_r32_06_index_row_uses_the_shared_track_row() {
+    const FIX: &str = "ADR 0084 §6 Singles Of One Artist Show As A Group, amended 2026-10-22: a MusicIndex single's row on the group page must use the shared track row.\nCall `render_release_page_track_row` in `render_index_single_row`, and build no `ListRow` there.";
+    let source = read_source(&manifest_path("src/ui/shells/library/singles_group.rs"));
+    let code = code_only(production_source(&source));
+    let row_fn = source_between(
+        &code,
+        "fn render_index_single_row(",
+        "fn index_single_dispatch(",
+    );
+    let mut violations = Vec::new();
+    if !row_fn.contains("render_release_page_track_row(") {
+        violations
+            .push("render_index_single_row must call `render_release_page_track_row`".to_string());
+    }
+    if row_fn.contains("ListRow::new(") {
+        violations.push("render_index_single_row must not build a `ListRow`".to_string());
+    }
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+}
+
+/// R32-07 (ADR 0084 Decision 6, amended 2026-10-22, packet 032).
+/// Situational: delete this guard when that decision is superseded. A
+/// `MusicIndex` single's row has no Library track, so its own command
+/// route must queue the Index release download and reach the shared
+/// detail selection, not the Library track commands of a release page.
+#[test]
+fn adr_0084_singles_group_rows_r32_07_index_row_command_route() {
+    const FIX: &str = "ADR 0084 §6 Singles Of One Artist Show As A Group, amended 2026-10-22: `run_singles_group_index_row_command` must queue the Index release download and reach the shared detail selection.\nCall `download_release_plan`, `click_library_detail_row` and `toggle_library_detail_row`.";
+    let source = read_source(&manifest_path("src/library/release_page.rs"));
+    let code = code_only(production_source(&source));
+    let command_fn = source_between(
+        &code,
+        "pub(crate) fn run_singles_group_index_row_command(",
+        "\n}",
+    );
+    let mut violations = Vec::new();
+    for required in [
+        "download_release_plan(",
+        "click_library_detail_row(",
+        "toggle_library_detail_row(",
+    ] {
+        if !command_fn.contains(required) {
+            violations.push(format!(
+                "run_singles_group_index_row_command must call `{required}`"
+            ));
+        }
+    }
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+}
+
+/// R32-17 (ADR 0084 Decision 6, amended 2026-10-22, packet 032).
+/// Situational: delete this guard when that decision is superseded. The
+/// Releases list singles groups and the Artists list and feed page must
+/// match a name to a feed through the one function
+/// `tree_name_feed_matches`, so a name never matches a feed one way in
+/// one list and another way in another.
+#[test]
+fn adr_0084_singles_group_rows_r32_17_one_match_function_for_singles_groups() {
+    const FIX: &str = "ADR 0084 §6 Singles Of One Artist Show As A Group, amended 2026-10-22: the singles groups must match a name to a feed through `tree_name_feed_matches`, the one function the Artists list and the feed page also use.\nCall `tree_name_feed_matches(` in `src/view_models/singles_group.rs`.";
+    let source = read_source(&manifest_path("src/view_models/singles_group.rs"));
+    let code = code_only(production_source(&source));
+    assert!(
+        code.contains("tree_name_feed_matches("),
+        "{FIX}\nsrc/view_models/singles_group.rs does not call `tree_name_feed_matches(`"
+    );
+}

@@ -2216,6 +2216,46 @@ fn name_level_library_release(artist_text: &str, album: &AlbumNode) -> NameLevel
     }
 }
 
+/// The match of each name key to the artist feeds of `tree` (ADR 0084
+/// Decision 7, packet 017 decision D14). The feeds are the feed
+/// identities of the tree, so a label feed never matches (ADR 0085
+/// Decision 2). The key set of a feed holds the key of its title and the
+/// key of the artist text of each of its Library releases.
+///
+/// [`LibraryViewModel::name_feed_matches`] calls this function with
+/// `self.snapshot.tree`. The Releases list singles groups also call it,
+/// with the same tree (ADR 0084 Decision 6, amended 2026-10-22, packet
+/// 032), so a name matches one group at most.
+#[must_use]
+pub(crate) fn tree_name_feed_matches(tree: &LibraryTree) -> NameFeedMatches {
+    let mut feeds: BTreeMap<String, NameFeedEntry> = BTreeMap::new();
+    for artist in &tree.artists {
+        for album in &artist.albums {
+            let ArtistIdentity::Publisher(feed_guid) = album.artist_identity(&artist.name) else {
+                continue;
+            };
+            let entry = feeds
+                .entry(feed_guid.clone())
+                .or_insert_with(|| NameFeedEntry {
+                    feed_guid: feed_guid.clone(),
+                    ..NameFeedEntry::default()
+                });
+            if entry.title.is_none() {
+                entry.title = album
+                    .named_feeds
+                    .iter()
+                    .find(|feed| feed.feed_guid == feed_guid)
+                    .and_then(|feed| feed.title.clone());
+                if let Some(title) = &entry.title {
+                    entry.keys.insert(name_sort_key(title));
+                }
+            }
+            entry.keys.insert(name_sort_key(&artist.name));
+        }
+    }
+    name_feed_matches(feeds.into_values())
+}
+
 /// The row of one artist feed of the Library, with its order position
 /// (ADR 0085 Decisions 2 and 6, packet 016 decision D6). `members` is each
 /// album of the feed. `matched_count` is the count of the Library releases
@@ -4055,39 +4095,15 @@ impl LibraryViewModel {
     }
 
     /// The match of each name key to the artist feeds of the Library (ADR
-    /// 0084 Decision 7, packet 017 decision D14). The feeds are the feed
-    /// identities of the tree, so a label feed never matches (ADR 0085
-    /// Decision 2). The key set of a feed holds the key of its title and
-    /// the key of the artist text of each of its Library releases.
+    /// 0084 Decision 7, packet 017 decision D14). It reads `self.snapshot
+    /// .tree` through [`tree_name_feed_matches`], the one function that
+    /// builds this match from a Library tree. The Releases list singles
+    /// groups read that same function (ADR 0084 Decision 6, amended
+    /// 2026-10-22, packet 032), so a name never matches a feed one way on
+    /// the Artists list and another way on the group page.
     #[must_use]
     pub(crate) fn name_feed_matches(&self) -> NameFeedMatches {
-        let mut feeds: BTreeMap<String, NameFeedEntry> = BTreeMap::new();
-        for artist in &self.snapshot.tree.artists {
-            for album in &artist.albums {
-                let ArtistIdentity::Publisher(feed_guid) = album.artist_identity(&artist.name)
-                else {
-                    continue;
-                };
-                let entry = feeds
-                    .entry(feed_guid.clone())
-                    .or_insert_with(|| NameFeedEntry {
-                        feed_guid: feed_guid.clone(),
-                        ..NameFeedEntry::default()
-                    });
-                if entry.title.is_none() {
-                    entry.title = album
-                        .named_feeds
-                        .iter()
-                        .find(|feed| feed.feed_guid == feed_guid)
-                        .and_then(|feed| feed.title.clone());
-                    if let Some(title) = &entry.title {
-                        entry.keys.insert(name_sort_key(title));
-                    }
-                }
-                entry.keys.insert(name_sort_key(&artist.name));
-            }
-        }
-        name_feed_matches(feeds.into_values())
+        tree_name_feed_matches(&self.snapshot.tree)
     }
 
     /// The Library facts of the search rows for one render (ADR 0084
@@ -5302,19 +5318,26 @@ impl BusyItems {
             .and_then(|key| self.downloads.key_phase(&key))
     }
 
+    /// The work in progress on the row of the `MusicIndex` single `key`
+    /// (ADR 0084 packet 032). It reads the same `key_phase` that
+    /// `index_release_downloading` reads, so the two methods always agree.
+    /// The group page track row of a `MusicIndex` single reads it.
+    #[must_use]
+    pub(crate) fn index_release_work(&self, key: &ReleaseKey) -> TrackRowWork {
+        match key {
+            ReleaseKey::FeedGuid(guid) => TrackRowWork::from_phase(self.downloads.key_phase(
+                &crate::view_models::download_progress::FeedKey::Guid(guid.clone()),
+            )),
+            ReleaseKey::LibraryFeed(_) => TrackRowWork::Idle,
+        }
+    }
+
     /// `true` while a job of the `MusicIndex` release `key` is queued or in
-    /// flight (packet 026 Part B). The singles group page reads it.
+    /// flight (packet 026 Part B). The singles group page's main action
+    /// reads it.
     #[must_use]
     pub(crate) fn index_release_downloading(&self, key: &ReleaseKey) -> bool {
-        match key {
-            ReleaseKey::FeedGuid(guid) => self
-                .downloads
-                .key_phase(&crate::view_models::download_progress::FeedKey::Guid(
-                    guid.clone(),
-                ))
-                .is_some(),
-            ReleaseKey::LibraryFeed(_) => false,
-        }
+        self.index_release_work(key) != TrackRowWork::Idle
     }
 
     /// `true` while the removal of the album runs.
@@ -8876,6 +8899,71 @@ mod tests {
         assert_eq!(group.secondary_text, "3 singles · In Library · By name");
     }
 
+    /// R32-14 (ADR 0084 Decision 6, amended 2026-10-22, packet 032): a
+    /// release that a matched name joins to a feed's singles group does
+    /// not show its own release entry. The group entry's count includes
+    /// it.
+    #[test]
+    fn adr_0084_singles_group_rows_r32_14_matched_single_hides_its_own_row() {
+        let single = |name: &str, feed_id: i64, pub_date: i64, named_feeds: Vec<NamedFeed>| {
+            let mut track = row();
+            track.id = feed_id * 10;
+            track.feed_id = feed_id;
+            track.pub_date = Some(pub_date);
+            track.is_in_library = true;
+            AlbumNode {
+                name: name.into(),
+                feed_id: Some(feed_id),
+                feed_guid: Some(format!("guid-{feed_id}")),
+                feed_url: None,
+                language: None,
+                description: None,
+                image_href: Some(format!("{feed_id}.jpg")),
+                named_feeds,
+                identity_facts: LocalIdentityFacts::default(),
+                metadata_facts: Box::<FeedMetadataFacts>::default(),
+                stored_values: None,
+                tracks: vec![track],
+            }
+        };
+        let feed = NamedFeed {
+            feed_guid: "haleen-feed".to_owned(),
+            title: None,
+            position: Some(0),
+            role: None,
+            role_agreement: None,
+            feed_rel: None,
+            album_rel: None,
+            confirmed: true,
+            image_url: None,
+        };
+        let tree = LibraryTree {
+            artists: vec![ArtistNode {
+                name: "Haleen".into(),
+                albums: vec![
+                    single("A", 1, 100, vec![feed]),
+                    single("B", 2, 200, Vec::new()),
+                ],
+            }],
+        };
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(tree);
+        let entries = vm.releases_list(
+            MusicListScope::Library,
+            &IndexNameListPage::default(),
+            &IndexFeedSingles::default(),
+            &BTreeSet::new(),
+        );
+        assert_eq!(entries.len(), 1, "one group entry, no release entry for B");
+        let ReleasesListEntryVm::SinglesGroup(group) = &entries[0] else {
+            panic!("the group entry for the Haleen feed");
+        };
+        assert_eq!(
+            group.secondary_text,
+            "2 singles \u{b7} In Library \u{b7} Artist feed"
+        );
+    }
+
     /// R15-06 (ADR 0084 Decision 6): with the group key in the expanded
     /// set, the group entry gives its singles rows newest first and "Hide
     /// singles". Without the key, it gives no singles rows and "Show
@@ -10924,6 +11012,46 @@ mod tests {
         assert!(vm.busy_items().removing(&album));
         vm.finish_feed_removal(7);
         assert!(!vm.busy_items().removing(&album));
+    }
+
+    /// R32-04 (ADR 0084 packet 032): `index_release_work` gives `Idle`,
+    /// `Queued` and `Downloading` for a `FeedGuid` key, from the same
+    /// `DownloadActivity` facts as `release_phase`. `index_release_downloading`
+    /// agrees with it on every case.
+    #[test]
+    fn adr_0084_singles_group_rows_r32_04_index_release_work_matches_downloading() {
+        let key = ReleaseKey::FeedGuid("i1".to_owned());
+        let idle = BusyItems::default();
+        assert_eq!(idle.index_release_work(&key), TrackRowWork::Idle);
+        assert!(!idle.index_release_downloading(&key));
+
+        let queued = BusyItems::new(
+            DownloadActivity {
+                keys: BTreeSet::from([FeedKey::Guid("i1".to_owned())]),
+                ..DownloadActivity::default()
+            },
+            BTreeSet::new(),
+        );
+        assert_eq!(queued.index_release_work(&key), TrackRowWork::Queued);
+        assert!(queued.index_release_downloading(&key));
+
+        let downloading = BusyItems::new(
+            DownloadActivity {
+                keys: BTreeSet::from([FeedKey::Guid("i1".to_owned())]),
+                in_flight_keys: BTreeSet::from([FeedKey::Guid("i1".to_owned())]),
+                ..DownloadActivity::default()
+            },
+            BTreeSet::new(),
+        );
+        assert_eq!(
+            downloading.index_release_work(&key),
+            TrackRowWork::Downloading
+        );
+        assert!(downloading.index_release_downloading(&key));
+
+        let local = ReleaseKey::LibraryFeed(1);
+        assert_eq!(downloading.index_release_work(&local), TrackRowWork::Idle);
+        assert!(!downloading.index_release_downloading(&local));
     }
 
     /// Orchestrator correction of 2026-10-20 (C1): of nine queued releases,

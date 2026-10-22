@@ -2,12 +2,14 @@
 //!
 //! The view model gives each text, the main action and its availability.
 //! This shell owns only the layout and the callbacks into `LibraryApp`. A
-//! Library single shows as the shared Library track row, and a `MusicIndex`
-//! single shows as a release row (packet 026 decision D13).
+//! Library single and a `MusicIndex` single both show as the track row
+//! of the Index release page (operator decision of 2026-10-22, replacing
+//! packet 026 decision D13).
 
 #![warn(clippy::pedantic)]
 
 use std::collections::BTreeMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
@@ -15,15 +17,15 @@ use gpui::{
     ScrollHandle, SharedString, Styled,
 };
 
-use crate::ui::composites::release_section_list::checkbox_state_for;
-use crate::ui::composites::{EntityKind, ListRow, ListRowA11yLabel, Thumbnail};
-use crate::ui::primitives::{Checkbox, LabelVariant};
+use crate::ui::primitives::{LabelVariant, SectionHeader};
 use crate::ui::shells::library::index_list_status::{
     render_index_list_status_row, IndexListActions,
 };
 use crate::view_models::index_name_list::IndexListStatusRowVm;
-use crate::view_models::singles_group::{SinglesGroupIndexRowVm, SinglesGroupPageEntryVm};
-use crate::view_models::workspace::FrameNavigationEntry;
+use crate::view_models::singles_group::{
+    MatchedByNameHeadingVm, SinglesGroupIndexRowVm, SinglesGroupPageEntryVm,
+};
+use crate::view_models::workspace::ReleaseKey;
 
 use crate::db;
 use crate::library::{playlist_options, LibraryApp};
@@ -72,6 +74,7 @@ pub(crate) fn render_library_singles_group_page(
         subtitle,
         identity_note,
         rows,
+        matched_by_name,
         index_status,
         more_note,
         main_action,
@@ -111,11 +114,20 @@ pub(crate) fn render_library_singles_group_page(
     }
     let dispatch = library_release_page_dispatch(cx);
     let playlist_displays = playlist_option_displays(playlists);
-    let row_elements: Vec<AnyElement> = rows
-        .iter()
-        .zip(row_slots)
-        .enumerate()
-        .map(|(index, (row, slot))| match row {
+    // The trailing "Matched by name" rows get a heading before them
+    // (operator decision of 2026-10-22, packet 032). `rows` stays one
+    // flat list; the heading's own row count gives its position.
+    let heading_at = matched_by_name.as_ref().map_or(rows.len(), |heading| {
+        rows.len().saturating_sub(heading.count)
+    });
+    let mut row_elements: Vec<AnyElement> = Vec::with_capacity(rows.len() + 1);
+    for (index, (row, slot)) in rows.iter().zip(row_slots).enumerate() {
+        if index == heading_at {
+            if let Some(heading) = &matched_by_name {
+                row_elements.push(render_matched_by_name_heading(heading));
+            }
+        }
+        row_elements.push(match row {
             SinglesGroupPageEntryVm::Library(row) => render_single_row(
                 row,
                 index,
@@ -128,10 +140,10 @@ pub(crate) fn render_library_singles_group_page(
                 cx,
             ),
             SinglesGroupPageEntryVm::Index(row) => {
-                render_index_single_row(row, album_thumbs, slot, cx)
+                render_index_single_row(row, album_thumbs, slot, detail_focus, cx)
             }
-        })
-        .collect();
+        });
+    }
     content = content.child(
         div()
             .flex()
@@ -187,6 +199,25 @@ fn render_heading(
         );
     }
     heading
+}
+
+/// The heading and the note of the trailing "Matched by name" rows
+/// (operator decision of 2026-10-22, packet 032), styled the same as the
+/// feed page's section of the same name: a `SectionHeader` and a
+/// `Caption` note.
+fn render_matched_by_name_heading(heading: &MatchedByNameHeadingVm) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap(spacing::XS)
+        .pt(spacing::SM)
+        .child(SectionHeader::new(heading.heading))
+        .child(
+            Label::new(heading.note)
+                .variant(LabelVariant::Caption)
+                .color(SemanticColor::SecondaryLabel),
+        )
+        .into_any_element()
 }
 
 /// The rows after the single rows of a group page (packet 026 Part B): the
@@ -310,67 +341,58 @@ fn render_single_row(
     )
 }
 
-/// One `MusicIndex` single row of a group page (packet 026 decision D13):
-/// the release image, the title and the date, with no state word. A click
-/// opens the release page of the single, or changes the selection in
-/// selection mode, as a release row of the feed page does.
+/// One `MusicIndex` single row of a group page: the track row of the
+/// Index release page (operator decision of 2026-10-22, replacing packet
+/// 026 decision D13). A click opens the release page of the single: a
+/// `MusicIndex` single has no Library track and no track page of its own.
 fn render_index_single_row(
     row: &SinglesGroupIndexRowVm,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     slot: DetailRowSlot,
+    detail_focus: &FocusHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let thumbnail = row
-        .image_url
+    let vm = ReleaseTrackRowVm::index_single(
+        row.title.clone(),
+        row.duration.clone(),
+        row.date_text.clone(),
+        row.image_url.clone(),
+        row.key.clone(),
+        row.element_id.clone(),
+        slot.selection,
+        row.work,
+    );
+    let thumbnail = vm
+        .thumbnail_url
         .as_deref()
         .and_then(|url| album_thumbs.get(url))
         .and_then(Clone::clone);
-    // Column text does not call `truncate()` (ADR 0063,
-    // docs/troubleshooting/column-text-truncation.md). `overflow_hidden()`
-    // is the required mitigation for text stacked in a flex column.
-    let mut text_block = div()
-        .flex()
-        .flex_col()
-        .min_w_0()
-        .overflow_hidden()
-        .gap(spacing::XXS)
-        .child(Label::new(row.title.clone()).variant(LabelVariant::Headline));
-    if let Some(date) = &row.date_text {
-        text_block = text_block.child(
-            Label::new(date.clone())
-                .variant(LabelVariant::Caption)
-                .color(SemanticColor::SecondaryLabel),
-        );
-    }
-    let DetailRowSlot { selection, probe } = slot;
-    let open_entry = FrameNavigationEntry::Release(row.key.clone());
-    let mut list_row = ListRow::new(SharedString::from(row.element_id.clone()))
-        .selected(selection.is_marked())
-        .focused(selection.focused)
-        .scroll_probe(probe);
-    if selection.checkbox_visible {
-        let toggle_entry = open_entry.clone();
-        list_row = list_row.checkbox(
-            Checkbox::new(
-                SharedString::from(row.checkbox_id.clone()),
-                checkbox_state_for(selection.check_state),
-            )
-            .a11y_label(selection.checkbox_a11y_label.clone())
-            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                cx.stop_propagation();
-                this.toggle_library_detail_row(&toggle_entry, cx);
-            }))
-            .into_any_element(),
-        );
-    }
-    list_row
-        .a11y_label(ListRowA11yLabel {
-            label: SharedString::from(row.a11y_label.clone()),
-        })
-        .on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
-            this.click_library_detail_row(&open_entry, event.modifiers(), cx);
-        }))
-        .child(Thumbnail::new(EntityKind::Release, ThumbnailSize::Sm).image(thumbnail))
-        .child(div().flex_1().min_w_0().child(text_block))
-        .into_any_element()
+    let dispatch = index_single_dispatch(row.key.clone(), row.title.clone(), cx);
+    render_release_page_track_row(
+        &vm,
+        0,
+        thumbnail,
+        slot.probe,
+        &[],
+        Some(detail_focus),
+        &dispatch,
+        cx,
+    )
+}
+
+/// The dispatch of one `MusicIndex` single's row (operator decision of
+/// 2026-10-22). The row has no Library track, so a shared, index-based
+/// dispatch cannot look it up: each row keeps its own key and title, and
+/// sends its commands to `LibraryApp::run_singles_group_index_row_command`.
+fn index_single_dispatch(
+    key: ReleaseKey,
+    title: String,
+    cx: &Context<LibraryApp>,
+) -> ReleasePageDispatch {
+    let entity = cx.entity();
+    Rc::new(move |command, window, cx| {
+        entity.update(cx, |this, cx| {
+            this.run_singles_group_index_row_command(&key, &title, &command, window, cx);
+        });
+    })
 }

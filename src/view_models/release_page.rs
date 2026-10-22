@@ -973,6 +973,67 @@ impl ReleaseTrackRowVm {
             drag: None,
         }
     }
+
+    /// The row of a `MusicIndex` single on a singles group page (operator
+    /// decision of 2026-10-22, replacing packet 026 decision D13). The row
+    /// shows no track number, the same as a Library single's row. It
+    /// shows `duration` when the `MusicIndex` data the app already holds
+    /// gives one; else the duration column stays empty.
+    ///
+    /// A click opens the release page of `key`, not a track page: a
+    /// `MusicIndex` single has no Library track of its own. The menu
+    /// holds only "Download" (orchestrator decision D1): the page has no
+    /// path to add an un-downloaded `MusicIndex` release to a playlist.
+    /// With no item left, the row has no menu at all.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the row takes each already-resolved value of the group page view model"
+    )]
+    #[must_use]
+    pub(crate) fn index_single(
+        title: String,
+        duration: Option<String>,
+        date_text: Option<String>,
+        thumbnail_url: Option<String>,
+        key: ReleaseKey,
+        row_id: String,
+        selection: RowSelectionVm,
+        work: TrackRowWork,
+    ) -> Self {
+        let open_entry = FrameNavigationEntry::Release(key);
+        let row_key = DetailRowKey::for_open_entry(&open_entry);
+        let row = TrackRowVm {
+            element_key: row_id.clone(),
+            number: None,
+            title,
+            subtitle: None,
+            duration,
+            date_text,
+            a11y_label: String::new(),
+        };
+        let download =
+            DownloadSlotVm::project(format!("{row_id}-download"), &row.title, false, work);
+        let menu = TrackRowMenuVm::project(&TrackRowMenuFacts {
+            download: download.available,
+            ..TrackRowMenuFacts::new(&row_id, &row.title, selection.checkbox_visible)
+        })
+        .filter(|menu| !menu.items.is_empty());
+        Self {
+            row_id,
+            row,
+            badges: Vec::new(),
+            mb_status: None,
+            download,
+            menu,
+            inspect_sources_entry: None,
+            row_key,
+            open_entry: Some(open_entry),
+            open_label: None,
+            selection,
+            thumbnail_url,
+            drag: None,
+        }
+    }
 }
 
 /// The release page: the shared header and the parts that differ by
@@ -1550,6 +1611,89 @@ mod tests {
             TrackRowWork::Idle,
         );
         assert_eq!(index_row.row.number.as_deref(), Some("3"));
+    }
+
+    /// R32-01 (ADR 0084 packet 032): `index_single` gives a row with no
+    /// track number, the given title, duration and date text. It opens
+    /// the release page of its key, and has no "Inspect sources".
+    #[test]
+    fn adr_0084_singles_group_rows_r32_01_index_single_row_shape() {
+        let key = ReleaseKey::FeedGuid("i9".to_owned());
+        let row = ReleaseTrackRowVm::index_single(
+            "Night Drive".to_owned(),
+            Some("3:45".to_owned()),
+            Some("Apr 5, 2024".to_owned()),
+            Some("https://img.test/i9.jpg".to_owned()),
+            key.clone(),
+            "singles-group-index-row:i9".to_owned(),
+            RowSelectionVm::none(),
+            TrackRowWork::Idle,
+        );
+        assert_eq!(row.row.number, None);
+        assert_eq!(row.row.title, "Night Drive");
+        assert_eq!(row.row.duration.as_deref(), Some("3:45"));
+        assert_eq!(row.row.date_text.as_deref(), Some("Apr 5, 2024"));
+        assert_eq!(
+            row.open_entry,
+            Some(FrameNavigationEntry::Release(key.clone()))
+        );
+        assert_eq!(row.row_key, Some(DetailRowKey::Release(key)));
+        assert_eq!(row.inspect_sources_entry, None);
+        assert_eq!(
+            row.thumbnail_url.as_deref(),
+            Some("https://img.test/i9.jpg")
+        );
+        assert_eq!(row.drag, None);
+    }
+
+    /// R32-02: with no duration, the row still builds, and its duration
+    /// is `None`. No field forces a duration.
+    #[test]
+    fn adr_0084_singles_group_rows_r32_02_index_single_row_with_no_duration() {
+        let row = ReleaseTrackRowVm::index_single(
+            "No Duration".to_owned(),
+            None,
+            None,
+            None,
+            ReleaseKey::FeedGuid("i10".to_owned()),
+            "singles-group-index-row:i10".to_owned(),
+            RowSelectionVm::none(),
+            TrackRowWork::Idle,
+        );
+        assert_eq!(row.row.duration, None);
+    }
+
+    /// R32-03: the menu of a `MusicIndex` single's row holds only
+    /// "Download", when it is available. With no item left, the row has
+    /// no menu.
+    #[test]
+    fn adr_0084_singles_group_rows_r32_03_index_single_menu_has_download_only() {
+        let key = ReleaseKey::FeedGuid("i11".to_owned());
+        let idle = ReleaseTrackRowVm::index_single(
+            "Idle".to_owned(),
+            None,
+            None,
+            None,
+            key.clone(),
+            "row-idle".to_owned(),
+            RowSelectionVm::none(),
+            TrackRowWork::Idle,
+        );
+        let menu = idle.menu.expect("one item");
+        assert_eq!(menu.items.len(), 1);
+        assert_eq!(menu.items[0].action, TrackRowMenuAction::Download);
+
+        let downloading = ReleaseTrackRowVm::index_single(
+            "Downloading".to_owned(),
+            None,
+            None,
+            None,
+            key,
+            "row-downloading".to_owned(),
+            RowSelectionVm::none(),
+            TrackRowWork::Downloading,
+        );
+        assert_eq!(downloading.menu, None, "no item is left");
     }
 
     /// R21-07:`contributors_panel` is true for the Library origin and
