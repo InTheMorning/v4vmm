@@ -65,6 +65,17 @@ impl ListRowDensity {
     }
 }
 
+/// The owner of the click of a row. A row with a click shows the hover
+/// fill of a clickable row.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RowClickOwner {
+    /// The row owns the click, when it has an `on_click` handler.
+    Row,
+    /// A child of the row owns the click, for example the body of a
+    /// `TrackRow`.
+    Child,
+}
+
 /// One row in a list. Wraps an [`HStack`] with padding, gap, and rounding.
 #[derive(IntoElement)]
 #[must_use]
@@ -91,6 +102,8 @@ pub struct ListRow {
     /// The row has a menu cell (ADR 0083 task 007). A cell with no
     /// `menu` is empty and keeps its width.
     has_menu_cell: bool,
+    /// The owner of the click, which sets the hover fill.
+    click_owner: RowClickOwner,
     /// The menu of the menu cell.
     menu: Option<RowMenu>,
     /// The drag of one track to a playlist (ADR 0083 task 008). `None`
@@ -112,6 +125,7 @@ impl ListRow {
             audition: None,
             scroll_probe: None,
             has_menu_cell: false,
+            click_owner: RowClickOwner::Row,
             menu: None,
             drag: None,
             children: Vec::new(),
@@ -166,6 +180,14 @@ impl ListRow {
         self
     }
 
+    /// A child of the row owns the click, so the row shows the hover fill
+    /// of a clickable row. The two Music list columns and the detail
+    /// column thus show the same hover fill (operator walk of 2026-10-22).
+    pub(crate) const fn child_click(mut self) -> Self {
+        self.click_owner = RowClickOwner::Child;
+        self
+    }
+
     /// The menu cell of the row (ADR 0083 task 007). The cell is the last
     /// fixed column. It keeps its width when `menu` is `None`, so each cell
     /// of a list starts at the same position. A row with a menu is the
@@ -212,6 +234,7 @@ impl RenderOnce for ListRow {
         let focus = color(cx, SemanticColor::Focus);
         let hover_bg = color(cx, SemanticColor::SecondarySystemBackground);
         let has_click_action = on_click.is_some();
+        let hover_fill = matches!(self.click_owner, RowClickOwner::Child) && !has_click_action;
 
         // ADR 0084 Decision 10 Amendment, 2026-10-19: the checkbox shows
         // only in selection mode. The caller gives one only then, so it
@@ -263,6 +286,9 @@ impl RenderOnce for ListRow {
             .when(has_menu_cell, |el| el.group(TRACK_ROW_GROUP))
             .when_some(self.scroll_probe, |el, probe| el.relative().child(probe));
         row = menu_root.attach(row);
+        if hover_fill {
+            row = row.hover(move |el| el.bg(hover_bg));
+        }
 
         if let Some(handler) = on_click {
             row = row

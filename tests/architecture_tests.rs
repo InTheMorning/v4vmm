@@ -3070,6 +3070,31 @@ fn adr_0084_index_singles_one_singles_request_for_each_page_open() {
     assert!(violations.is_empty(), "{}", violations.join("\n"));
 }
 
+/// ADR 0083 Decision 6 and task 006 (operator walk of 2026-10-22): a track
+/// row shows the same hover fill as the rows of the two Music list columns.
+/// The body of a `TrackRow` owns the click, so the row asks `ListRow` for
+/// the hover fill with `child_click()`, and `ListRow` draws it.
+#[test]
+fn adr_0083_track_row_shows_the_hover_fill_of_a_list_row() {
+    let track_row = compact_source(&read_source(&manifest_path(
+        "src/ui/composites/track_row.rs",
+    )));
+    assert!(
+        track_row.contains("ifbody_clickable{row=row.child_click();}"),
+        "ADR 0083 task 006: `TrackRow` must call `ListRow::child_click()` when its body owns the \
+         click, so the track row shows the hover fill of the list rows. Do not draw a second \
+         hover fill in `TrackRow`."
+    );
+    let list_row = compact_source(&read_source(&manifest_path(
+        "src/ui/composites/list_row.rs",
+    )));
+    assert!(
+        list_row.contains("ifhover_fill{row=row.hover(move|el|el.bg(hover_bg));}"),
+        "ADR 0083 task 006: `ListRow` must draw the one hover fill (`hover_bg`) for a row whose \
+         child owns the click."
+    );
+}
+
 /// ADR 0084 Decision 8 (operator decision of 2026-10-16): the Music
 /// content-list tri-state filter control is deleted. This replaces
 /// `adr_0047_task_010a_content_list_page_vm_owns_filter_projection` and

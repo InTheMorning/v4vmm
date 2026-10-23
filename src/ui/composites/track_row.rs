@@ -435,7 +435,8 @@ impl RenderOnce for TrackRow {
             .items_center()
             .gap(gap);
 
-        if on_click.is_some() {
+        let body_clickable = on_click.is_some();
+        if body_clickable {
             body = body.cursor_pointer();
         }
 
@@ -508,7 +509,13 @@ impl RenderOnce for TrackRow {
             );
 
         let selection = self.selection;
-        let mut row = ListRow::compact(self.id)
+        // Operator walk of 2026-10-22: the body owns the click, so the row
+        // asks `ListRow` for the hover fill of a clickable row.
+        let mut row = ListRow::compact(self.id);
+        if body_clickable {
+            row = row.child_click();
+        }
+        let mut row = row
             .a11y_label(ListRowA11yLabel {
                 label: a11y_label.into(),
             })
