@@ -10,9 +10,6 @@
 
 use gpui::{AnyElement, App, Context, Window};
 
-use crate::application::queries::search::FetchIndexSearchResults;
-use crate::application::CommandContext;
-use crate::presentation::present_command;
 use crate::ui::shells::saved_search_delete_confirmation::open_saved_search_delete_dialog;
 use crate::ui::shells::search_results_inspector::{
     render_search_empty_state, render_search_results_inspector, SearchResultsHeaderMode,
@@ -21,7 +18,7 @@ use crate::ui::shells::search_results_inspector::{
 use crate::view_models::search_results::{
     delete_saved_search_confirmation, location_after_saved_search_delete, saved_search_restore,
     saved_search_result_is_current, SavedSearch, SavedSearchId, SavedSearchPage,
-    SavedSearchRestore, SearchResultsTab,
+    SavedSearchRestore, SearchResultsTab, SearchRun,
 };
 use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
 
@@ -82,81 +79,23 @@ impl TopApp {
     }
 
     /// Runs the query of `search`: the Library rows at once, then the Index
-    /// request on the ADR 0040 runtime.
+    /// request on the ADR 0040 runtime. The run parses the saved text again
+    /// (ADR 0087 Decision 6) and uses the Index entry of the toolbar search
+    /// (packet 002 decision D21).
     fn run_saved_search(&mut self, search: &SavedSearch, cx: &mut Context<Self>) {
-        let results = self.search_results_detail_for_query(&search.query, cx);
-        let mut page = SavedSearchPage::open(search, results);
+        let run = SearchRun::new(&search.query);
+        let results = self.search_results_detail_for_run(&run, cx);
+        let page = SavedSearchPage::open(search, results);
         // Packet 028 review: each run of a saved search starts at the top.
         self.scroll_search_page_to_top(SearchPageSlot::SavedSearch);
-        let endpoint = self
-            .musicindex_endpoint
-            .require()
-            .unwrap_or("Invalid musicindex_endpoint setting")
-            .to_owned();
-        if let Err(reason) =
-            crate::view_models::app_toolbar::AppToolbarVm::index_search_availability(
-                self.feature_availability(),
-            )
-        {
-            if let Some(results) = page.results_mut() {
-                results.set_index_error(
-                    &crate::application::errors::command::CommandError::Unavailable(reason),
-                    &endpoint,
-                    std::time::SystemTime::now(),
-                );
-            }
-            self.saved_search_page = Some(page);
-            return;
-        }
-        if let Some(results) = page.results_mut() {
-            results.mark_index_loading();
-        }
         self.saved_search_page = Some(page);
-
-        let command = FetchIndexSearchResults::new(
-            self.musicindex_endpoint.clone(),
-            search.query.clone(),
-            self.library.read(cx).name_feed_matches(),
-        );
-        let (success_id, success_query) = (search.id, search.query.clone());
-        let (error_id, error_query) = (search.id, search.query.clone());
-        present_command(
-            &self.command_runner,
-            command,
-            CommandContext::next(),
-            cx,
-            move |this, rows, cx| {
-                if !this.saved_search_result_is_current(success_id, &success_query) {
-                    return;
-                }
-                // Packet 010 "The stale results": the page also checks
-                // its own query.
-                if this
-                    .search_page_mut(SearchPageSlot::SavedSearch)
-                    .is_some_and(|page| page.replace_index_results_for_query(&success_query, rows))
-                {
-                    cx.notify();
-                }
-            },
-            move |this, error, cx| {
-                if !this.saved_search_result_is_current(error_id, &error_query) {
-                    return;
-                }
-                if let Some(page) = this
-                    .search_page_mut(SearchPageSlot::SavedSearch)
-                    .filter(|page| page.query() == error_query)
-                {
-                    page.set_index_error(&error, &endpoint, std::time::SystemTime::now());
-                    cx.notify();
-                }
-            },
-        );
+        self.start_index_search_for_run(SearchPageSlot::SavedSearch, &run, cx);
     }
 
     /// Tells if an Index result for the saved search `id` can write the
     /// mounted page: the mounted page holds that same id and that same
     /// query.
-    fn saved_search_result_is_current(&self, id: SavedSearchId, query: &str) -> bool {
+    pub(super) fn saved_search_result_is_current(&self, id: SavedSearchId, query: &str) -> bool {
         saved_search_result_is_current(self.saved_search_page.as_ref(), id, query)
     }
 

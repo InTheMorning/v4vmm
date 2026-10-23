@@ -32,12 +32,18 @@ pub fn cached_tracks(conn: &Connection) -> Result<Vec<db::TrackRow>> {
     db::cached_tracks(conn)
 }
 
+/// Searches the Library tracks with the clauses of `search` (ADR 0087
+/// Decision 2), at most `limit` rows.
+///
+/// # Errors
+///
+/// Returns an error when the Library rows cannot be read.
 pub fn search_library_tracks(
     conn: &Connection,
-    query: &str,
+    search: &db::LibraryTrackSearch,
     limit: usize,
 ) -> Result<Vec<db::TrackRow>> {
-    db::search_library_tracks(conn, query, limit)
+    db::search_library_tracks(conn, search, limit)
 }
 
 pub fn track_row_by_id(conn: &Connection, track_id: i64) -> Result<Option<db::TrackRow>> {

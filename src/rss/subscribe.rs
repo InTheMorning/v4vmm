@@ -800,7 +800,13 @@ mod tests {
         let id = db::find_track_id(&conn, Some(&url), Some("known-track"), None)?.unwrap();
         conn.execute("UPDATE tracks SET is_in_library = 1 WHERE id = ?1", [id])?;
         let rows = crate::application::ApplicationQueryService::new()
-            .search_local_library_tracks(&conn, "needle", None)?;
+            .search_local_library_tracks(
+                &conn,
+                &crate::view_models::search_query::SearchQuery::parse("needle"),
+                &crate::view_models::library_search_facts::LibrarySearchFacts::default(),
+                None,
+            )?
+            .tracks;
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].id, id);
         let feed_id: i64 =

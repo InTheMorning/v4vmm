@@ -1,4 +1,8 @@
 //! Search local query family.
+//!
+//! ADR 0087 packet 002: the Library search converts the typed query into
+//! one `db::LibraryTrackSearch`. The Index search sends only the request of
+//! `IndexSearchPlan::for_query`.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,14 +17,19 @@ use crate::application::errors::command::CommandError;
 use crate::view_models::artist_identity::{NameFeedMatch, NameFeedMatches, UNKNOWN_ARTIST_TEXT};
 use crate::view_models::artists_everything::FeedLinkClass;
 use crate::view_models::index_name_list::name_sort_key;
+use crate::view_models::library_search_facts::LibrarySearchFacts;
 use crate::view_models::name_level_page::{
     NameLevelIndexRelease, NameLevelIndexState, NameLevelPageVm,
 };
 use crate::view_models::release_kind::ReleaseKind;
+use crate::view_models::search_query::{
+    ContentValue, FieldTerm, FieldValue, FieldValueState, LibraryStateValue, QueryFieldName,
+    QueryTerm, SearchQuery, TermKind,
+};
 use crate::view_models::search_results::{
-    artist_feed_result_display, index_track_row_id, ArtistResultDisplay, FeedResultDisplay,
-    IndexSearchResultRows, SearchResultItemId, SearchResultOrigin, TrackResultDisplay,
-    INDEX_FEED_PAGE_RESULT_PREFIX,
+    artist_feed_result_display, index_track_row_id, library_part_runs, ArtistResultDisplay,
+    FeedResultDisplay, IndexSearchRequest, IndexSearchResultRows, LibrarySearchRows,
+    SearchResultItemId, SearchResultOrigin, TrackResultDisplay, INDEX_FEED_PAGE_RESULT_PREFIX,
 };
 use crate::view_models::workspace::{ReleaseKey, TrackKey};
 use crate::views::TrackView;
@@ -32,23 +41,25 @@ pub const DEFAULT_LOCAL_LIBRARY_SEARCH_LIMIT: usize = 50;
 #[derive(Clone, Debug)]
 pub(crate) struct FetchIndexSearchResults {
     endpoint: crate::config::MusicIndexEndpoint,
-    query: String,
+    request: IndexSearchRequest,
     matches: NameFeedMatches,
 }
 
 impl FetchIndexSearchResults {
-    /// Creates an Index search query command. `matches` is the match of
-    /// each name to the artist feeds of the Library, read when the search
-    /// starts (ADR 0084 Decision 7, packet 017 decision D14).
+    /// Creates an Index search query command. `request` comes from
+    /// `IndexSearchPlan::for_query`, so its `q` holds no field syntax (ADR
+    /// 0087 Decision 5). `matches` is the match of each name to the artist
+    /// feeds of the Library, read when the search starts (ADR 0084 Decision
+    /// 7, packet 017 decision D14).
     #[must_use]
     pub(crate) fn new(
         endpoint: impl Into<crate::config::MusicIndexEndpoint>,
-        query: impl Into<String>,
+        request: IndexSearchRequest,
         matches: NameFeedMatches,
     ) -> Self {
         Self {
             endpoint: endpoint.into(),
-            query: query.into(),
+            request,
             matches,
         }
     }
@@ -61,7 +72,7 @@ impl ApplicationCommand for FetchIndexSearchResults {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
-        let rows = fetch_index_search_result_rows(&self.endpoint, &self.query, &self.matches)?;
+        let rows = fetch_index_search_result_rows(&self.endpoint, &self.request.q, &self.matches)?;
         Ok(CommandOutcome::without_events(rows))
     }
 }
@@ -183,36 +194,239 @@ fn index_name_row_exists(client: &crate::api::Client, key: &str) -> bool {
 }
 
 impl ApplicationQueryService {
-    /// Searches in-library local tracks for global search.
+    /// Searches the Library tracks with each term of the typed query (ADR
+    /// 0087 Decision 2). A query whose Library part does not run gives no
+    /// row and runs no SQL. With a date term, the rows split after SQL: the
+    /// release rows read the release date, and the track rows read their
+    /// own `pub_date` (packet 002 decision D6).
     ///
     /// # Errors
     ///
     /// Returns an error when local library state cannot be read.
-    pub fn search_local_library_tracks(
+    pub(crate) fn search_local_library_tracks(
         &self,
         conn: &Connection,
-        query: &str,
+        query: &SearchQuery,
+        facts: &LibrarySearchFacts,
         limit: Option<usize>,
-    ) -> Result<Vec<db::TrackRow>, CommandError> {
-        let Some(query) = normalized_global_search_query(query) else {
-            return Ok(Vec::new());
-        };
-        library_service::search_library_tracks(
+    ) -> Result<LibrarySearchRows, CommandError> {
+        if !library_part_runs(query) {
+            return Ok(LibrarySearchRows::default());
+        }
+        let plan = library_track_search(query, facts);
+        let rows = library_service::search_library_tracks(
             conn,
-            &query,
+            &plan.search,
             limit.unwrap_or(DEFAULT_LOCAL_LIBRARY_SEARCH_LIMIT),
         )
-        .map_err(|error| query_error(&error))
+        .map_err(|error| query_error(&error))?;
+        let matched_count = rows.len();
+        let Some(split) = plan.date_split else {
+            return Ok(LibrarySearchRows {
+                releases: rows.clone(),
+                tracks: rows,
+                matched_count,
+            });
+        };
+        let (releases, tracks) = rows.into_iter().fold(
+            (Vec::new(), Vec::new()),
+            |(mut releases, mut tracks), row| {
+                if split.release_track_ids.contains(&row.id) {
+                    releases.push(row.clone());
+                }
+                if split.track_track_ids.contains(&row.id) {
+                    tracks.push(row);
+                }
+                (releases, tracks)
+            },
+        );
+        Ok(LibrarySearchRows {
+            releases,
+            tracks,
+            matched_count,
+        })
     }
 }
 
-fn normalized_global_search_query(value: &str) -> Option<String> {
-    let query = value.trim();
-    if query.chars().any(char::is_alphanumeric) {
-        Some(query.to_string())
-    } else {
-        None
+/// The Library search of one typed query (ADR 0087 packet 002).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct LibrarySearchPlan {
+    search: db::LibraryTrackSearch,
+    date_split: Option<DateSplit>,
+}
+
+/// The two date sets of a query with date terms (packet 002 decision D6).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct DateSplit {
+    /// The tracks whose release date passes each date term.
+    release_track_ids: BTreeSet<i64>,
+    /// The tracks whose own `pub_date` passes each date term.
+    track_track_ids: BTreeSet<i64>,
+}
+
+/// Converts the typed query into the clauses of the Library search (ADR
+/// 0087 Decision 2). Each word, each phrase and each correct field gives at
+/// most one clause. A field with an empty value or an error applies nothing
+/// (packet 002 decision D14). The facts that SQL does not hold become bound
+/// sets of track ids: `kind:`, `is:ready` and the date terms.
+pub(crate) fn library_track_search(
+    query: &SearchQuery,
+    facts: &LibrarySearchFacts,
+) -> LibrarySearchPlan {
+    let mut clauses = Vec::new();
+    let mut date_terms = Vec::new();
+    for term in query.terms() {
+        let kind = match &term.kind {
+            TermKind::Word(text) | TermKind::Phrase(text) => {
+                Some(db::LibraryClauseKind::AnyText(text.clone()))
+            }
+            TermKind::Field(field) => {
+                if let Some(date) = date_term(term, field) {
+                    date_terms.push(date);
+                    None
+                } else {
+                    field_clause(field, facts)
+                }
+            }
+        };
+        if let Some(kind) = kind {
+            clauses.push(db::LibraryTrackClause {
+                excluded: term.excluded,
+                kind,
+            });
+        }
     }
+    let date_split = (!date_terms.is_empty()).then(|| {
+        let passes = |date: Option<i64>| date_terms.iter().all(|term| term.passes(date));
+        let mut split = DateSplit::default();
+        for (id, track) in facts.tracks() {
+            if passes(track.release_date) {
+                split.release_track_ids.insert(id);
+            }
+            if passes(track.pub_date) {
+                split.track_track_ids.insert(id);
+            }
+        }
+        split
+    });
+    if let Some(split) = &date_split {
+        let union = split
+            .release_track_ids
+            .union(&split.track_track_ids)
+            .copied()
+            .collect();
+        clauses.push(db::LibraryTrackClause {
+            excluded: false,
+            kind: db::LibraryClauseKind::TrackIds(union),
+        });
+    }
+    LibrarySearchPlan {
+        search: db::LibraryTrackSearch { clauses },
+        date_split,
+    }
+}
+
+/// One `after:` or `before:` term with its bound in Unix seconds.
+struct DateTerm {
+    /// `true` for `after:`, `false` for `before:`.
+    after: bool,
+    /// The first second of `after:`, or the last second of `before:`.
+    bound: i64,
+    excluded: bool,
+}
+
+impl DateTerm {
+    /// A missing date does not pass a term without `-`, and passes a term
+    /// with `-` (packet 002 "The Library facts from the tree").
+    fn passes(&self, date: Option<i64>) -> bool {
+        let Some(date) = date else {
+            return self.excluded;
+        };
+        let inside = if self.after {
+            date >= self.bound
+        } else {
+            date <= self.bound
+        };
+        inside != self.excluded
+    }
+}
+
+/// The date term of a correct `after:` or `before:` field, else `None`.
+fn date_term(term: &QueryTerm, field: &FieldTerm) -> Option<DateTerm> {
+    let FieldValueState::Valid(FieldValue::Date(date)) = &field.value else {
+        return None;
+    };
+    match field.name {
+        QueryFieldName::After => Some(DateTerm {
+            after: true,
+            bound: date.start_unix(),
+            excluded: term.excluded,
+        }),
+        QueryFieldName::Before => Some(DateTerm {
+            after: false,
+            bound: date.end_unix(),
+            excluded: term.excluded,
+        }),
+        _ => None,
+    }
+}
+
+/// The clause of one correct field other than a date. `in:`, an empty
+/// value and a value with an error give `None`.
+fn field_clause(field: &FieldTerm, facts: &LibrarySearchFacts) -> Option<db::LibraryClauseKind> {
+    let FieldValueState::Valid(value) = &field.value else {
+        return None;
+    };
+    let kind = match (field.name, value) {
+        (QueryFieldName::Artist, FieldValue::Text(text)) => {
+            db::LibraryClauseKind::Artist(text.clone())
+        }
+        (QueryFieldName::Title, FieldValue::Text(text)) => {
+            db::LibraryClauseKind::Title(text.clone())
+        }
+        (QueryFieldName::Release, FieldValue::Text(text)) => {
+            db::LibraryClauseKind::Release(text.clone())
+        }
+        (QueryFieldName::Playlist, FieldValue::Text(text)) => {
+            db::LibraryClauseKind::Playlist(text.clone())
+        }
+        (QueryFieldName::Kind, FieldValue::Kinds(kinds)) => {
+            let kinds: Vec<ReleaseKind> = kinds
+                .iter()
+                .map(|kind| ReleaseKind::from_query_kind(*kind))
+                .collect();
+            db::LibraryClauseKind::TrackIds(
+                facts
+                    .tracks()
+                    .filter(|(_, track)| kinds.contains(&track.release_kind))
+                    .map(|(id, _)| id)
+                    .collect(),
+            )
+        }
+        (QueryFieldName::Duration, FieldValue::Duration(range)) => {
+            db::LibraryClauseKind::Duration {
+                min_secs: range.min_secs,
+                max_secs: range.max_secs,
+            }
+        }
+        (QueryFieldName::Is, FieldValue::LibraryState(state)) => match state {
+            LibraryStateValue::Downloaded => db::LibraryClauseKind::Downloaded,
+            LibraryStateValue::Partial => db::LibraryClauseKind::Partial,
+            LibraryStateValue::Removed => db::LibraryClauseKind::Removed,
+            LibraryStateValue::Ready => db::LibraryClauseKind::TrackIds(
+                facts
+                    .ready_track_ids()
+                    .map(|ready| ready.iter().copied().collect())
+                    .unwrap_or_default(),
+            ),
+        },
+        (QueryFieldName::Has, FieldValue::Content(content)) => match content {
+            ContentValue::Split => db::LibraryClauseKind::HasSplit,
+            ContentValue::Image => db::LibraryClauseKind::HasImage,
+        },
+        _ => return None,
+    };
+    Some(kind)
 }
 
 fn query_error(error: &anyhow::Error) -> CommandError {
@@ -1004,8 +1218,14 @@ mod tests {
             },
         )?;
 
-        let rows =
-            ApplicationQueryService::new().search_local_library_tracks(&conn, "needle", None)?;
+        let rows = ApplicationQueryService::new()
+            .search_local_library_tracks(
+                &conn,
+                &SearchQuery::parse("needle"),
+                &LibrarySearchFacts::default(),
+                None,
+            )?
+            .tracks;
 
         assert_eq!(
             rows.iter().map(|row| row.id).collect::<Vec<_>>(),
@@ -1031,8 +1251,14 @@ mod tests {
             },
         )?;
 
-        let rows =
-            ApplicationQueryService::new().search_local_library_tracks(&conn, "needle", None)?;
+        let rows = ApplicationQueryService::new()
+            .search_local_library_tracks(
+                &conn,
+                &SearchQuery::parse("needle"),
+                &LibrarySearchFacts::default(),
+                None,
+            )?
+            .tracks;
 
         assert!(rows.is_empty());
 
@@ -1060,13 +1286,25 @@ mod tests {
 
         assert_eq!(
             service
-                .search_local_library_tracks(&conn, "limit", None)?
+                .search_local_library_tracks(
+                    &conn,
+                    &SearchQuery::parse("limit"),
+                    &LibrarySearchFacts::default(),
+                    None
+                )?
+                .tracks
                 .len(),
             DEFAULT_LOCAL_LIBRARY_SEARCH_LIMIT
         );
         assert_eq!(
             service
-                .search_local_library_tracks(&conn, "limit", Some(3))?
+                .search_local_library_tracks(
+                    &conn,
+                    &SearchQuery::parse("limit"),
+                    &LibrarySearchFacts::default(),
+                    Some(3)
+                )?
+                .tracks
                 .len(),
             3
         );
@@ -1090,8 +1328,14 @@ mod tests {
             },
         )?;
 
-        let rows =
-            ApplicationQueryService::new().search_local_library_tracks(&conn, " *** ", None)?;
+        let rows = ApplicationQueryService::new()
+            .search_local_library_tracks(
+                &conn,
+                &SearchQuery::parse(" *** "),
+                &LibrarySearchFacts::default(),
+                None,
+            )?
+            .tracks;
 
         assert!(rows.is_empty());
 
@@ -2126,5 +2370,334 @@ mod adr_0084_name_level_query_tests {
         assert_eq!(row.newest_item_at, None);
         let row = index_feed_result_display(&hit("  "));
         assert_eq!(row.artist_text, None);
+    }
+
+    /// R87-2-23: the command sends the `q` of the plan in three search
+    /// requests. No request path holds a field token.
+    #[test]
+    fn adr_0087_library_fields_r87_2_23_index_request_holds_only_words() {
+        use crate::view_models::search_query::SearchQuery;
+        use crate::view_models::search_results::IndexSearchPlan;
+
+        let query = SearchQuery::parse("haleen \"night drive\" in:index");
+        let IndexSearchPlan::Send(request) = IndexSearchPlan::for_query(&query) else {
+            panic!("the query sends the Index search");
+        };
+        assert_eq!(Some(request.q.clone()), query.index_q());
+        let (endpoint, requests) = serve(3, Arc::new(|_: &str| (200, empty_search())));
+
+        FetchIndexSearchResults::new(endpoint, request, NameFeedMatches::default())
+            .execute(&CommandContext::next())
+            .expect("the recorded responses decode");
+
+        let requests = requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 3, "Got: {requests:?}");
+        for path in &requests {
+            assert!(path.starts_with("/v1/search?"), "{path}");
+            assert!(path.contains("haleen"), "{path}");
+            for token in ["in%3A", "artist%3A", "kind%3A", "after%3A", "in:"] {
+                assert!(!path.contains(token), "{path} holds {token}");
+            }
+        }
+    }
+}
+
+/// ADR 0087 packet 002: the Library search applies the fields of the typed
+/// query, with recorded databases and facts from the recorded tree.
+#[cfg(test)]
+mod adr_0087_library_fields_tests {
+    use super::*;
+    use crate::view_models::library::{AlbumNode, ArtistNode, LibraryTree};
+    use crate::views::{FeedMetadataFacts, LocalIdentityFacts};
+
+    fn setup_test_db() -> anyhow::Result<Connection> {
+        let conn = Connection::open_in_memory()?;
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+        db::init_schema(&conn)?;
+        db::migrate_schema(&conn)?;
+        Ok(conn)
+    }
+
+    /// One recorded feed with its stated release kind.
+    fn feed(conn: &Connection, title: &str, stated_kind: Option<&str>) -> anyhow::Result<i64> {
+        conn.execute(
+            "INSERT INTO feeds (feed_url, title, extra_json) VALUES (?1, ?2, '{}')",
+            rusqlite::params![format!("https://example.test/{title}.xml"), title],
+        )?;
+        let id = conn.last_insert_rowid();
+        if let Some(kind) = stated_kind {
+            KINDS.with(|kinds| kinds.borrow_mut().insert(id, kind.to_owned()));
+        }
+        Ok(id)
+    }
+
+    thread_local! {
+        /// The stated release kind of each recorded feed of this thread.
+        static KINDS: std::cell::RefCell<BTreeMap<i64, String>> =
+            const { std::cell::RefCell::new(BTreeMap::new()) };
+    }
+
+    /// One recorded Library track. `pub_date` is RFC 2822 text.
+    fn track(
+        conn: &Connection,
+        feed_id: i64,
+        title: &str,
+        number: i64,
+        pub_date: Option<&str>,
+    ) -> anyhow::Result<i64> {
+        conn.execute(
+            "INSERT INTO tracks (feed_id, item_guid, track_title, track_number, pub_date, is_in_library)
+             VALUES (?1, ?2, ?3, ?4, ?5, 1)",
+            rusqlite::params![feed_id, format!("{feed_id}-{title}"), title, number, pub_date],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// The Library tree of the recorded tracks: one album for each feed,
+    /// with the stated kind of the feed.
+    fn tree(conn: &Connection) -> anyhow::Result<LibraryTree> {
+        let mut albums = BTreeMap::<i64, Vec<db::TrackRow>>::new();
+        for row in db::library_tracks(conn)? {
+            albums.entry(row.feed_id).or_default().push(row);
+        }
+        let albums = albums
+            .into_iter()
+            .map(|(feed_id, tracks)| AlbumNode {
+                name: format!("feed {feed_id}"),
+                feed_id: Some(feed_id),
+                feed_guid: None,
+                feed_url: None,
+                language: None,
+                description: None,
+                image_href: None,
+                named_feeds: Vec::new(),
+                identity_facts: LocalIdentityFacts::default(),
+                metadata_facts: Box::new(FeedMetadataFacts {
+                    release_kind: KINDS.with(|kinds| kinds.borrow().get(&feed_id).cloned()),
+                    ..FeedMetadataFacts::default()
+                }),
+                stored_values: None,
+                tracks,
+            })
+            .collect();
+        Ok(LibraryTree {
+            artists: vec![ArtistNode {
+                name: "Artist".to_owned(),
+                albums,
+            }],
+        })
+    }
+
+    fn facts(conn: &Connection) -> anyhow::Result<LibrarySearchFacts> {
+        Ok(LibrarySearchFacts::from_tree(&tree(conn)?, None))
+    }
+
+    fn search(
+        conn: &Connection,
+        text: &str,
+        facts: &LibrarySearchFacts,
+    ) -> anyhow::Result<LibrarySearchRows> {
+        Ok(ApplicationQueryService::new().search_local_library_tracks(
+            conn,
+            &SearchQuery::parse(text),
+            facts,
+            None,
+        )?)
+    }
+
+    fn ids(rows: &[db::TrackRow]) -> Vec<i64> {
+        let mut ids: Vec<i64> = rows.iter().map(|row| row.id).collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// R87-2-05: `kind:` reads the kind of the tree release.
+    #[test]
+    fn adr_0087_library_fields_r87_2_05_kind_reads_the_tree() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let single_feed = feed(&conn, "S", Some("single"))?;
+        let single = track(&conn, single_feed, "Needle single", 1, None)?;
+        let album_feed = feed(&conn, "A", None)?;
+        let album_one = track(&conn, album_feed, "Needle one", 1, None)?;
+        let album_two = track(&conn, album_feed, "Needle two", 2, None)?;
+        let ep_feed = feed(&conn, "E", Some("ep"))?;
+        let ep = track(&conn, ep_feed, "Needle ep", 1, None)?;
+        let facts = facts(&conn)?;
+
+        assert_eq!(
+            ids(&search(&conn, "kind:single", &facts)?.tracks),
+            vec![single]
+        );
+        assert_eq!(
+            ids(&search(&conn, "kind:album,ep", &facts)?.tracks),
+            vec![album_one, album_two, ep]
+        );
+        assert_eq!(
+            ids(&search(&conn, "needle -kind:single", &facts)?.tracks),
+            vec![album_one, album_two, ep]
+        );
+        Ok(())
+    }
+
+    /// R87-2-07: a release row reads the release date. A track row reads
+    /// its own `pub_date`.
+    #[test]
+    fn adr_0087_library_fields_r87_2_07_dates_split_the_rows() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let album = feed(&conn, "Album", None)?;
+        let early = track(
+            &conn,
+            album,
+            "Early",
+            1,
+            Some("Thu, 01 Oct 2026 12:00:00 +0000"),
+        )?;
+        let late = track(
+            &conn,
+            album,
+            "Late",
+            2,
+            Some("Tue, 20 Oct 2026 12:00:00 +0000"),
+        )?;
+        let facts = facts(&conn)?;
+
+        let before = search(&conn, "before:2026-10-10", &facts)?;
+        assert_eq!(ids(&before.tracks), vec![early]);
+        assert!(before.releases.is_empty());
+        assert_eq!(before.matched_count, 1);
+
+        let after = search(&conn, "after:2026-10-15", &facts)?;
+        assert_eq!(ids(&after.releases), vec![early, late]);
+        assert_eq!(ids(&after.tracks), vec![late]);
+        Ok(())
+    }
+
+    /// R87-2-08: a month includes its first and its last second. A missing
+    /// date does not pass a term, and passes the exclusion.
+    #[test]
+    fn adr_0087_library_fields_r87_2_08_month_bounds_and_missing_date() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let first = feed(&conn, "First", None)?;
+        let first_second = track(
+            &conn,
+            first,
+            "Needle first",
+            1,
+            Some("Thu, 01 Oct 2026 00:00:00 +0000"),
+        )?;
+        let last = feed(&conn, "Last", None)?;
+        let last_second = track(
+            &conn,
+            last,
+            "Needle last",
+            1,
+            Some("Sat, 31 Oct 2026 23:59:59 +0000"),
+        )?;
+        let undated_feed = feed(&conn, "Undated", None)?;
+        let undated = track(&conn, undated_feed, "Needle undated", 1, None)?;
+        let facts = facts(&conn)?;
+
+        assert!(ids(&search(&conn, "after:2026-10", &facts)?.tracks).contains(&first_second));
+        assert!(ids(&search(&conn, "before:2026-10", &facts)?.tracks).contains(&last_second));
+        assert!(!ids(&search(&conn, "after:2026-01-01", &facts)?.tracks).contains(&undated));
+        assert!(ids(&search(&conn, "needle -after:2026-01-01", &facts)?.tracks).contains(&undated));
+        Ok(())
+    }
+
+    /// R87-2-12: `is:ready` reads the ready set of the last readiness
+    /// report. With no report, it matches no track.
+    #[test]
+    fn adr_0087_library_fields_r87_2_12_ready_reads_the_kept_report() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = feed(&conn, "Feed", None)?;
+        let ready = track(&conn, feed_id, "Needle ready", 1, None)?;
+        let other = track(&conn, feed_id, "Needle other", 2, None)?;
+        let tree = tree(&conn)?;
+        let set = BTreeSet::from([ready]);
+        let with_report = LibrarySearchFacts::from_tree(&tree, Some(&set));
+        let no_report = LibrarySearchFacts::from_tree(&tree, None);
+
+        assert_eq!(
+            ids(&search(&conn, "needle is:ready", &with_report)?.tracks),
+            vec![ready]
+        );
+        assert!(search(&conn, "needle is:ready", &no_report)?
+            .tracks
+            .is_empty());
+        assert_eq!(
+            ids(&search(&conn, "needle -is:ready", &no_report)?.tracks),
+            vec![ready, other]
+        );
+        Ok(())
+    }
+
+    /// R87-2-18: the id set goes into SQL, so `LIMIT` gives the first rows
+    /// that pass each term.
+    #[test]
+    fn adr_0087_library_fields_r87_2_18_limit_counts_rows_that_pass() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let album = feed(&conn, "A Album", None)?;
+        for number in 0..50 {
+            track(&conn, album, &format!("Needle {number:02}"), number, None)?;
+        }
+        for index in 0..10 {
+            let single = feed(&conn, &format!("Z Single {index}"), Some("single"))?;
+            track(&conn, single, "Needle single", 1, None)?;
+        }
+        let facts = facts(&conn)?;
+
+        let singles = search(&conn, "needle kind:single", &facts)?;
+        assert_eq!(singles.tracks.len(), 10);
+        let all = search(&conn, "needle", &facts)?;
+        assert_eq!(all.tracks.len(), DEFAULT_LOCAL_LIBRARY_SEARCH_LIMIT);
+        assert_eq!(all.matched_count, 50);
+        Ok(())
+    }
+
+    /// R87-2-19: a field that applies nothing does not change the rows. A
+    /// query with no term that can run gives no row and runs no SQL.
+    #[test]
+    fn adr_0087_library_fields_r87_2_19_fields_that_apply_nothing() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = feed(&conn, "Feed", None)?;
+        track(&conn, feed_id, "Haleen", 1, None)?;
+        track(&conn, feed_id, "Haleen remix", 2, None)?;
+        let facts = facts(&conn)?;
+        let plain = ids(&search(&conn, "haleen", &facts)?.tracks);
+        assert_eq!(plain.len(), 2);
+        assert_eq!(
+            ids(&search(&conn, "haleen after:yesterday", &facts)?.tracks),
+            plain
+        );
+        assert_eq!(ids(&search(&conn, "haleen artist:", &facts)?.tracks), plain);
+
+        // A connection with no table fails each statement, so an empty
+        // result proves that no SQL ran.
+        let no_tables = Connection::open_in_memory()?;
+        for text in ["-remix", "!!!", "in:library", "after:yesterday"] {
+            let rows = search(&no_tables, text, &facts)?;
+            assert!(rows.tracks.is_empty() && rows.releases.is_empty(), "{text}");
+            assert_eq!(rows.matched_count, 0, "{text}");
+        }
+        Ok(())
+    }
+
+    /// R87-2-20: a query for the Index only, or with a scope conflict,
+    /// runs no SQL.
+    #[test]
+    fn adr_0087_library_fields_r87_2_20_index_scope_runs_no_sql() -> anyhow::Result<()> {
+        let conn = setup_test_db()?;
+        let feed_id = feed(&conn, "Feed", None)?;
+        track(&conn, feed_id, "Haleen", 1, None)?;
+        let facts = facts(&conn)?;
+        let no_tables = Connection::open_in_memory()?;
+        for text in ["in:index haleen", "in:index is:ready"] {
+            assert!(search(&conn, text, &facts)?.tracks.is_empty(), "{text}");
+            assert!(
+                search(&no_tables, text, &facts)?.tracks.is_empty(),
+                "{text}"
+            );
+        }
+        Ok(())
     }
 }

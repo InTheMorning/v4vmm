@@ -433,8 +433,14 @@ mod tests {
         assert_eq!(playlists.len(), 1);
         assert_eq!(playlists[0].name, "Existing playlist");
         assert!(query
-            .search_local_library_tracks(&conn, "example", None)
+            .search_local_library_tracks(
+                &conn,
+                &crate::view_models::search_query::SearchQuery::parse("example"),
+                &crate::view_models::library_search_facts::LibrarySearchFacts::default(),
+                None
+            )
             .unwrap()
+            .tracks
             .is_empty());
         assert!(Handle::try_current().is_err());
     }

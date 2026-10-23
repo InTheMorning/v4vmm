@@ -96,6 +96,7 @@ use crate::view_models::library::{
 use crate::view_models::library_removal::{
     SelectionRemovalConfirmationState, SelectionRemovalPendingItem, SelectionRemovalReport,
 };
+use crate::view_models::library_search_facts::LibrarySearchFacts;
 use crate::view_models::list_selection::{FocusStep, ListSelection, SelectionMode, SelectionRow};
 use crate::view_models::name_level_page::NameLevelLibraryRelease;
 use crate::view_models::playlist_option_displays;
@@ -793,6 +794,13 @@ impl LibraryApp {
     /// packet 010), from the current tree.
     pub(crate) fn search_lookup(&self) -> LibrarySearchLookup<'_> {
         self.vm.search_lookup()
+    }
+
+    /// The Library facts of the search fields for one run (ADR 0087 packet
+    /// 002): the release kind and the dates of each tree track, and the
+    /// ready set of the last readiness report.
+    pub(crate) fn library_search_facts(&self) -> LibrarySearchFacts {
+        self.vm.library_search_facts()
     }
 
     /// The Library facts that the artist rows of a search read (ADR 0084

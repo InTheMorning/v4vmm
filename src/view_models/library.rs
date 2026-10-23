@@ -57,6 +57,7 @@ pub(crate) use crate::view_models::library_removal::RemovalConfirmation;
 use crate::view_models::library_removal::{
     LibraryRemovalConfirmationDisplay, LibraryRemovalConfirmationState,
 };
+use crate::view_models::library_search_facts::LibrarySearchFacts;
 #[cfg(test)]
 use crate::view_models::list_selection::RowCheckState;
 use crate::view_models::list_selection::{
@@ -2982,6 +2983,10 @@ pub(crate) struct LibraryViewModel {
     /// and `refresh_needs_attention_report`, at the load, feed-check,
     /// repair, download, and removal events "Design" names.
     needs_attention_count: usize,
+    /// The tracks with the state `Ready` in the last readiness report (ADR
+    /// 0087 packet 002 decision D10). The Library stores it at the same
+    /// events as `needs_attention_count`. `None` before the first report.
+    ready_track_ids: Option<BTreeSet<i64>>,
     album_description_states: BTreeMap<i64, DescriptionState>,
     track_description_states: BTreeMap<i64, DescriptionState>,
     // Selection / focus.
@@ -3025,6 +3030,7 @@ impl LibraryViewModel {
             sidebar_preference: MusicSidebarPreference::default(),
             active_destination: MusicDestination::Discover,
             needs_attention_count: 0,
+            ready_track_ids: None,
             album_description_states: BTreeMap::new(),
             track_description_states: BTreeMap::new(),
             selected_id: None,
@@ -3237,6 +3243,7 @@ impl LibraryViewModel {
     /// Needs attention, from the sidebar or from Show).
     pub(crate) fn show_needs_attention_report(&mut self, report: &BroadcastReadinessReport) {
         self.needs_attention_count = report.problem_count();
+        self.ready_track_ids = Some(ready_track_ids(report));
         self.content_list_page
             .replace_broadcast_readiness_rows(self.broadcast_readiness_rows(report));
         self.refresh_new_releases_layout();
@@ -3249,11 +3256,19 @@ impl LibraryViewModel {
     /// open destination's list.
     pub(crate) fn refresh_needs_attention_report(&mut self, report: &BroadcastReadinessReport) {
         self.needs_attention_count = report.problem_count();
+        self.ready_track_ids = Some(ready_track_ids(report));
         if self.shows_broadcast_readiness_list() {
             self.content_list_page
                 .replace_broadcast_readiness_rows(self.broadcast_readiness_rows(report));
         }
         self.refresh_new_releases_layout();
+    }
+
+    /// The Library search facts of one run (ADR 0087 packet 002): the facts
+    /// of each tree track and the ready set of the last readiness report.
+    #[must_use]
+    pub(crate) fn library_search_facts(&self) -> LibrarySearchFacts {
+        LibrarySearchFacts::from_tree(self.tree(), self.ready_track_ids.as_ref())
     }
 
     fn broadcast_readiness_rows(
@@ -5841,6 +5856,17 @@ impl SearchLibraryLookup for LibrarySearchLookup<'_> {
     }
 }
 
+/// The ids of the tracks with the state `Ready` in `report` (ADR 0087
+/// packet 002 decision D10).
+fn ready_track_ids(report: &BroadcastReadinessReport) -> BTreeSet<i64> {
+    report
+        .tracks
+        .iter()
+        .filter(|track| track.state == BroadcastReadinessState::Ready)
+        .map(|track| track.track_id)
+        .collect()
+}
+
 impl AlbumNode {
     /// The download queue key of this album (ADR 0084 Decision 10): the
     /// feed GUID, then the feed URL, then the Library feed id.
@@ -5889,6 +5915,13 @@ impl AlbumNode {
             self.metadata_facts.release_kind.as_deref(),
             self.tracks.len(),
         )
+    }
+
+    /// The release date of this release: the latest `pub_date` of its
+    /// tracks (ADR 0086 Decision 1). `None` when no track has a date.
+    #[must_use]
+    pub(crate) fn release_date(&self) -> Option<i64> {
+        self.tracks.iter().filter_map(|track| track.pub_date).max()
     }
 
     /// The artist identity of this release (ADR 0084 Decision 7).

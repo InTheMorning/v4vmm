@@ -7,6 +7,8 @@
 
 #![warn(clippy::pedantic)]
 
+use crate::view_models::search_query::KindValue;
+
 /// The kind of a release (ADR 0084 Decision 5).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ReleaseKind {
@@ -49,6 +51,18 @@ impl ReleaseKind {
             Some(Self::Single)
         } else {
             None
+        }
+    }
+
+    /// The release kind of one `kind:` value of the search query (ADR 0087
+    /// Decision 2). The map is in this file, because guard R15-09 lets only
+    /// this file name each kind (packet 002 decision D5).
+    #[must_use]
+    pub(crate) const fn from_query_kind(kind: KindValue) -> Self {
+        match kind {
+            KindValue::Album => Self::Album,
+            KindValue::Ep => Self::Ep,
+            KindValue::Single => Self::Single,
         }
     }
 
@@ -106,6 +120,20 @@ mod tests {
 
         assert_eq!(ReleaseKind::resolve(None, 0), ReleaseKind::Album);
         assert_eq!(ReleaseKind::resolve(None, 12), ReleaseKind::Album);
+    }
+
+    /// R87-2-06: each `kind:` value gives its release kind.
+    #[test]
+    fn adr_0087_library_fields_r87_2_06_query_kind_gives_the_release_kind() {
+        assert_eq!(
+            ReleaseKind::from_query_kind(KindValue::Album),
+            ReleaseKind::Album
+        );
+        assert_eq!(ReleaseKind::from_query_kind(KindValue::Ep), ReleaseKind::Ep);
+        assert_eq!(
+            ReleaseKind::from_query_kind(KindValue::Single),
+            ReleaseKind::Single
+        );
     }
 
     /// R7-01: the visible label and the action noun of each kind.

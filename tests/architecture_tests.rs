@@ -1900,7 +1900,9 @@ fn adr_0066_missing_runtime_has_no_implicit_runner() {
         assert!(keys.contains(route));
     }
     let search = read_source(&manifest_path("src/app/search_dispatch.rs"));
-    assert!(search.contains("search_local_library_tracks(&conn, query, None)"));
+    assert!(
+        search.contains("search_local_library_tracks(&conn, run.query(), &library_facts, None)")
+    );
     assert!(search.contains("self.command_runner.availability().ok()?"));
     let library = read_source(&manifest_path("src/library/app_impl.rs"));
     assert!(library.contains("self.command_runner.availability().ok()?"));
@@ -2920,7 +2922,7 @@ fn adr_0084_search_list_submit_restores_through_the_back_path() {
     let open = source_between(
         &dispatch,
         "pub(super) fn open_search_results_in_content_list(",
-        "fn search_results_detail_for_query(",
+        "fn search_results_detail_for_run(",
     );
     assert!(
         compact_source(open).contains(
@@ -4043,9 +4045,9 @@ fn adr_0047_task_015_search_submit_commands() {
 
     for required in [
         "fn open_search_results_in_content_list(",
-        "fn search_results_detail_for_query(",
-        ".search_local_library_tracks(&conn, query, None)",
-        "SearchResultsInspectorPageVm::from_local_library_tracks(query, &local_tracks, &artist_facts)",
+        "fn search_results_detail_for_run(",
+        ".search_local_library_tracks(&conn, run.query(), &library_facts, None)",
+        "SearchResultsInspectorPageVm::from_library_search(run.text(), &rows, &artist_facts)",
     ] {
         if !search_dispatch_source.contains(required) {
             violations.push(format!(
@@ -5787,7 +5789,7 @@ fn app_toolbar_exposes_tabs_and_global_search_without_now_playing_chip() {
 fn global_search_contract_has_toolbar_vm_and_local_query_boundary() {
     let app_source = read_source(&manifest_path("src/app.rs"));
     let query_source = read_source(&manifest_path("src/application/queries/search.rs"));
-    let db_source = read_source(&manifest_path("src/db.rs"));
+    let db_source = read_source(&manifest_path("src/db/library_search.rs"));
     let service_source = read_source(&manifest_path("src/library_service.rs"));
     let vm_source = read_source(&manifest_path("src/view_models/app_toolbar.rs"));
     let mut violations = Vec::new();
@@ -5838,8 +5840,10 @@ fn global_search_contract_has_toolbar_vm_and_local_query_boundary() {
 
     for required in [
         "DEFAULT_LOCAL_LIBRARY_SEARCH_LIMIT: usize = 50",
-        "pub fn search_local_library_tracks(",
-        "normalized_global_search_query",
+        "pub(crate) fn search_local_library_tracks(",
+        // ADR 0087 packet 002 decision D19: the typed query decides if the
+        // Library part runs.
+        "if !library_part_runs(query)",
         "library_service::search_library_tracks(",
     ] {
         if !query_source.contains(required) {
@@ -5852,20 +5856,22 @@ fn global_search_contract_has_toolbar_vm_and_local_query_boundary() {
     for required in [
         "pub fn search_library_tracks(",
         "conn: &Connection",
-        "query: &str",
+        "search: &LibraryTrackSearch",
         "limit: usize",
         "WHERE t.is_in_library = 1",
-        "LIKE ?1 ESCAPE '\\\\'",
-        "LIMIT ?2",
+        // ADR 0087 packet 002: each text value binds as an escaped pattern.
+        "LIKE {} ESCAPE '\\\\'",
+        "parameters.bind_pattern(text)",
+        "\\n             LIMIT ",
     ] {
         if !db_source.contains(required) {
             violations.push(format!(
-                "src/db.rs: ADR 0043 in-library search storage query missing `{required}`"
+                "src/db/library_search.rs: ADR 0043 in-library search storage query missing `{required}`"
             ));
         }
     }
 
-    if !service_source.contains("db::search_library_tracks(conn, query, limit)") {
+    if !service_source.contains("db::search_library_tracks(conn, search, limit)") {
         violations.push(
             "src/library_service.rs: ADR 0043 local search must route through library_service"
                 .to_string(),
@@ -11559,7 +11565,7 @@ fn adr_0048_index_search_is_async_and_vm_owned() {
     }
 
     for required in [
-        "fn start_index_search_for_query(",
+        "fn start_index_search_for_run(",
         "FetchIndexSearchResults::new(",
         "present_command(",
         "content_list_nav_matches_search",
@@ -17461,7 +17467,7 @@ fn adr_0060_search_uses_music_section_navigation() {
     let open = source_between(
         &search,
         "pub(super) fn open_search_results_in_content_list(",
-        "fn search_results_detail_for_query(",
+        "fn search_results_detail_for_run(",
     );
     let empty = open.find("if query.is_empty()").unwrap();
     let select = open
@@ -23727,4 +23733,137 @@ fn adr_0087_query_parser_r87_1_30_one_parser_reads_field_syntax() {
     let without_has = owner.replace("\"has:\"", "\"has\"");
     assert_ne!(without_has, owner);
     assert!(!query_field_syntax_violations(&without_has, &files).is_empty());
+}
+
+/// The violations of the typed search path of ADR 0087 packet 002 in
+/// `files`, each Rust file under `src/` by its relative path.
+fn typed_search_path_violations(files: &[(String, String)]) -> Vec<String> {
+    const RUN_OWNER: &str = "src/view_models/search_results/search_run.rs";
+    const QUERY_OWNER: &str = "src/application/queries/search.rs";
+    const SERVICE_OWNER: &str = "src/library_service.rs";
+    const BUILDER_OWNER: &str = "src/db/library_search.rs";
+    const DISPATCH_OWNER: &str = "src/app/search_dispatch.rs";
+    let mut violations = Vec::new();
+    let mut report = |file: &str, violation: &str| {
+        violations.push(format!(
+            "ADR 0087 Decision 5 and its invariants: {file} {violation}. The Index request takes an \
+IndexSearchRequest from IndexSearchPlan::for_query, never the query text. A Library value goes \
+into SQL only as a bound parameter through src/db/library_search.rs. Build one SearchRun and pass \
+its plan and its typed query."
+        ));
+    };
+    let mut builder_seen = false;
+    let mut query_seen = false;
+    for (file, source) in files {
+        let code = code_only(production_source(source));
+        if file != RUN_OWNER && code.contains("IndexSearchRequest {") {
+            report(file, "builds an IndexSearchRequest");
+        }
+        if file != QUERY_OWNER && code.contains("library_service::search_library_tracks(") {
+            report(file, "calls library_service::search_library_tracks");
+        }
+        if file != SERVICE_OWNER && code.contains("db::search_library_tracks(") {
+            report(file, "calls db::search_library_tracks");
+        }
+        if file == QUERY_OWNER {
+            query_seen = true;
+            let new = source_between(
+                &code,
+                "impl FetchIndexSearchResults {",
+                "impl ApplicationCommand for FetchIndexSearchResults",
+            );
+            if !new.contains("request: IndexSearchRequest") {
+                report(
+                    file,
+                    "has no `request: IndexSearchRequest` in FetchIndexSearchResults::new",
+                );
+            }
+        }
+        if file == BUILDER_OWNER {
+            builder_seen = true;
+            for required in ["like_contains_pattern(", "ESCAPE '\\\\'"] {
+                if !source.contains(required) {
+                    report(file, &format!("does not hold `{required}`"));
+                }
+            }
+        }
+        if file.starts_with("src/app/") {
+            for forbidden in [
+                "normalized_global_search_query",
+                "search_results_detail_for_query",
+            ] {
+                if code.contains(forbidden) {
+                    report(file, &format!("holds `{forbidden}`"));
+                }
+            }
+            // Packet 002 decision D21: one Index entry serves both search
+            // pages, and it passes the request of the plan.
+            let compact = compact_source(&code);
+            let calls = compact.matches("FetchIndexSearchResults::new(").count();
+            if file != DISPATCH_OWNER && calls > 0 {
+                report(
+                    file,
+                    "calls FetchIndexSearchResults::new outside src/app/search_dispatch.rs",
+                );
+            }
+            let planned = compact
+                .matches("FetchIndexSearchResults::new(self.musicindex_endpoint.clone(),request.clone(),")
+                .count();
+            if file == DISPATCH_OWNER && calls != planned {
+                report(
+                    file,
+                    "passes a value other than the plan request to FetchIndexSearchResults::new",
+                );
+            }
+        }
+    }
+    if !builder_seen {
+        report(BUILDER_OWNER, "is absent");
+    }
+    if !query_seen {
+        report(QUERY_OWNER, "is absent");
+    }
+    violations
+}
+
+/// R87-2-29, situational ADR 0087 Decision 5 and its invariants "No Index
+/// request carries field syntax in `q`" and "Bound Library values". Each
+/// search page reads the typed query: the Index request comes only from
+/// `IndexSearchPlan::for_query`, and the Library values go only through the
+/// query builder. Delete this guard when ADR 0087 Decision 5 is superseded.
+#[test]
+fn adr_0087_library_fields_r87_2_29_typed_query_reaches_both_searches() {
+    let files: Vec<(String, String)> = rust_files_under("src")
+        .into_iter()
+        .map(|path| (rel_path(&path), read_source(&path)))
+        .collect();
+    let violations = typed_search_path_violations(&files);
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+
+    // A saved search that sends its text in `q` fails.
+    let saved_text = files
+        .iter()
+        .map(|(file, source)| {
+            if file == "src/app/saved_search_dispatch.rs" {
+                let bad = source.replacen(
+                    "self.saved_search_page = Some(page);",
+                    "self.saved_search_page = Some(page);\n        let _command = FetchIndexSearchResults::new(endpoint, search.query.clone(), matches);",
+                    1,
+                );
+                assert_ne!(&bad, source);
+                (file.clone(), bad)
+            } else {
+                (file.clone(), source.clone())
+            }
+        })
+        .collect::<Vec<_>>();
+    assert!(!typed_search_path_violations(&saved_text).is_empty());
+
+    // A view model outside the plan that builds a request fails.
+    let mut literal = files.clone();
+    literal.push((
+        "src/view_models/search_results/mod.rs".to_owned(),
+        "let request = IndexSearchRequest { q: text.to_owned() };".to_owned(),
+    ));
+    assert!(!typed_search_path_violations(&literal).is_empty());
 }

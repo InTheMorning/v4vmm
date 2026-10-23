@@ -1611,3 +1611,127 @@ fn adr_0084_search_link_facts_r29_08_library_decides_first() {
     assert_eq!(rows[1].badge, Some(SearchRowBadge::Feed));
     assert_eq!(rows[1].a11y_label, "Open the feed page No Facts, Feed");
 }
+
+/// The skip of a query whose Index part has a field that the Index cannot
+/// apply.
+fn unsupported_skip(text: &str) -> super::IndexSkip {
+    let crate::view_models::search_results::IndexSearchPlan::Skip(skip) =
+        super::IndexSearchPlan::for_query(&crate::view_models::search_query::SearchQuery::parse(
+            text,
+        ))
+    else {
+        panic!("{text} must skip the Index part");
+    };
+    skip
+}
+
+/// R87-2-24: a skipped Index part with an unsupported field gives the note
+/// of ADR 0087 Decision 5. A tab with Library rows gives it through
+/// `index_notice`. An empty tab gives it through `empty_state`. The page
+/// shows no loading rows.
+#[test]
+fn adr_0087_library_fields_r87_2_24_unsupported_skip_gives_the_note() {
+    let text = "haleen after:2026-10-01";
+    let skip = unsupported_skip(text);
+    let local = [local_guid_track(10, 7, "g-library", "i1", "One")];
+    let mut vm = SearchResultsInspectorPageVm::from_local_library_tracks(
+        text,
+        &local,
+        &super::ArtistSearchFacts::default(),
+    );
+
+    vm.set_index_skipped(&skip);
+
+    assert!(!vm.is_index_loading());
+    assert_eq!(vm.index_skip(), Some(&skip));
+    assert!(vm.empty_state().is_none());
+    let notice = vm.index_notice().expect("the tab with rows shows the note");
+    assert_eq!(notice.title, "MusicIndex cannot filter by after: yet");
+    assert_eq!(notice.secondary, super::INDEX_SKIP_ROWS_TEXT);
+    assert!(notice.failure.is_none());
+
+    let mut empty = SearchResultsInspectorPageVm::new("zzzz kind:ep");
+    empty.set_index_skipped(&unsupported_skip("zzzz kind:ep"));
+    assert!(empty.index_notice().is_none());
+    let state = empty.empty_state().expect("the empty tab shows the note");
+    assert_eq!(state.title, "MusicIndex cannot filter by kind: yet");
+    assert_eq!(state.secondary, "No releases matched \"zzzz kind:ep\".");
+    assert!(!empty.is_index_loading());
+}
+
+/// R87-2-25: `Conflict` gives the empty state "No results" with its text.
+/// `LibraryOnly` and `NoIndexPart` give no note and the empty state of
+/// today.
+#[test]
+fn adr_0087_library_fields_r87_2_25_conflict_and_library_only_states() {
+    let mut conflict = SearchResultsInspectorPageVm::new("conflict");
+    conflict.set_index_skipped(&super::IndexSkip::Conflict);
+    let state = conflict.empty_state().expect("a conflict shows no rows");
+    assert_eq!(state.title, super::SCOPE_CONFLICT_TITLE);
+    assert_eq!(state.title, "No results");
+    assert_eq!(state.secondary, super::SCOPE_CONFLICT_TEXT);
+    assert!(conflict.index_notice().is_none());
+
+    let local = [local_guid_track(10, 7, "g-library", "i1", "One")];
+    for skip in [super::IndexSkip::LibraryOnly, super::IndexSkip::NoIndexPart] {
+        let mut with_rows = SearchResultsInspectorPageVm::from_local_library_tracks(
+            "haleen",
+            &local,
+            &super::ArtistSearchFacts::default(),
+        );
+        with_rows.set_index_skipped(&skip);
+        assert!(with_rows.index_notice().is_none(), "{skip:?}");
+        assert!(with_rows.empty_state().is_none(), "{skip:?}");
+        assert!(!with_rows.is_index_loading(), "{skip:?}");
+
+        let mut empty = SearchResultsInspectorPageVm::new("haleen");
+        empty.set_index_skipped(&skip);
+        let state = empty.empty_state().expect("an empty tab");
+        assert_eq!(state.title, "No releases", "{skip:?}");
+        assert_eq!(state.secondary, "No releases matched \"haleen\".");
+    }
+}
+
+/// R87-2-26: the Releases tab and the Artists tab read `releases`. The
+/// Tracks tab reads `tracks`.
+#[test]
+fn adr_0087_library_fields_r87_2_26_tabs_read_their_own_rows() {
+    let rows = super::LibrarySearchRows {
+        releases: vec![local_track(1, 11, "Release Feed", "Release Track", "Ada")],
+        tracks: vec![local_track(2, 22, "Track Feed", "Own Track", "Bea")],
+        matched_count: 2,
+    };
+
+    let art = CollectionArtVm::EntityColor(CollectionKind::Artist);
+    let facts = super::ArtistSearchFacts {
+        name_level_art: BTreeMap::from([
+            (name_sort_key("Ada"), art.clone()),
+            (name_sort_key("Bea"), art),
+        ]),
+        ..super::ArtistSearchFacts::default()
+    };
+    let vm = SearchResultsInspectorPageVm::from_library_search("haleen", &rows, &facts);
+
+    let releases: Vec<String> = vm
+        .releases()
+        .rows()
+        .into_iter()
+        .map(|row| row.label)
+        .collect();
+    assert_eq!(releases, vec!["Release Feed".to_owned()]);
+    let artists: Vec<String> = vm
+        .artists()
+        .rows()
+        .into_iter()
+        .map(|row| row.label)
+        .collect();
+    assert_eq!(artists.len(), 1);
+    assert!(artists[0].contains("Ada"), "{artists:?}");
+    let tracks: Vec<String> = vm
+        .tracks()
+        .rows()
+        .into_iter()
+        .map(|row| row.label)
+        .collect();
+    assert_eq!(tracks, vec!["Own Track".to_owned()]);
+}

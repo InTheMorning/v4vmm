@@ -473,7 +473,10 @@ pub(super) struct LocalLibrarySearchRows {
     pub(super) tracks: Vec<(SearchResultItemId, TrackResultDisplay)>,
 }
 
+/// The Library rows of the three tabs (ADR 0087 packet 002). The Releases
+/// tab and the Artists tab read `releases`. The Tracks tab reads `tracks`.
 pub(super) fn local_library_result_rows(
+    releases: &[TrackRow],
     tracks: &[TrackRow],
     artist_facts: &ArtistSearchFacts,
 ) -> LocalLibrarySearchRows {
@@ -481,9 +484,8 @@ pub(super) fn local_library_result_rows(
     let mut feed_rows = BTreeMap::<i64, LocalFeedResult>::new();
     let mut track_rows = Vec::new();
 
-    for (index, track) in tracks.iter().enumerate() {
-        let track_vm = LibraryTrackRowVm::new(track, None);
-        let artist_name = track_vm.display_artist();
+    for track in releases {
+        let artist_name = LibraryTrackRowVm::new(track, None).display_artist();
         artist_rows
             .entry(name_sort_key(&artist_name))
             .or_default()
@@ -493,7 +495,10 @@ pub(super) fn local_library_result_rows(
             .entry(track.feed_id)
             .or_insert_with(|| LocalFeedResult::new(track))
             .push(track);
+    }
 
+    for (index, track) in tracks.iter().enumerate() {
+        let track_vm = LibraryTrackRowVm::new(track, None);
         let id = item_id_from_i64(track.id, index);
         let mut track_row = TrackResultDisplay::new(
             track.id.to_string(),

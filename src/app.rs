@@ -41,7 +41,9 @@ use crate::view_models::app_toolbar::AppToolbarVm;
 use crate::view_models::cached_files::CachedFilesVm;
 use crate::view_models::library::DescriptionState;
 use crate::view_models::publisher_page::PublisherPageContext;
-use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
+use crate::view_models::search_results::{
+    SearchResultsInspectorPageVm, SearchResultsTab, SearchRun,
+};
 use crate::view_models::settings::{SettingsAction, SettingsVm};
 use crate::view_models::show::{EventSectionInput, ShowCommandState, ShowPageVm};
 use crate::view_models::workspace::{
@@ -845,7 +847,11 @@ impl TopApp {
         self.restore_release_page_source_for_nav(entry, cx);
         self.restore_track_page_source_for_nav(entry, cx);
         if let FrameNavigationEntry::Search(query) = entry {
-            self.start_index_search_for_query(query, cx);
+            self.start_index_search_for_run(
+                SearchPageSlot::ToolbarSearch,
+                &SearchRun::new(query),
+                cx,
+            );
         }
         cx.notify();
     }

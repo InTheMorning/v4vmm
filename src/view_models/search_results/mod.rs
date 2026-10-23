@@ -8,7 +8,6 @@
 //! window.
 #![warn(clippy::pedantic)]
 
-use crate::db::TrackRow;
 use crate::runtime::paged_list_vm::{PagedListVm, RowSlot};
 use crate::view_models::detail_selection::{
     detail_header_action, search_header_action, search_release_rows, search_track_rows,
@@ -27,6 +26,7 @@ mod results;
 mod rows;
 mod saved_search;
 mod saved_search_groups;
+mod search_run;
 mod tabs;
 #[cfg(test)]
 mod tests;
@@ -50,6 +50,10 @@ pub(crate) use saved_search::{
     SavedSearchPage, SavedSearchRestore, SearchPageActionDisplay, SearchPageActionStyle,
 };
 pub(crate) use saved_search_groups::{saved_search_window_page, SearchResultItemVm};
+pub(crate) use search_run::{
+    library_part_runs, IndexSearchPlan, IndexSearchRequest, IndexSkip, LibrarySearchRows,
+    SearchRun, INDEX_SKIP_ROWS_TEXT, SCOPE_CONFLICT_TEXT, SCOPE_CONFLICT_TITLE,
+};
 pub(crate) use tabs::{SearchResultItemId, SearchResultOrigin, SearchResultsTab};
 
 use self::empty_state::empty_state_for;
@@ -73,6 +77,12 @@ pub(crate) struct SearchResultsInspectorPageVm {
     tracks: SearchResultsPagedTab<TrackResultDisplay>,
     index_loading: bool,
     index_error: Option<EmptyStateDisplay>,
+    /// The cause of an Index part that sends no request (ADR 0087 Decision
+    /// 5, packet 002). It is not an Index error.
+    index_skip: Option<IndexSkip>,
+    /// The note under the rows of a skipped Index part, when the Index
+    /// cannot apply a term of the query.
+    index_skip_notice: Option<EmptyStateDisplay>,
     empty_state: Option<EmptyStateDisplay>,
     tab_was_user_selected: bool,
     /// The page entry of this view model: `FrameNavigationEntry::Search`
@@ -110,6 +120,8 @@ impl SearchResultsInspectorPageVm {
             tracks: SearchResultsPagedTab::empty(),
             index_loading: false,
             index_error: None,
+            index_skip: None,
+            index_skip_notice: None,
             empty_state: None,
             tab_was_user_selected: false,
             entry,
@@ -122,31 +134,24 @@ impl SearchResultsInspectorPageVm {
         page
     }
 
-    /// Creates a search-results page from local library track matches.
-    /// `artist_facts` gives the match of each artist name (ADR 0084
-    /// Decision 7, packet 017).
+    /// Creates a search-results page from the Library rows of one run
+    /// (ADR 0087 packet 002). The Releases tab and the Artists tab read
+    /// `rows.releases`. The Tracks tab reads `rows.tracks`. `artist_facts`
+    /// gives the match of each artist name (ADR 0084 Decision 7, packet
+    /// 017).
     #[must_use]
-    pub(crate) fn from_local_library_tracks(
-        query: impl Into<String>,
-        tracks: &[TrackRow],
+    pub(crate) fn from_library_search(
+        text: impl Into<String>,
+        rows: &LibrarySearchRows,
         artist_facts: &ArtistSearchFacts,
     ) -> Self {
-        Self::new(query).with_local_library_tracks(tracks, artist_facts)
-    }
-
-    /// Returns this page with local library result rows attached.
-    #[must_use]
-    pub(crate) fn with_local_library_tracks(
-        mut self,
-        tracks: &[TrackRow],
-        artist_facts: &ArtistSearchFacts,
-    ) -> Self {
-        let local_rows = local_library_result_rows(tracks, artist_facts);
-        self.artists = SearchResultsPagedTab::ready_library(local_rows.artists);
-        self.releases = SearchResultsPagedTab::ready_library(local_rows.feeds);
-        self.tracks = SearchResultsPagedTab::ready_library(local_rows.tracks);
-        self.refresh_empty_state();
-        self
+        let mut page = Self::new(text);
+        let local_rows = local_library_result_rows(&rows.releases, &rows.tracks, artist_facts);
+        page.artists = SearchResultsPagedTab::ready_library(local_rows.artists);
+        page.releases = SearchResultsPagedTab::ready_library(local_rows.feeds);
+        page.tracks = SearchResultsPagedTab::ready_library(local_rows.tracks);
+        page.refresh_empty_state();
+        page
     }
 
     /// Returns this page with the state of its Library rows: `partial` is
@@ -224,6 +229,25 @@ impl SearchResultsInspectorPageVm {
     pub(crate) fn mark_index_loading(&mut self) {
         self.index_loading = true;
         self.index_error = None;
+        self.index_skip = None;
+        self.index_skip_notice = None;
+        self.refresh_empty_state();
+    }
+
+    /// Records that the Index part sends no request, and its cause (ADR
+    /// 0087 Decision 5, packet 002 decision D17). A skip is not an Index
+    /// error, so the page shows no loading rows and no error.
+    pub(crate) fn set_index_skipped(&mut self, skip: &IndexSkip) {
+        self.index_loading = false;
+        self.index_error = None;
+        self.index_skip_notice = match skip {
+            IndexSkip::Unsupported(terms) => Some(EmptyStateDisplay::new(
+                terms.note_title(),
+                INDEX_SKIP_ROWS_TEXT,
+            )),
+            IndexSkip::NoIndexPart | IndexSkip::LibraryOnly | IndexSkip::Conflict => None,
+        };
+        self.index_skip = Some(skip.clone());
         self.refresh_empty_state();
     }
 
@@ -376,11 +400,16 @@ impl SearchResultsInspectorPageVm {
     /// not accept the query, or `MusicIndex` was not available. A tab with
     /// no rows shows the same note as its empty state.
     #[must_use]
+    ///
+    /// A skipped Index part shows the note of ADR 0087 Decision 5 when the
+    /// Index cannot apply a term of the query.
     pub(crate) fn index_notice(&self) -> Option<&EmptyStateDisplay> {
         if self.is_empty(self.tab) {
             return None;
         }
-        self.index_error.as_ref()
+        self.index_error
+            .as_ref()
+            .or(self.index_skip_notice.as_ref())
     }
 
     /// Returns the visible row thumbnail hrefs of the active tab.
@@ -737,11 +766,20 @@ impl SearchResultsInspectorPageVm {
             self.empty_state = None;
             return;
         }
-        self.empty_state = Some(
-            self.index_error
-                .clone()
-                .unwrap_or_else(|| empty_state_for(self.tab, &self.query)),
-        );
+        if let Some(error) = &self.index_error {
+            self.empty_state = Some(error.clone());
+            return;
+        }
+        let empty = empty_state_for(self.tab, &self.query);
+        self.empty_state = Some(match &self.index_skip {
+            Some(IndexSkip::Unsupported(terms)) => {
+                EmptyStateDisplay::new(terms.note_title(), empty.secondary)
+            }
+            Some(IndexSkip::Conflict) => {
+                EmptyStateDisplay::new(SCOPE_CONFLICT_TITLE, SCOPE_CONFLICT_TEXT)
+            }
+            Some(IndexSkip::NoIndexPart | IndexSkip::LibraryOnly) | None => empty,
+        });
     }
 
     fn select_first_populated_tab_if_automatic(&mut self) {
@@ -761,6 +799,28 @@ impl SearchResultsInspectorPageVm {
 /// production code reads the rows through [`SearchResultsInspectorPageVm::visible_rows`].
 #[cfg(test)]
 impl SearchResultsInspectorPageVm {
+    /// Creates a search-results page whose three tabs read the same Library
+    /// tracks.
+    #[must_use]
+    pub(crate) fn from_local_library_tracks(
+        query: impl Into<String>,
+        tracks: &[crate::db::TrackRow],
+        artist_facts: &ArtistSearchFacts,
+    ) -> Self {
+        let rows = LibrarySearchRows {
+            releases: tracks.to_vec(),
+            tracks: tracks.to_vec(),
+            matched_count: tracks.len(),
+        };
+        Self::from_library_search(query, &rows, artist_facts)
+    }
+
+    /// The cause of a skipped Index part, or `None`.
+    #[must_use]
+    pub(crate) fn index_skip(&self) -> Option<&IndexSkip> {
+        self.index_skip.as_ref()
+    }
+
     /// Returns the release rows.
     #[must_use]
     pub(crate) const fn releases(&self) -> &SearchResultsPagedTab<FeedResultDisplay> {

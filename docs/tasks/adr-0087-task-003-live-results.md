@@ -2,6 +2,8 @@
 
 Status: Ready - 2026-10-23.
 
+Orchestrator note - 2026-10-23: packets 001 and 002 are implemented. The run record lists their deviations. `LibrarySearchFacts::track` and `SearchResultsInspectorPageVm::index_skip` are `#[cfg(test)]`. Remove the attribute of each name that this packet calls. `search_local_library_tracks` is `pub(crate)`. `UnsupportedIndexTerms` is in `search_results::search_run`.
+
 ## Goal
 
 The toolbar search runs while the curator types. After the curator stops typing for a pause, the

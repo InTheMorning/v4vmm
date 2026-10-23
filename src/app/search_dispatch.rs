@@ -43,8 +43,8 @@ use crate::view_models::release_page::{
     ReleaseTrackRowVm,
 };
 use crate::view_models::search_results::{
-    IndexDetailDisplay, IndexDetailKind, SearchResultTarget, SearchResultsInspectorPageVm,
-    SearchResultsTab,
+    IndexDetailDisplay, IndexDetailKind, IndexSearchPlan, LibrarySearchRows, SavedSearchId,
+    SearchResultTarget, SearchResultsInspectorPageVm, SearchResultsTab, SearchRun,
 };
 use crate::view_models::track_detail::{TrackNameLinkTarget, TrackPageAction};
 use crate::view_models::track_page::{
@@ -232,8 +232,11 @@ impl TopApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let query = query.trim().to_string();
-        if query.is_empty() {
+        // ADR 0087 packet 002: the submit parses the text one time. A text
+        // with no term that can run opens no page and sends nothing.
+        let run = SearchRun::new(query);
+        let query = run.text().to_owned();
+        if query.is_empty() || !run.is_runnable() {
             return;
         }
 
@@ -245,7 +248,7 @@ impl TopApp {
             .open_search_results_in_content_list(query.clone())
         {
             Ok(content_list_id) => {
-                self.search_results_detail = Some(self.search_results_detail_for_query(&query, cx));
+                self.search_results_detail = Some(self.search_results_detail_for_run(&run, cx));
                 // Packet 028 review: a new query starts at the top of its list.
                 self.scroll_search_page_to_top(SearchPageSlot::ToolbarSearch);
                 // ADR 0084 Decision 9, walk of 2026-10-21: a submitted search
@@ -267,69 +270,105 @@ impl TopApp {
         }
     }
 
-    pub(super) fn search_results_detail_for_query(
+    /// The search page of `run` with its Library rows (ADR 0087 packet
+    /// 002). The Library part runs only for the scopes `Everything` and
+    /// `LibraryOnly`. A skipped Index part sets its cause on the page, so the
+    /// page shows the note of ADR 0087 Decision 5 and no loading rows.
+    pub(super) fn search_results_detail_for_run(
         &self,
-        query: &str,
+        run: &SearchRun,
         cx: &App,
     ) -> SearchResultsInspectorPageVm {
         // ADR 0084 Decision 7, packet 017: the artist rows read the match
         // of each name from the current Library tree.
         let artist_facts = self.library.read(cx).artist_search_facts();
-        let local_tracks = {
+        let rows = if run.runs_library() {
+            let library_facts = self.library.read(cx).library_search_facts();
             let conn = self.conn.lock().expect("lock db");
             self.application_services
                 .query_service()
-                .search_local_library_tracks(&conn, query, None)
+                .search_local_library_tracks(&conn, run.query(), &library_facts, None)
                 .unwrap_or_default()
+        } else {
+            LibrarySearchRows::default()
         };
 
         // ADR 0086 packet 005 decision D3: a Library search that reached its
         // limit can leave out a single of a window.
-        SearchResultsInspectorPageVm::from_local_library_tracks(query, &local_tracks, &artist_facts)
-            .with_library_rows_partial(local_tracks.len() >= DEFAULT_LOCAL_LIBRARY_SEARCH_LIMIT)
+        let mut page =
+            SearchResultsInspectorPageVm::from_library_search(run.text(), &rows, &artist_facts)
+                .with_library_rows_partial(
+                    rows.matched_count >= DEFAULT_LOCAL_LIBRARY_SEARCH_LIMIT,
+                );
+        if let IndexSearchPlan::Skip(skip) = run.index_plan() {
+            page.set_index_skipped(skip);
+        }
+        page
     }
 
-    pub(super) fn start_index_search_for_query(&mut self, query: &str, cx: &mut Context<Self>) {
+    /// Starts the Index part of `run` for the search page `slot` (ADR 0087
+    /// packet 002 decision D21). A run whose plan is `Skip` sends nothing
+    /// and shows no availability error (decision D17). The toolbar page
+    /// keeps a retained action for a failure. The saved-search page keeps
+    /// none.
+    pub(super) fn start_index_search_for_run(
+        &mut self,
+        slot: SearchPageSlot,
+        run: &SearchRun,
+        cx: &mut Context<Self>,
+    ) {
+        if !run.is_runnable() {
+            return;
+        }
+        let IndexSearchPlan::Send(request) = run.index_plan() else {
+            return;
+        };
+        let query = run.text();
         if let Err(reason) =
             crate::view_models::app_toolbar::AppToolbarVm::index_search_availability(
                 self.feature_availability(),
             )
         {
+            let endpoint = self
+                .musicindex_endpoint
+                .require()
+                .unwrap_or("Invalid musicindex_endpoint setting")
+                .to_owned();
             if let Some(detail) = self
-                .search_results_detail
-                .as_mut()
+                .search_page_mut(slot)
                 .filter(|detail| detail.query() == query)
             {
                 detail.set_index_error(
                     &crate::application::errors::command::CommandError::Unavailable(reason),
-                    self.musicindex_endpoint
-                        .require()
-                        .unwrap_or("Invalid musicindex_endpoint setting"),
+                    &endpoint,
                     std::time::SystemTime::now(),
                 );
             }
-            self.retain_failed_action(
-                RecoveryAction::IndexSearch {
-                    query: query.into(),
-                },
-                reason.dependency,
-                cx,
-            );
+            if slot == SearchPageSlot::ToolbarSearch {
+                self.retain_failed_action(
+                    RecoveryAction::IndexSearch {
+                        query: query.into(),
+                    },
+                    reason.dependency,
+                    cx,
+                );
+            }
             cx.notify();
             return;
         }
-        if let Some(detail) = &mut self.search_results_detail {
-            if detail.query() == query {
-                detail.mark_index_loading();
-            }
+        if let Some(detail) = self
+            .search_page_mut(slot)
+            .filter(|detail| detail.query() == query)
+        {
+            detail.mark_index_loading();
         }
 
         let command = FetchIndexSearchResults::new(
             self.musicindex_endpoint.clone(),
-            query.to_owned(),
+            request.clone(),
             self.library.read(cx).name_feed_matches(),
         );
-        self.dispatch_index_search(query, command, None, cx);
+        self.dispatch_index_search(slot, query, command, None, cx);
     }
 
     pub(super) fn retry_index_search(
@@ -338,6 +377,15 @@ impl TopApp {
         intent: RecoveryIntent,
         cx: &mut Context<Self>,
     ) {
+        let run = SearchRun::new(query);
+        let IndexSearchPlan::Send(request) = run.index_plan() else {
+            self.capability_vm.pending.finish(
+                intent.id,
+                "App did not send the MusicIndex search again. The search has no MusicIndex part."
+                    .into(),
+            );
+            return;
+        };
         if self
             .workspace_layout
             .open_search_results_in_content_list(query)
@@ -349,7 +397,7 @@ impl TopApp {
             );
             return;
         }
-        self.search_results_detail = Some(self.search_results_detail_for_query(query, cx));
+        self.search_results_detail = Some(self.search_results_detail_for_run(&run, cx));
         if let Some(detail) = &mut self.search_results_detail {
             detail.mark_index_loading();
         }
@@ -357,16 +405,35 @@ impl TopApp {
         let command = self.retry_command(
             FetchIndexSearchResults::new(
                 self.musicindex_endpoint.clone(),
-                query.to_owned(),
+                request.clone(),
                 self.library.read(cx).name_feed_matches(),
             ),
             intent,
         );
-        self.dispatch_index_search(query, command, Some(id), cx);
+        self.dispatch_index_search(SearchPageSlot::ToolbarSearch, query, command, Some(id), cx);
+    }
+
+    /// Tells if an Index result for `query` can write the search page
+    /// `slot`. The toolbar page checks the active navigation entry. The
+    /// saved-search page checks the id and the query of the mounted page.
+    fn index_search_result_is_current(
+        &self,
+        slot: SearchPageSlot,
+        saved_id: Option<SavedSearchId>,
+        query: &str,
+    ) -> bool {
+        match (slot, saved_id) {
+            (SearchPageSlot::ToolbarSearch, _) => self.content_list_nav_matches_search(query),
+            (SearchPageSlot::SavedSearch, Some(id)) => {
+                self.saved_search_result_is_current(id, query)
+            }
+            (SearchPageSlot::SavedSearch, None) => false,
+        }
     }
 
     fn dispatch_index_search<C>(
         &self,
+        slot: SearchPageSlot,
         query: &str,
         command: C,
         retry_id: Option<u64>,
@@ -374,6 +441,7 @@ impl TopApp {
     ) where
         C: ApplicationCommand<Output = crate::view_models::search_results::IndexSearchResultRows>,
     {
+        let saved_id = self.saved_search_page.as_ref().map(|page| page.id);
         let success_query = query.to_owned();
         let error_query = query.to_owned();
         let error_endpoint = self
@@ -392,18 +460,19 @@ impl TopApp {
                         .pending
                         .succeed(id, "App completed the original Index search.".into());
                 }
-                if !this.content_list_nav_matches_search(&success_query) {
+                if !this.index_search_result_is_current(slot, saved_id, &success_query) {
                     return;
                 }
 
-                if this.search_results_detail.is_none() {
-                    this.search_results_detail =
-                        Some(this.search_results_detail_for_query(&success_query, cx));
+                if slot == SearchPageSlot::ToolbarSearch && this.search_results_detail.is_none() {
+                    this.search_results_detail = Some(
+                        this.search_results_detail_for_run(&SearchRun::new(&success_query), cx),
+                    );
                 }
 
                 // Packet 010 "The stale results": a result for another
                 // query changes neither the rows nor the selection.
-                if this.search_results_detail.as_mut().is_some_and(|detail| {
+                if this.search_page_mut(slot).is_some_and(|detail| {
                     detail.replace_index_results_for_query(&success_query, rows)
                 }) {
                     cx.notify();
@@ -417,7 +486,9 @@ impl TopApp {
                             "App could not complete the original Index search: {error}"
                         )),
                     );
-                } else if index_search_error_retains_action(&error) {
+                } else if slot == SearchPageSlot::ToolbarSearch
+                    && index_search_error_retains_action(&error)
+                {
                     let dependency = match error {
                         crate::application::CommandError::Unavailable(reason) => reason.dependency,
                         _ => Dependency::MusicIndex,
@@ -430,18 +501,17 @@ impl TopApp {
                         cx,
                     );
                 }
-                if !this.content_list_nav_matches_search(&error_query) {
+                if !this.index_search_result_is_current(slot, saved_id, &error_query) {
                     return;
                 }
 
-                if this.search_results_detail.is_none() {
+                if slot == SearchPageSlot::ToolbarSearch && this.search_results_detail.is_none() {
                     this.search_results_detail =
-                        Some(this.search_results_detail_for_query(&error_query, cx));
+                        Some(this.search_results_detail_for_run(&SearchRun::new(&error_query), cx));
                 }
 
                 if let Some(detail) = this
-                    .search_results_detail
-                    .as_mut()
+                    .search_page_mut(slot)
                     .filter(|detail| detail.query() == error_query)
                 {
                     detail.set_index_error(&error, &error_endpoint, std::time::SystemTime::now());
@@ -490,7 +560,8 @@ impl TopApp {
                 .as_ref()
                 .is_none_or(|detail| detail.query() != query);
             if needs_refresh {
-                self.search_results_detail = Some(self.search_results_detail_for_query(&query, cx));
+                self.search_results_detail =
+                    Some(self.search_results_detail_for_run(&SearchRun::new(&query), cx));
             }
         } else {
             self.search_results_detail = None;

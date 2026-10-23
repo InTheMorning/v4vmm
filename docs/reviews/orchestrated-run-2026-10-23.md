@@ -47,6 +47,12 @@ Each entry names the step, the decision and the reason.
   - The coding agent named the `FieldValueError` variants, because the packet gives no names: `UnknownValue`, `OneValueOnly`, `NotADate`, `NotADuration` and `ExcludedScope`.
   - A value of whitespace only gives `Incomplete`. `-in:` with no value also gives `Incomplete`.
   - The packet is complete with no visual check, so it moves to `docs/tasks/archive/`.
+- ADR 0087 packet 002. The orchestrator accepted these deviations:
+  - `search_local_library_tracks` is `pub(crate)`, because a `pub` method with a crate-private type gives a warning. `UnsupportedIndexTerms` has no re-export.
+  - New names: `library_part_runs(query)`, `LibrarySearchFacts::{tracks, ready_track_ids}` and `TopApp::index_search_result_is_current`. The fields of `LibraryTrackSearchFacts` are `pub(crate)`.
+  - `LibrarySearchFacts::track` and `SearchResultsInspectorPageVm::index_skip` are `#[cfg(test)]` until a production caller exists.
+  - The five guards of D24 name the new functions and keep their rules. The guard `adr_0060_search_uses_music_section_navigation` changes only its range end marker to `search_results_detail_for_run`.
+  - The guard R87-2-29 also requires that only `src/app/search_dispatch.rs` calls `FetchIndexSearchResults::new(`, with `request.clone()`. Without this rule, a copy in the saved search code does not fail.
 
 ## Steps
 
@@ -58,8 +64,8 @@ Each entry names the step, the decision and the reason.
 | ADR 0086 packet 003: the pager closes each window | Implemented. V1 to V10 open | `fbeec62` |
 | ADR 0086 packet 004: the window group page | Implemented. V1 to V10 open | `fcee74d` |
 | ADR 0086 packet 005: saved search window groups | Implemented. V1 to V7 open | `3e28b24` |
-| ADR 0087 packet 001: the query parser | Complete. No visual check | (this commit) |
-| ADR 0087 packet 002: Library fields and Index words | Ready | |
+| ADR 0087 packet 001: the query parser | Complete. No visual check | `93b2c79` |
+| ADR 0087 packet 002: Library fields and Index words | Implemented. V1 to V9 open | (this commit) |
 | ADR 0087 packet 004: the field list | Ready | |
 | ADR 0087 packet 003: live results | Ready | |
 | ADR 0087 packet 005: the values of the field list | Ready | |
