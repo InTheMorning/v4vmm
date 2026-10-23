@@ -133,7 +133,7 @@ Each entry names the step, the decision and the reason.
 | Packet 030: the open defects of Music, and the scroll position of each history entry | Implemented. V1 to V6 open | `5b5dbe0` |
 | Packet 031: one release row menu, and the drag of a selection | Implemented. V1 to V9 open | `5486f0b` |
 | Packet 032: one track row style on the group page, and the matched singles in the feed group | Implemented. V1 to V7 open | `ea1902f` |
-| Packet 033: the download state icons of track rows and release rows | Implemented. V1 to V8 open | this commit |
+| Packet 033: the download state icons of track rows and release rows | Implemented. V1 to V8 open | `9422468` |
 
 ## Questions For The Operator
 
