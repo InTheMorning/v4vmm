@@ -39,6 +39,7 @@ pub mod musicbrainz_panel;
 pub(crate) mod page_scroll_content;
 pub mod playlist_popover;
 pub mod release_detail_surface;
+pub(crate) mod release_download_state;
 pub(crate) mod release_row_menu;
 pub(crate) mod release_section_list;
 pub mod segmented_control;

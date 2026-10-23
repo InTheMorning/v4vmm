@@ -5,6 +5,7 @@ use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
 use crate::view_models::detail_selection::{
     DetailRowClick, DetailRowKey, LibraryReleaseFacts, ReleaseDownloaded,
 };
+use crate::view_models::release_download_state::{ReleaseDownloadState, ReleaseDownloadStateVm};
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::selection_action_bar::SelectionActionKind;
 use crate::view_models::workspace::{ReleaseKey, TrackKey};
@@ -40,7 +41,7 @@ impl SearchLibraryLookup for RecordedLibrary {
 }
 
 impl RecordedLibrary {
-    fn with_release(mut self, guid: &str, feed_id: i64, fully: bool, word: &str) -> Self {
+    fn with_release(mut self, guid: &str, feed_id: i64, fully: bool) -> Self {
         self.releases.insert(
             ReleaseKey::FeedGuid(guid.to_owned()),
             SearchLibraryRelease {
@@ -54,7 +55,7 @@ impl RecordedLibrary {
                     download_active: false,
                     removing: false,
                 },
-                state_word: word.to_owned(),
+                download_state: ReleaseDownloadStateVm::in_library(fully),
                 kind: ReleaseKind::Album,
             },
         );
@@ -226,16 +227,23 @@ fn adr_0084_search_list_r10_02_one_release_row_for_each_item() {
         ],
         ..no_index_rows()
     });
-    let lookup = RecordedLibrary::default().with_release("g-library", 7, true, "In Library");
+    let lookup = RecordedLibrary::default().with_release("g-library", 7, true);
     let rows = rows(&vm, &lookup);
     assert_eq!(rows.len(), 2);
     assert_eq!(
         rows[0].id, "7",
         "the merged row keeps the place of its Library row"
     );
-    assert_eq!(rows[0].state_word.as_deref(), Some("In Library"));
+    assert_eq!(
+        rows[0].download_state.as_ref().map(|state| state.state),
+        Some(ReleaseDownloadState::Downloaded)
+    );
     assert_eq!(rows[1].id, "index-feed:g-index");
-    assert_eq!(rows[1].state_word, None);
+    assert_eq!(
+        rows[1].download_state.as_ref().map(|state| state.state),
+        Some(ReleaseDownloadState::NotDownloaded),
+        "a MusicIndex row the Library does not hold still shows its state (ADR 0083 Decision 6)"
+    );
     assert_eq!(
         rows[1].badge, None,
         "the list column shows the kind in the second line"
@@ -266,7 +274,7 @@ fn adr_0084_search_list_release_kind_is_the_first_word_of_the_subtitle() {
         tracks: vec![index_track(3_000_000_000, Some("g-index"), "t1", "Track")],
         ..no_index_rows()
     });
-    let lookup = RecordedLibrary::default().with_release("g-library", 7, false, "Not downloaded");
+    let lookup = RecordedLibrary::default().with_release("g-library", 7, false);
 
     assert_eq!(
         vm.release_kind_placement(),
@@ -277,13 +285,20 @@ fn adr_0084_search_list_release_kind_is_the_first_word_of_the_subtitle() {
         list[0].secondary_text,
         "Album \u{b7} Haleen \u{b7} 2 tracks"
     );
-    assert_eq!(list[0].state_word.as_deref(), Some("Not downloaded"));
+    assert_eq!(
+        list[0].download_state.as_ref().map(|state| state.state),
+        Some(ReleaseDownloadState::NotDownloaded)
+    );
     assert_eq!(list[0].badge, None);
     assert_eq!(
         list[1].secondary_text,
         "Album \u{b7} HeyCitizen \u{b7} 19 tracks"
     );
-    assert_eq!(list[1].state_word, None, "an Index row shows no state word");
+    assert_eq!(
+        list[1].download_state.as_ref().map(|state| state.state),
+        Some(ReleaseDownloadState::NotDownloaded),
+        "an Index row still shows the quiet not-downloaded icon"
+    );
     assert_eq!(list[1].badge, None);
 
     vm.set_tab(SearchResultsTab::Tracks);
@@ -348,10 +363,13 @@ fn adr_0084_search_list_r10_03_index_hit_of_a_library_feed_is_a_library_row() {
         feeds: vec![index_release(2_000_000_000, "g-stored", "Stored Release")],
         ..no_index_rows()
     });
-    let lookup = RecordedLibrary::default().with_release("g-stored", 3, false, "Not downloaded");
+    let lookup = RecordedLibrary::default().with_release("g-stored", 3, false);
     let rows = rows(&vm, &lookup);
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].state_word.as_deref(), Some("Not downloaded"));
+    assert_eq!(
+        rows[0].download_state.as_ref().map(|state| state.state),
+        Some(ReleaseDownloadState::NotDownloaded)
+    );
     let selection_rows = vm
         .selection_rows(&lookup)
         .expect("the Releases tab selects");
@@ -555,7 +573,7 @@ fn selectable_page() -> (SearchResultsInspectorPageVm, RecordedLibrary) {
         ],
     });
     let lookup = RecordedLibrary::default()
-        .with_release("g-library", 7, true, "In Library")
+        .with_release("g-library", 7, true)
         .with_track("g-library", "i1", 10, true);
     (vm, lookup)
 }
@@ -614,7 +632,7 @@ fn adr_0084_search_list_r10_10_tab_change_clears_and_index_arrival_keeps() {
         &super::ArtistSearchFacts::default(),
     );
     vm.mark_index_loading();
-    let lookup = RecordedLibrary::default().with_release("g-library", 7, true, "In Library");
+    let lookup = RecordedLibrary::default().with_release("g-library", 7, true);
     let library_key = DetailRowKey::Release(ReleaseKey::FeedGuid("g-library".to_owned()));
     vm.toggle_row(&library_key);
     assert_eq!(vm.selection().selected_count(), 1);

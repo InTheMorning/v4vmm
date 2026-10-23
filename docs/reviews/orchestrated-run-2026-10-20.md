@@ -96,6 +96,8 @@ Each entry names the step, the decision and the reason.
 
 - Operator answers of 2026-10-22: each member of a singles group page uses one track row style, so the columns line up (this replaces packet 026 D13). The singles of a name that matches exactly one artist feed join the group of that feed (ADR 0084 Decision 6, amended on 2026-10-22). Packet 032 builds both.
 
+- Operator answers of 2026-10-22: each track row and release row shows its download state as one icon: `CloudDownload`, `Clock`, `LoaderCircle` or `CloudCheck`. A partly downloaded release keeps a short count beside its icon (ADR 0083 Decision 6, amended on 2026-10-22, packet 033).
+
 - Packet 012 decisions of the implementer, accepted by the orchestrator on 2026-10-21. The "New releases" row shows the Discover icon, so the labels of "New releases" and of each saved search start at the same position (Flag decision 2). An Index result writes the mounted saved-search page when the id and the query agree, so a result that arrives after the operator leaves the page is not lost (decision 9, corrected in the orchestrator review). "Save search" and "Delete…" are on the query row of the search header (decision 5).
 
 ## Steps
@@ -131,6 +133,7 @@ Each entry names the step, the decision and the reason.
 | Packet 030: the open defects of Music, and the scroll position of each history entry | Implemented. V1 to V6 open | `5b5dbe0` |
 | Packet 031: one release row menu, and the drag of a selection | Implemented. V1 to V9 open | `5486f0b` |
 | Packet 032: one track row style on the group page, and the matched singles in the feed group | Implemented. V1 to V7 open | `ea1902f` |
+| Packet 033: the download state icons of track rows and release rows | Implemented. V1 to V8 open | this commit |
 
 ## Questions For The Operator
 
@@ -216,7 +219,7 @@ The operator sends screenshots, and the orchestrator records each result here wi
 | 2026-10-22 | Releases "Library": "Haleen · 5 singles · Artist feed" and "Haleen · 2 singles · By name" show as two groups | Fail, operator decision | Packet 032 joins them (ADR 0084 Decision 6, amended on 2026-10-22) |
 | 2026-10-22 | 032: one track row style on the Haleen group page; the download column and the duration column line up | Pass | "56 singles · 7 in Library · Artist feed". MusicIndex singles show no duration, because the list data gives none |
 | 2026-10-22 | 032: one Haleen group row, "7 singles · In Library · Artist feed"; the Haleen Artists row reads "7 releases" | Pass | Releases "Library" and Artists |
-| 2026-10-22 | Track rows show no hover fill; the rows of the two list columns do | Fail, fixed | `ListRow` drew the fill only when it owned the click, and a `TrackRow` click is on its body. `ListRow::child_click()` and the guard `adr_0083_track_row_shows_the_hover_fill_of_a_list_row` correct it |
+| 2026-10-22 | Track rows show no hover fill; the rows of the two list columns do | Fail, fixed, then Pass on the new build | `ListRow` drew the fill only when it owned the click, and a `TrackRow` click is on its body. `ListRow::child_click()` and the guard `adr_0083_track_row_shows_the_hover_fill_of_a_list_row` correct it |
 
 ## Final Walk
 

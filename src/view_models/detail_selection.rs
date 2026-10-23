@@ -1155,6 +1155,10 @@ mod tests {
             artist: None,
             not_listed: false,
             in_library: false,
+            download_state:
+                crate::view_models::release_download_state::ReleaseDownloadStateVm::in_library(
+                    false,
+                ),
             detail_line: None,
             open: Some(ReleaseRowOpenAction {
                 key: release_key(guid),

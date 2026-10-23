@@ -22,6 +22,7 @@ use gpui_component::Size;
 use crate::library::LibraryApp;
 use crate::ui::composites::music_column_scroll::music_column_scrollbar;
 use crate::ui::composites::page_scroll_content::page_scroll_content;
+use crate::ui::composites::release_download_state::render_release_download_state;
 use crate::ui::composites::release_row_menu::{release_row_menu, ReleaseRowMenuContext};
 use crate::ui::composites::track_drag::{self, playlist_drop_target, PlaylistDrop};
 use crate::ui::composites::{
@@ -176,6 +177,7 @@ fn render_singles_group_rows(
         label,
         secondary_text,
         a11y_label,
+        download_state,
         art: _,
         open,
         expanded,
@@ -261,6 +263,14 @@ fn render_singles_group_rows(
                             .truncated(),
                     ),
             )
+            // ADR 0083 Decision 6, amended 2026-10-22; ADR 0084 task 033:
+            // the group row's own download-state icon, from the count of
+            // its members that are in the Library.
+            .child(render_release_download_state(
+                &download_state,
+                format!("{element_id}-download-state"),
+                cx,
+            ))
             .into_any_element(),
     );
 
@@ -309,6 +319,7 @@ fn render_destination_list_row(
     let target = row.open.clone();
     let thumbnail_href = row.thumbnail_href.clone();
     let thumb_element_id = format!("{}-thumb", row.element_id);
+    let download_state_id = format!("{}-download-state", row.element_id);
     let selection = row.selection.clone();
 
     let mut list_row = ListRow::new(SharedString::from(row.element_id.clone()))
@@ -389,6 +400,12 @@ fn render_destination_list_row(
                     )
                 }),
         )
+        // ADR 0083 Decision 6, amended 2026-10-22; ADR 0084 task 033: the
+        // download-state icon of a release row. An Artists row carries
+        // none.
+        .when_some(row.download_state, |el, state| {
+            el.child(render_release_download_state(&state, download_state_id, cx))
+        })
         .into_any_element()
 }
 

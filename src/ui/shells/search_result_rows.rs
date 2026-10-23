@@ -16,6 +16,7 @@ use gpui::{
     SharedString, Styled, Window,
 };
 
+use crate::ui::composites::release_download_state::render_release_download_state;
 use crate::ui::composites::{
     CollectionArt, CollectionArtImage, EntityKind, ListRow, ListRowA11yLabel, TagBadge,
     TagBadgeDisplay, Thumbnail, ThumbnailSize,
@@ -66,6 +67,7 @@ pub(crate) fn render_result_row(
     row: SearchResultRowVm,
     leading: SearchRowLeading,
     handlers: SearchResultRowHandlers<'_>,
+    cx: &App,
 ) -> AnyElement {
     let kind = entity_kind_for_tab(tab);
     let row_id = row.id.clone();
@@ -107,7 +109,13 @@ pub(crate) fn render_result_row(
         }
     };
     list_row = list_row.child(result_row_text(&row));
-    if let Some(state_word) = row.state_word.clone() {
+    if let Some(download_state) = &row.download_state {
+        list_row = list_row.child(render_release_download_state(
+            download_state,
+            format!("{element_id}-download-state"),
+            cx,
+        ));
+    } else if let Some(state_word) = row.state_word.clone() {
         list_row = list_row.child(
             Label::new(state_word)
                 .size(FontSize::Micro)

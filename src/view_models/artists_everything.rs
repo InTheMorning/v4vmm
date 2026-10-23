@@ -203,6 +203,7 @@ pub(crate) fn index_artist_row(row: &ArtistNameRow) -> DestinationListRowVm {
             selection: RowSelectionVm::none(),
             release_kind: None,
             menu: None,
+            download_state: None,
         },
         ArtistNameKind::Publisher | ArtistNameKind::Unknown => {
             let feed_guid = row.feed_guid.clone().unwrap_or_else(|| row.key.clone());
@@ -221,6 +222,7 @@ pub(crate) fn index_artist_row(row: &ArtistNameRow) -> DestinationListRowVm {
                 selection: RowSelectionVm::none(),
                 release_kind: None,
                 menu: None,
+                download_state: None,
             }
         }
     }
@@ -339,6 +341,7 @@ mod tests {
                 selection: RowSelectionVm::none(),
                 release_kind: None,
                 menu: None,
+                download_state: None,
             },
         }
     }

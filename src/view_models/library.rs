@@ -66,6 +66,7 @@ use crate::view_models::playlist_detail::PlaylistDetailPageVm;
 use crate::view_models::recent_feeds::{
     RecentFeedResultRow, RecentFeedsPageState, RecentFeedsPageVm,
 };
+use crate::view_models::release_download_state::ReleaseDownloadStateVm;
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::release_page::{
     LibraryTrackMenuAvailability, TrackRowMenuFacts, TrackRowMenuVm, TrackRowRemoveLabel,
@@ -74,8 +75,7 @@ use crate::view_models::release_row_actions::{
     release_row_menu, ReleaseActionCounts, ReleaseRowActionFacts, ReleaseRowMenuVm, ReleaseRowState,
 };
 use crate::view_models::releases_everything::{
-    self, add_state_word, loaded_index_release_title, LibraryReleaseEntry, ReleaseOrderKey,
-    ReleaseStateWord, ReleasesDownloadPlan,
+    self, loaded_index_release_title, LibraryReleaseEntry, ReleaseOrderKey, ReleasesDownloadPlan,
 };
 use crate::view_models::search_results::{
     saved_search_label, saved_search_row_a11y_label, FeedResultDisplay, IndexDetailDisplay,
@@ -1911,6 +1911,9 @@ pub(crate) struct DestinationListRowVm {
     /// task 031). `None` for an artist row, and in selection mode.
     /// [`LibraryViewModel::releases_list_with_selection`] fills it.
     pub(crate) menu: Option<ReleaseRowMenuVm>,
+    /// The download-state icon of a release row (ADR 0083 Decision 6,
+    /// amended 2026-10-22; ADR 0084 task 033). `None` for an artist row.
+    pub(crate) download_state: Option<ReleaseDownloadStateVm>,
 }
 
 /// One entry of the Releases destination list (ADR 0084 Decisions 2 and
@@ -2094,16 +2097,25 @@ pub(crate) fn destination_release_row(
         selection: RowSelectionVm::none(),
         release_kind: Some(album.release_kind()),
         menu: None,
+        download_state: None,
     })
 }
 
-/// The release row of one Library album, with its state word when `scope`
-/// shows it (ADR 0084 Decision 4, packet 016 decision D13). `None` when
-/// the album has no release key.
+/// The release row of one Library album, with its download-state icon
+/// (ADR 0083 Decision 6, amended 2026-10-22; ADR 0084 task 033). `phase`
+/// is the release's own download job, when one is queued or running
+/// ([`BusyItems::release_download_phase`]); it wins over the track count.
+/// `None` when the album has no release key.
+///
+/// The icon shows at all times, in the scope "Library" and in the scope
+/// "Everything" alike: this supersedes packet 016 decision D13, which hid
+/// the state word of a fully downloaded release in the scope "Library".
+/// That rule existed because the word was a few characters of text; the
+/// icon is compact enough that the suppression buys nothing.
 fn library_release_row(
     artist: &ArtistNode,
     album: &AlbumNode,
-    scope: MusicListScope,
+    phase: Option<DownloadPhase>,
 ) -> Option<DestinationListRowVm> {
     let mut row = destination_release_row(artist, album)?;
     let downloaded = album
@@ -2111,8 +2123,11 @@ fn library_release_row(
         .iter()
         .filter(|track| track.is_in_library)
         .count();
-    let state = ReleaseStateWord::of_tracks(downloaded, album.tracks.len());
-    add_state_word(&mut row, state, scope);
+    row.download_state = Some(match phase {
+        Some(DownloadPhase::Queued) => ReleaseDownloadStateVm::queued(),
+        Some(DownloadPhase::InFlight) => ReleaseDownloadStateVm::downloading(),
+        None => ReleaseDownloadStateVm::of_tracks(downloaded, album.tracks.len()),
+    });
     Some(row)
 }
 
@@ -2177,6 +2192,7 @@ fn artist_name_row(
             selection: RowSelectionVm::none(),
             release_kind: None,
             menu: None,
+            download_state: None,
         },
     }
 }
@@ -2297,6 +2313,7 @@ fn artist_feed_row(
             selection: RowSelectionVm::none(),
             release_kind: None,
             menu: None,
+            download_state: None,
         },
     }
 }
@@ -3353,8 +3370,9 @@ impl LibraryViewModel {
     /// `expanded` is the set of group keys whose rows show their singles.
     /// The entries come in the order of the Stophammer sort key of the
     /// release name or of the display artist of a group (packet 016
-    /// decision D6). A Library release row adds its state word when
-    /// `scope` shows it (decision D13).
+    /// decision D6). A Library release row shows its download-state icon
+    /// at all times (ADR 0083 Decision 6, amended 2026-10-22; ADR 0084
+    /// task 033, which supersedes packet 016 decision D13).
     ///
     /// In the scope "Everything", `page` adds the `MusicIndex` releases
     /// ([`releases_everything::everything_entries`]). A `MusicIndex` release
@@ -3388,8 +3406,9 @@ impl LibraryViewModel {
                 .iter()
                 .flat_map(|group| group.index_singles.iter().map(|single| single.key.clone())),
         );
-        let release_row =
-            |artist: &ArtistNode, album: &AlbumNode| library_release_row(artist, album, scope);
+        let release_row = |artist: &ArtistNode, album: &AlbumNode| {
+            library_release_row(artist, album, self.busy.release_download_phase(album))
+        };
         let mut entries: Vec<LibraryReleaseEntry> = tree
             .artists
             .iter()
@@ -3411,7 +3430,12 @@ impl LibraryViewModel {
             })
             .collect();
         entries.extend(groups.iter().map(|group| {
-            let row = SinglesGroupRowVm::new(group, expanded.contains(&group.key()), release_row);
+            let row = SinglesGroupRowVm::new(
+                group,
+                expanded.contains(&group.key()),
+                release_row,
+                |key| self.busy.index_release_download_phase(key),
+            );
             let order = match scope {
                 MusicListScope::Library => ReleaseOrderKey::group(&row.label, group.key()),
                 MusicListScope::Everything => {
@@ -3426,7 +3450,9 @@ impl LibraryViewModel {
         match scope {
             MusicListScope::Library => releases_everything::library_entries(entries),
             MusicListScope::Everything => {
-                releases_everything::everything_entries(entries, &hidden_keys, page)
+                releases_everything::everything_entries(entries, &hidden_keys, page, |key| {
+                    self.busy.index_release_download_phase(key)
+                })
             }
         }
     }
@@ -5318,18 +5344,26 @@ impl BusyItems {
             .and_then(|key| self.downloads.key_phase(&key))
     }
 
+    /// The phase of the jobs of the `MusicIndex` release `key` (ADR 0084
+    /// task 033): `InFlight` when a job of the key runs, `Queued` when a
+    /// job of the key only waits. `None` for a Library release key. The
+    /// Releases list row of a `MusicIndex` release, and the matching row
+    /// of a singles group disclosure, read it.
+    #[must_use]
+    pub(crate) fn index_release_download_phase(&self, key: &ReleaseKey) -> Option<DownloadPhase> {
+        match key {
+            ReleaseKey::FeedGuid(guid) => self.downloads.key_phase(&FeedKey::Guid(guid.clone())),
+            ReleaseKey::LibraryFeed(_) => None,
+        }
+    }
+
     /// The work in progress on the row of the `MusicIndex` single `key`
-    /// (ADR 0084 packet 032). It reads the same `key_phase` that
-    /// `index_release_downloading` reads, so the two methods always agree.
-    /// The group page track row of a `MusicIndex` single reads it.
+    /// (ADR 0084 packet 032). It reads
+    /// [`Self::index_release_download_phase`], so the two methods always
+    /// agree. The group page track row of a `MusicIndex` single reads it.
     #[must_use]
     pub(crate) fn index_release_work(&self, key: &ReleaseKey) -> TrackRowWork {
-        match key {
-            ReleaseKey::FeedGuid(guid) => TrackRowWork::from_phase(self.downloads.key_phase(
-                &crate::view_models::download_progress::FeedKey::Guid(guid.clone()),
-            )),
-            ReleaseKey::LibraryFeed(_) => TrackRowWork::Idle,
-        }
+        TrackRowWork::from_phase(self.index_release_download_phase(key))
     }
 
     /// `true` while a job of the `MusicIndex` release `key` is queued or in
@@ -5501,26 +5535,27 @@ impl LibrarySearchLookup<'_> {
 }
 
 impl SearchLibraryLookup for LibrarySearchLookup<'_> {
-    /// The state word of the release: the queue word while a job of its
-    /// key is queued or in flight, else the word of ADR 0084 Decision 4.
+    /// The download-state icon of the release (ADR 0083 Decision 6,
+    /// amended 2026-10-22; ADR 0084 task 033): the queue state while a
+    /// job of its key is queued or in flight, else its track count.
     fn release(&self, key: &ReleaseKey) -> Option<SearchLibraryRelease> {
         let album = self.vm.album_for_release_key(key)?;
         let facts = self.vm.library_release_facts(key)?;
-        let state_word = match self.vm.busy.release_download_phase(album) {
-            Some(DownloadPhase::Queued) => "Queued".to_owned(),
-            Some(DownloadPhase::InFlight) => "Downloading".to_owned(),
+        let download_state = match self.vm.busy.release_download_phase(album) {
+            Some(DownloadPhase::Queued) => ReleaseDownloadStateVm::queued(),
+            Some(DownloadPhase::InFlight) => ReleaseDownloadStateVm::downloading(),
             None => {
                 let downloaded = album
                     .tracks
                     .iter()
                     .filter(|track| track.is_in_library)
                     .count();
-                ReleaseStateWord::of_tracks(downloaded, album.tracks.len()).label()
+                ReleaseDownloadStateVm::of_tracks(downloaded, album.tracks.len())
             }
         };
         Some(SearchLibraryRelease {
             facts,
-            state_word,
+            download_state,
             kind: album.release_kind(),
         })
     }
@@ -6332,6 +6367,7 @@ mod tests {
     use super::*;
     use crate::view_models::name_level_page::NameLevelIndexState;
     use crate::view_models::publisher_page::{MatchedByNameFacts, PublisherPageVm};
+    use crate::view_models::release_download_state::ReleaseDownloadState;
 
     fn row() -> TrackRow {
         TrackRow {
@@ -8867,8 +8903,18 @@ mod tests {
             panic!("the first entry must be the Haleen group");
         };
         assert_eq!(group.label, "Haleen");
-        assert_eq!(group.secondary_text, "3 singles · 2 in Library · By name");
-        assert_eq!(group.a11y_label, "Haleen, 3 singles, 2 in Library, By name");
+        assert_eq!(group.secondary_text, "3 singles · By name");
+        assert_eq!(
+            group.a11y_label,
+            "Haleen, 3 singles, Partly downloaded, 2 of 3, By name"
+        );
+        assert_eq!(
+            group.download_state.state,
+            ReleaseDownloadState::Partial {
+                downloaded: 2,
+                total: 3
+            }
+        );
         // R11-05 (ADR 0084 Decision 12): the group row shows the newest
         // images of its singles in the logo mosaic.
         assert_eq!(
@@ -8896,7 +8942,8 @@ mod tests {
         let ReleasesListEntryVm::SinglesGroup(group) = &entries[0] else {
             panic!("the first entry must be the Haleen group");
         };
-        assert_eq!(group.secondary_text, "3 singles · In Library · By name");
+        assert_eq!(group.secondary_text, "3 singles · By name");
+        assert_eq!(group.download_state.state, ReleaseDownloadState::Downloaded);
     }
 
     /// R32-14 (ADR 0084 Decision 6, amended 2026-10-22, packet 032): a
@@ -8958,10 +9005,8 @@ mod tests {
         let ReleasesListEntryVm::SinglesGroup(group) = &entries[0] else {
             panic!("the group entry for the Haleen feed");
         };
-        assert_eq!(
-            group.secondary_text,
-            "2 singles \u{b7} In Library \u{b7} Artist feed"
-        );
+        assert_eq!(group.secondary_text, "2 singles \u{b7} Artist feed");
+        assert_eq!(group.download_state.state, ReleaseDownloadState::Downloaded);
     }
 
     /// R15-06 (ADR 0084 Decision 6): with the group key in the expanded
@@ -11136,43 +11181,120 @@ mod tests {
         ReleaseKey::FeedGuid(guid.to_owned())
     }
 
-    /// R16-14 and decision D13: a Library row in "Everything" adds "In
-    /// Library", "3 of 7 tracks" or "Not downloaded". In "Library", only
-    /// the partial state shows.
+    /// R33-11 (ADR 0083 Decision 6, amended 2026-10-22; ADR 0084 task
+    /// 033): a Library release row carries its download-state icon as a
+    /// typed fact, in the scope "Library" and in the scope "Everything"
+    /// alike, and its secondary text names only the artist and the kind.
+    /// This replaces R16-14 and packet 016 decision D13, whose word
+    /// stayed in the row's secondary text and depended on the scope.
     #[test]
-    fn adr_0084_scopes_r16_14_library_row_state_words() {
+    fn adr_0084_scopes_r33_11_library_row_download_state() {
         let vm = scopes_vm(vec![
             scopes_album("Alpha", 1, "alpha", 2, 2),
             scopes_album("Beta", 2, "beta", 3, 7),
             scopes_album("Gamma", 3, "gamma", 0, 2),
         ]);
         let page = releases_everything::tests::loaded_page(Vec::new(), false);
-        let texts = |scope| {
+        let rows = |scope| {
             release_rows(vm.releases_list(
                 scope,
                 &page,
                 &IndexFeedSingles::default(),
                 &BTreeSet::new(),
             ))
-            .into_iter()
-            .map(|row| row.secondary_text)
-            .collect::<Vec<_>>()
         };
+        for scope in [MusicListScope::Everything, MusicListScope::Library] {
+            let rows = rows(scope);
+            let texts: Vec<_> = rows.iter().map(|row| row.secondary_text.clone()).collect();
+            assert_eq!(
+                texts,
+                [
+                    "Haleen \u{b7} Album",
+                    "Haleen \u{b7} Album",
+                    "Haleen \u{b7} Album"
+                ],
+                "{scope:?}"
+            );
+            let states: Vec<_> = rows
+                .iter()
+                .map(|row| {
+                    row.download_state
+                        .as_ref()
+                        .expect("every release row has one")
+                        .state
+                })
+                .collect();
+            assert_eq!(
+                states,
+                [
+                    ReleaseDownloadState::Downloaded,
+                    ReleaseDownloadState::Partial {
+                        downloaded: 3,
+                        total: 7
+                    },
+                    ReleaseDownloadState::NotDownloaded,
+                ],
+                "{scope:?}"
+            );
+        }
+    }
+
+    /// Review correction of 2026-10-22: R33-12 and R33-13. `library_
+    /// release_row`, through `releases_list`'s rows, and `LibrarySearch
+    /// Lookup::release` each give `Queued` or `Downloading` when a
+    /// download job of the release's own key is active, winning over its
+    /// track count. The earlier proof of these two cases,
+    /// `adr_0084_scopes_r16_19_download_changes_the_row_in_place`, set no
+    /// busy phase: it proved only the Library-membership merge.
+    #[test]
+    fn adr_0084_task_033_review_r33_12_and_r33_13_busy_phase_wins_over_track_count() {
+        let key = guid_key("alpha");
+        let mut vm = scopes_vm(vec![scopes_album("Alpha", 1, "alpha", 2, 2)]);
+        let page = releases_everything::tests::loaded_page(Vec::new(), false);
+        let row_state = |vm: &LibraryViewModel| {
+            release_rows(vm.releases_list(
+                MusicListScope::Library,
+                &page,
+                &IndexFeedSingles::default(),
+                &BTreeSet::new(),
+            ))
+            .into_iter()
+            .find(|row| row.open == DestinationListRowTarget::Release(key.clone()))
+            .expect("the Alpha row")
+            .download_state
+            .expect("every release row has one")
+            .state
+        };
+
+        vm.set_download_activity(DownloadActivity {
+            keys: BTreeSet::from([FeedKey::Guid("alpha".to_owned())]),
+            ..DownloadActivity::default()
+        });
+        assert_eq!(row_state(&vm), ReleaseDownloadState::Queued);
         assert_eq!(
-            texts(MusicListScope::Everything),
-            [
-                "Haleen \u{b7} Album \u{b7} In Library",
-                "Haleen \u{b7} Album \u{b7} 3 of 7 tracks",
-                "Haleen \u{b7} Album \u{b7} Not downloaded",
-            ]
+            vm.search_lookup()
+                .release(&key)
+                .expect("the Library release")
+                .download_state
+                .state,
+            ReleaseDownloadState::Queued,
+            "the search lookup agrees with the releases list row"
         );
+
+        vm.set_download_activity(DownloadActivity {
+            keys: BTreeSet::from([FeedKey::Guid("alpha".to_owned())]),
+            in_flight_keys: BTreeSet::from([FeedKey::Guid("alpha".to_owned())]),
+            ..DownloadActivity::default()
+        });
+        assert_eq!(row_state(&vm), ReleaseDownloadState::Downloading);
         assert_eq!(
-            texts(MusicListScope::Library),
-            [
-                "Haleen \u{b7} Album",
-                "Haleen \u{b7} Album \u{b7} 3 of 7 tracks",
-                "Haleen \u{b7} Album",
-            ]
+            vm.search_lookup()
+                .release(&key)
+                .expect("the Library release")
+                .download_state
+                .state,
+            ReleaseDownloadState::Downloading,
+            "the search lookup agrees with the releases list row"
         );
     }
 
@@ -11420,6 +11542,14 @@ mod tests {
         };
         let before = motive_row(&scopes_vm(Vec::new()));
         assert_eq!(before.secondary_text, "Motive to Kill \u{b7} Album");
+        assert_eq!(
+            before
+                .download_state
+                .expect("every release row has one")
+                .state,
+            ReleaseDownloadState::NotDownloaded,
+            "a MusicIndex row the Library does not hold still shows its state"
+        );
 
         let mut vm = scopes_vm(Vec::new());
         vm.replace_tree(LibraryTree {
@@ -11433,9 +11563,13 @@ mod tests {
             after.element_id, before.element_id,
             "the row keeps its identity"
         );
+        assert_eq!(after.secondary_text, "Motive to Kill \u{b7} Album");
         assert_eq!(
-            after.secondary_text,
-            "Motive to Kill \u{b7} Album \u{b7} In Library"
+            after
+                .download_state
+                .expect("every release row has one")
+                .state,
+            ReleaseDownloadState::Downloaded
         );
         assert_eq!(page.rows().len(), 3);
     }
@@ -11541,9 +11675,13 @@ mod tests {
         let ReleasesListEntryVm::SinglesGroup(group) = &entries[0] else {
             panic!("a group row");
         };
+        assert_eq!(group.secondary_text, "4 singles \u{b7} Artist feed");
         assert_eq!(
-            group.secondary_text,
-            "4 singles \u{b7} 1 in Library \u{b7} Artist feed"
+            group.download_state.state,
+            ReleaseDownloadState::Partial {
+                downloaded: 1,
+                total: 4
+            }
         );
         assert!(group.single_keys.contains(&guid_key("durian")));
 
@@ -11573,8 +11711,15 @@ mod tests {
             panic!("a group row");
         };
         assert_eq!(
-            library_group.secondary_text, "2 singles \u{b7} 1 in Library \u{b7} Artist feed",
+            library_group.secondary_text, "2 singles \u{b7} Artist feed",
             "the scope Library has no MusicIndex single (decision D15)"
+        );
+        assert_eq!(
+            library_group.download_state.state,
+            ReleaseDownloadState::Partial {
+                downloaded: 1,
+                total: 2
+            }
         );
     }
 

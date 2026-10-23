@@ -57,10 +57,14 @@ const TRACK_MENU_BACK_A11Y_LABEL: &str = "Back to track actions";
 const TRACK_MENU_NEW_PLAYLIST_A11Y_LABEL: &str = "Create a new playlist";
 const TRACK_MENU_BACK_TO_CHOICES_A11Y_LABEL: &str = "Back to playlist choices";
 const TRACK_MENU_CREATE_A11Y_LABEL: &str = "Create playlist and add track";
-/// The tooltips of the download-state slot (decision D6).
+/// The tooltips of the download-state slot (decision D6, amended
+/// 2026-10-22 by ADR 0083 Decision 6: the four words "Download", "Queued",
+/// "Downloading" and "Downloaded" name every state, so color is never the
+/// only signal).
 const DOWNLOAD_SLOT_DOWNLOAD_TOOLTIP: &str = "Download";
-const DOWNLOAD_SLOT_QUEUED_TOOLTIP: &str = "Queued for download";
+const DOWNLOAD_SLOT_QUEUED_TOOLTIP: &str = "Queued";
 const DOWNLOAD_SLOT_DOWNLOADING_TOOLTIP: &str = "Downloading";
+const DOWNLOAD_SLOT_DOWNLOADED_TOOLTIP: &str = "Downloaded";
 /// The badge words of a track row (decision D11).
 const TRACK_BADGE_NEW_LABEL: &str = "New";
 const TRACK_BADGE_REMOVING_LABEL: &str = "Removing";
@@ -483,7 +487,9 @@ impl TrackRowMbStatusVm {
     }
 }
 
-/// The state of the download-state slot of a track row (decision D6).
+/// The state of the download-state slot of a track row (decision D6,
+/// amended 2026-10-22 by ADR 0083 Decision 6: a downloaded track shows the
+/// quiet `CloudCheck` icon instead of an empty column).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DownloadSlotState {
     /// The track is not downloaded and no job runs: a download button.
@@ -492,7 +498,9 @@ pub(crate) enum DownloadSlotState {
     Queued,
     /// A download job runs.
     Downloading,
-    /// The track is downloaded, or a removal runs: the slot is empty.
+    /// The track is downloaded: a quiet, non-interactive icon.
+    Downloaded,
+    /// A removal runs: the slot is empty.
     Empty,
 }
 
@@ -516,7 +524,8 @@ impl DownloadSlotVm {
             (_, TrackRowWork::Queued) => DownloadSlotState::Queued,
             (_, TrackRowWork::Downloading) => DownloadSlotState::Downloading,
             (false, TrackRowWork::Idle) => DownloadSlotState::Download,
-            (true, TrackRowWork::Idle) | (_, TrackRowWork::Removing) => DownloadSlotState::Empty,
+            (true, TrackRowWork::Idle) => DownloadSlotState::Downloaded,
+            (_, TrackRowWork::Removing) => DownloadSlotState::Empty,
         };
         let (tooltip, a11y_label) = match state {
             DownloadSlotState::Download => (
@@ -530,6 +539,10 @@ impl DownloadSlotVm {
             DownloadSlotState::Downloading => (
                 Some(DOWNLOAD_SLOT_DOWNLOADING_TOOLTIP),
                 Some(format!("{title} is downloading")),
+            ),
+            DownloadSlotState::Downloaded => (
+                Some(DOWNLOAD_SLOT_DOWNLOADED_TOOLTIP),
+                Some(format!("{title} is downloaded")),
             ),
             DownloadSlotState::Empty => (None, None),
         };
@@ -1964,9 +1977,10 @@ mod tests {
         assert_eq!(index_row.inspect_sources_entry, None);
     }
 
-    /// R83-6-05 (decision D6): the slot state for each pair of
-    /// `is_in_library` and `TrackRowWork`. Each state that is not empty has
-    /// a tooltip and an accessibility label. Only `Download` can act.
+    /// R83-6-05 (decision D6, amended 2026-10-22 by ADR 0083 Decision 6):
+    /// the slot state for each pair of `is_in_library` and `TrackRowWork`.
+    /// Each state that is not empty has a tooltip and an accessibility
+    /// label. Only `Download` can act.
     #[test]
     fn adr_0083_row_actions_r83_6_05_download_slot_follows_membership_and_work() {
         for in_library in [true, false] {
@@ -1976,9 +1990,8 @@ mod tests {
                     (_, TrackRowWork::Queued) => DownloadSlotState::Queued,
                     (_, TrackRowWork::Downloading) => DownloadSlotState::Downloading,
                     (false, TrackRowWork::Idle) => DownloadSlotState::Download,
-                    (true, TrackRowWork::Idle) | (_, TrackRowWork::Removing) => {
-                        DownloadSlotState::Empty
-                    }
+                    (true, TrackRowWork::Idle) => DownloadSlotState::Downloaded,
+                    (_, TrackRowWork::Removing) => DownloadSlotState::Empty,
                 };
                 assert_eq!(slot.state, expected, "{in_library} {work:?}");
                 let filled = expected != DownloadSlotState::Empty;
@@ -1988,7 +2001,7 @@ mod tests {
             }
         }
         let slot = library_row(false, TrackRowWork::Queued).download;
-        assert_eq!(slot.tooltip, Some("Queued for download"));
+        assert_eq!(slot.tooltip, Some("Queued"));
         assert_eq!(
             slot.a11y_label.as_deref(),
             Some("Face Pale is queued for download")
@@ -1998,6 +2011,9 @@ mod tests {
         let slot = library_row(false, TrackRowWork::Idle).download;
         assert_eq!(slot.tooltip, Some("Download"));
         assert_eq!(slot.a11y_label.as_deref(), Some("Download Face Pale"));
+        let slot = library_row(true, TrackRowWork::Idle).download;
+        assert_eq!(slot.tooltip, Some("Downloaded"));
+        assert_eq!(slot.a11y_label.as_deref(), Some("Face Pale is downloaded"));
     }
 
     /// R83-6-06 (decision D8): an Index row reads the phase of its own

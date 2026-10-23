@@ -3900,7 +3900,9 @@ fn adr_0047_task_014_search_results_inspector_shell_contract() {
         "render_empty_state(",
         "render_active_result_list(",
         // Packet 028 D3: the row takes its thumbnail or its logo frame.
-        "render_result_row(tab, row.clone(), leading, handlers)",
+        // ADR 0084 task 033: the row takes `cx`, to render its
+        // download-state icon through the shared composite.
+        "render_result_row(tab, row.clone(), leading, handlers, cx)",
     ] {
         if !shell_source.contains(required) {
             violations.push(format!(
@@ -23004,4 +23006,82 @@ fn adr_0084_singles_group_rows_r32_17_one_match_function_for_singles_groups() {
         code.contains("tree_name_feed_matches("),
         "{FIX}\nsrc/view_models/singles_group.rs does not call `tree_name_feed_matches(`"
     );
+}
+
+/// R33-xx (ADR 0083 Decision 6, amended 2026-10-22, ADR 0084 task 033).
+/// Situational: delete this guard when that decision is superseded. Each
+/// renderer that shows the download state of a release row — the
+/// Releases list, a singles group row, a group disclosure row, the feed
+/// page, the name page, the search list and the saved-search page — must
+/// route it through the one shared composite
+/// `render_release_download_state`, so no renderer invents its own icon
+/// or color for the same state.
+#[test]
+fn adr_0084_task_033_release_rows_use_the_shared_download_state_composite() {
+    const FIX: &str = "ADR 0083 §6 Rows Show Information And Hide Most Actions, amended 2026-10-22: a release row must show its download state through the one shared composite.\nCall `render_release_download_state(` in this file.";
+    let renderers = [
+        "src/ui/shells/library/destination_lists.rs",
+        "src/ui/composites/release_section_list.rs",
+        "src/ui/shells/search_result_rows.rs",
+    ];
+    let mut violations = Vec::new();
+    for path in renderers {
+        let source = read_source(&manifest_path(path));
+        let code = code_only(production_source(&source));
+        if !code.contains("render_release_download_state(") {
+            violations.push(format!(
+                "{path} does not call `render_release_download_state(`"
+            ));
+        }
+    }
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+}
+
+/// R33-xx (ADR 0083 Decision 6, amended 2026-10-22, ADR 0084 task 033).
+/// Situational: delete this guard when that decision is superseded. The
+/// Releases list and the feed/name page renderer must not rebuild the
+/// retired "In Library" release-row mark that the shared icon replaced.
+/// `search_result_rows.rs` keeps an unrelated "In Library" word for its
+/// detail-page origin label (packet 010 decision D4), so this guard does
+/// not scan that file.
+#[test]
+fn adr_0084_task_033_release_row_renderers_drop_the_retired_mark() {
+    const FIX: &str = "ADR 0083 §6 Rows Show Information And Hide Most Actions, amended 2026-10-22: a release row shows its download state as an icon, never as the retired \"In Library\" text mark.\nRemove the literal mark and call `render_release_download_state(` instead.";
+    let renderers = [
+        "src/ui/shells/library/destination_lists.rs",
+        "src/ui/composites/release_section_list.rs",
+    ];
+    let mut violations = Vec::new();
+    for path in renderers {
+        let source = read_source(&manifest_path(path));
+        let code = code_only(production_source(&source));
+        if code.contains("\"In Library\"") {
+            violations.push(format!(
+                "{path} still builds the retired \"In Library\" mark"
+            ));
+        }
+    }
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+}
+
+/// R33-xx (ADR 0083 Decision 6, amended 2026-10-22, ADR 0084 task 033).
+/// Situational: delete this guard when that decision is superseded. The
+/// text-word types this packet retires, `ReleaseStateWord` and
+/// `add_state_word`, must not reappear: every release row reads its
+/// download state through `ReleaseDownloadStateVm` instead.
+#[test]
+fn adr_0084_task_033_retired_state_word_types_stay_gone() {
+    const FIX: &str = "ADR 0083 §6 Rows Show Information And Hide Most Actions, amended 2026-10-22: a release row's download state is a `ReleaseDownloadStateVm`, not the retired `ReleaseStateWord` or `add_state_word`.\nBuild the state with `ReleaseDownloadStateVm` instead.";
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let file = rel_path(&path);
+        let source = read_source(&path);
+        let code = code_only(production_source(&source));
+        for name in ["ReleaseStateWord", "add_state_word"] {
+            if code.contains(name) {
+                violations.push(format!("{file}: `{name}` must not reappear"));
+            }
+        }
+    }
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
 }

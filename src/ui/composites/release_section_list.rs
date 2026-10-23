@@ -19,6 +19,7 @@ use gpui::{
 };
 
 use crate::ui::composites::music_column_scroll::ScrollReveal;
+use crate::ui::composites::release_download_state::render_release_download_state;
 use crate::ui::composites::release_row_menu::{release_row_menu, ReleaseRowMenuContext};
 use crate::ui::composites::{
     EntityKind, ListRow, ListRowA11yLabel, TagBadge, TagBadgeDisplay, Thumbnail, ThumbnailSize,
@@ -226,27 +227,21 @@ fn render_release_row(
             });
     }
 
-    let mut marks = Vec::new();
+    // ADR 0083 Decision 6, amended 2026-10-22; ADR 0084 task 033: the
+    // download-state icon replaces the "In Library" mark of decision
+    // D13. "Not listed by this feed" is a different fact (R3-09) and
+    // keeps its own badge.
     if row.not_listed {
-        marks.push(PublisherPageAlbumVm::NOT_LISTED_LABEL);
+        list_row = list_row.child(TagBadge::new(TagBadgeDisplay {
+            kind: EntityKind::Generic,
+            label: Some(SharedString::from(PublisherPageAlbumVm::NOT_LISTED_LABEL)),
+        }));
     }
-    if row.in_library {
-        marks.push(PublisherPageAlbumVm::IN_LIBRARY_LABEL);
-    }
-    if !marks.is_empty() {
-        let mut trailing = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap(Spacing::XS.scaled(cx));
-        for mark in marks {
-            trailing = trailing.child(TagBadge::new(TagBadgeDisplay {
-                kind: EntityKind::Generic,
-                label: Some(SharedString::from(mark)),
-            }));
-        }
-        list_row = list_row.child(trailing);
-    }
+    list_row = list_row.child(render_release_download_state(
+        &row.download_state,
+        format!("{row_id}-download-state"),
+        cx,
+    ));
 
     // ADR 0084 task 031: the one release row menu, the same as a row of
     // the Releases list. The view model gives `None` in selection mode.

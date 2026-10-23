@@ -23,6 +23,7 @@ use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::name_level_page::{
     name_level_rows, NameLevelIndexState, NameLevelLibraryRelease, ReleaseListStatus,
 };
+use crate::view_models::release_download_state::ReleaseDownloadStateVm;
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::release_row_actions::ReleaseRowMenuVm;
 use crate::view_models::role_words::{
@@ -227,6 +228,12 @@ pub(crate) struct PublisherPageAlbumVm {
     /// unresolved link.
     pub(crate) not_listed: bool,
     pub(crate) in_library: bool,
+    /// The download-state icon of this row (ADR 0083 Decision 6, amended
+    /// 2026-10-22; ADR 0084 task 033), built from [`Self::in_library`].
+    /// This page holds no per-track download count and no live queue
+    /// fact for a release named by another feed, so the icon is always
+    /// the binary [`ReleaseDownloadStateVm::in_library`] (Flag).
+    pub(crate) download_state: ReleaseDownloadStateVm,
     /// The detail line of a row. A "Role not confirmed" row tells who
     /// stated which role, by feed title (ADR 0085 Decision 3). A row of
     /// the section "Matched by name" tells that the relation is inferred
@@ -253,9 +260,6 @@ impl PublisherPageAlbumVm {
     /// The mark on an owned album that this feed does not list (ADR 0077
     /// Accepted Refinements R3-09, ADR 0085 Decision 3 V3 carry-over).
     pub(crate) const NOT_LISTED_LABEL: &'static str = "Not listed by this feed";
-
-    /// The mark on an album whose own feed is in the Library.
-    pub(crate) const IN_LIBRARY_LABEL: &'static str = "In Library";
 
     /// The element id of the row in the section with the heading
     /// `section_heading`. The id of its menu starts with it. A release can
@@ -940,6 +944,7 @@ impl PublisherPageVm {
             artist,
             not_listed,
             in_library: album.in_library,
+            download_state: ReleaseDownloadStateVm::in_library(album.in_library),
             detail_line: role_line,
             open,
             selection: RowSelectionVm::none(),

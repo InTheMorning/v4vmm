@@ -9,11 +9,12 @@
 #![warn(clippy::pedantic)]
 
 use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 use gpui::{
-    div, img, prelude::*, AnyElement, App, AssetSource, ClickEvent, Image, ImageFormat,
-    IntoElement, ObjectFit, ParentElement, Pixels, RenderOnce, Rgba, SharedString,
-    StatefulInteractiveElement, Styled, Window,
+    div, ease_in_out, img, percentage, prelude::*, Animation, AnimationExt, AnyElement, App,
+    AssetSource, ClickEvent, Image, ImageFormat, IntoElement, ObjectFit, ParentElement, Pixels,
+    RenderOnce, Rgba, SharedString, StatefulInteractiveElement, Styled, Transformation, Window,
 };
 use gpui_component::{Icon as ComponentIcon, IconName as ComponentIconName};
 use gpui_kit_assets::IconName as LucideIconName;
@@ -76,6 +77,9 @@ pub enum IconName {
     MbDone,
     /// The `MusicBrainz` status "skipped" of a track row.
     MbSkipped,
+    /// The downloaded state of a track row and of a release row (ADR 0083
+    /// Decision 6, amended 2026-10-22; ADR 0084 task 033).
+    CloudCheck,
 }
 
 impl IconName {
@@ -115,7 +119,8 @@ impl IconName {
             | Self::MbLookingUp
             | Self::MbNoMissingFields
             | Self::MbDone
-            | Self::MbSkipped => None,
+            | Self::MbSkipped
+            | Self::CloudCheck => None,
         }
     }
 
@@ -159,7 +164,8 @@ impl IconName {
             | Self::Queued
             | Self::MbPending
             | Self::MbLookingUp
-            | Self::MbDone => None,
+            | Self::MbDone
+            | Self::CloudCheck => None,
         }
     }
 
@@ -190,6 +196,9 @@ impl IconName {
             Self::MbPending => Some(LucideIconName::Hourglass),
             Self::MbLookingUp => Some(LucideIconName::ScanSearch),
             Self::MbDone => Some(LucideIconName::BadgeCheck),
+            // ADR 0083 Decision 6, amended 2026-10-22; ADR 0084 task 033:
+            // the downloaded state of a track row and of a release row.
+            Self::CloudCheck => Some(LucideIconName::CloudCheck),
             Self::Add
             | Self::Back
             | Self::ChevronLeft
@@ -248,7 +257,8 @@ impl IconName {
             | Self::MbLookingUp
             | Self::MbNoMissingFields
             | Self::MbDone
-            | Self::MbSkipped => None,
+            | Self::MbSkipped
+            | Self::CloudCheck => None,
         }
     }
 }
@@ -291,6 +301,12 @@ pub struct Icon {
     name: IconName,
     size: IconSize,
     color: Option<Rgba>,
+    /// `true` turns the icon continuously (ADR 0083 Decision 6, amended
+    /// 2026-10-22; ADR 0084 task 033): the downloading state of a track
+    /// row and of a release row. [`gpui::AnimationExt::with_animation`]
+    /// already stops the motion when the platform asks for reduced
+    /// motion, so this flag adds no such check of its own.
+    turning: bool,
 }
 
 impl Icon {
@@ -299,6 +315,7 @@ impl Icon {
             name,
             size: IconSize::Action,
             color: None,
+            turning: false,
         }
     }
 
@@ -311,17 +328,45 @@ impl Icon {
         self.color = Some(color);
         self
     }
+
+    /// Turns the icon continuously, for the downloading state of a track
+    /// row or of a release row (ADR 0083 Decision 6, amended 2026-10-22).
+    pub const fn turning(mut self, turning: bool) -> Self {
+        self.turning = turning;
+        self
+    }
+}
+
+/// The duration of one full turn of a turning icon, the same speed as
+/// [`gpui_component::spinner::Spinner`].
+const ICON_TURN_DURATION: Duration = Duration::from_millis(800);
+
+/// Wraps a resolved catalog icon in the turning animation when `turning`
+/// is set, else returns it as it is.
+fn maybe_turning(icon: ComponentIcon, turning: bool) -> AnyElement {
+    if !turning {
+        return icon.into_any_element();
+    }
+    icon.with_animation(
+        "icon-turn",
+        Animation::new(ICON_TURN_DURATION)
+            .repeat()
+            .with_easing(ease_in_out),
+        |icon, delta| icon.transform(Transformation::rotate(percentage(delta))),
+    )
+    .into_any_element()
 }
 
 impl RenderOnce for Icon {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let size = self.size.scaled(cx);
+        let turning = self.turning;
         if let Some(component_icon) = self.name.component_icon() {
             let mut icon = ComponentIcon::new(component_icon).size(size);
             if let Some(color) = self.color {
                 icon = icon.text_color(color);
             }
-            return icon.into_any_element();
+            return maybe_turning(icon, turning);
         }
 
         if let Some(extra_icon) = self.name.extra_icon() {
@@ -329,7 +374,7 @@ impl RenderOnce for Icon {
             if let Some(color) = self.color {
                 icon = icon.text_color(color);
             }
-            return icon.into_any_element();
+            return maybe_turning(icon, turning);
         }
 
         // Rss and Nostr are the only remaining names; they always resolve a
@@ -432,6 +477,7 @@ gpui_kit_assets::icon_assets!(
         ListMusic,
         Minus,
         CloudDownload,
+        CloudCheck,
         Clock,
         Hourglass,
         ScanSearch,
@@ -539,6 +585,7 @@ mod tests {
         IconName::MbNoMissingFields,
         IconName::MbDone,
         IconName::MbSkipped,
+        IconName::CloudCheck,
     ];
 
     /// R83-21: every `IconName` other than `Rss` and `Nostr` resolves to a
@@ -626,6 +673,20 @@ mod tests {
             IconName::MbDone.extra_icon(),
             Some(LucideIconName::BadgeCheck)
         );
+        assert_eq!(
+            IconName::CloudCheck.extra_icon(),
+            Some(LucideIconName::CloudCheck)
+        );
+    }
+
+    /// ADR 0083 Decision 6, amended 2026-10-22: a turning icon still
+    /// resolves to a Lucide icon, through the same catalog path as a
+    /// still icon.
+    #[test]
+    fn turning_icon_keeps_resolving_to_a_lucide_icon() {
+        let icon = Icon::new(IconName::InProgress).turning(true);
+        assert!(icon.name.component_icon().is_some());
+        assert!(icon.turning);
     }
 
     /// Confirms the asset source `bootstrap.rs` registers at app start

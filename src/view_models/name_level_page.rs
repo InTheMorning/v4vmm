@@ -19,6 +19,7 @@ use crate::view_models::publisher_page::{
     PublisherPageAlbumVm, PublisherPageHeaderFact, PublisherPageSectionVm, PublisherPageVm,
     ReleaseRowOpenAction, TitleDisplay,
 };
+use crate::view_models::release_download_state::ReleaseDownloadStateVm;
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::workspace::ReleaseKey;
 
@@ -279,6 +280,7 @@ fn row_vm(
         artist: None,
         not_listed: false,
         in_library,
+        download_state: ReleaseDownloadStateVm::in_library(in_library),
         detail_line,
         open,
         selection: RowSelectionVm::none(),

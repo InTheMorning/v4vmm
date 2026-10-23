@@ -90,6 +90,7 @@ pub(crate) mod playlist_rss_check;
 pub(crate) mod publisher_page;
 pub(crate) mod queue_now_playing;
 pub(crate) mod recent_feeds;
+pub(crate) mod release_download_state;
 pub(crate) mod release_kind;
 pub(crate) mod release_page;
 pub(crate) mod release_row_actions;

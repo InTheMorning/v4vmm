@@ -12,6 +12,7 @@ use crate::view_models::artists_everything::FeedLinkClass;
 use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
 use crate::view_models::detail_selection::{DetailRowKey, DetailSelection, LibraryReleaseFacts};
 use crate::view_models::list_selection::RowSelectionVm;
+use crate::view_models::release_download_state::ReleaseDownloadStateVm;
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::role_words::{capitalize_first, role_list_text};
 use crate::view_models::workspace::{ReleaseKey, TrackKey};
@@ -26,8 +27,9 @@ use super::{
 pub(crate) struct SearchLibraryRelease {
     /// The facts of the selection model of packet 018.
     pub(crate) facts: LibraryReleaseFacts,
-    /// The state word of ADR 0084 Decision 4, or the queue word.
-    pub(crate) state_word: String,
+    /// The download-state icon of the release (ADR 0083 Decision 6,
+    /// amended 2026-10-22; ADR 0084 task 033).
+    pub(crate) download_state: ReleaseDownloadStateVm,
     /// The kind of the Library release (ADR 0084 Decision 5).
     pub(crate) kind: ReleaseKind,
 }
@@ -142,9 +144,15 @@ pub(crate) struct SearchResultRowVm {
     pub(crate) art: Option<SearchRowArtVm>,
     /// The accessibility label of the row.
     pub(crate) a11y_label: String,
-    /// The state word of a Library item. An Index item shows no word (the
-    /// operator decision of 2026-10-16).
+    /// The state word of a Library track. An Index item shows no word
+    /// (the operator decision of 2026-10-16). `None` for a release row,
+    /// which shows [`Self::download_state`] instead (ADR 0083 Decision
+    /// 6, amended 2026-10-22; ADR 0084 task 033), and for an artist row.
     pub(crate) state_word: Option<String>,
+    /// The download-state icon of a release row (ADR 0083 Decision 6,
+    /// amended 2026-10-22; ADR 0084 task 033). `None` for a track row and
+    /// for an artist row.
+    pub(crate) download_state: Option<ReleaseDownloadStateVm>,
     /// The badge, when the row has one. A track row and a name row have
     /// none.
     pub(crate) badge: Option<SearchRowBadge>,
@@ -183,6 +191,15 @@ pub(super) fn release_row_vm(
             Some(SearchRowBadge::Release(kind)),
         ),
     };
+    // ADR 0084 task 033, Flag: a `MusicIndex` row that the Library does
+    // not hold showed no state word before this packet (the operator
+    // decision of 2026-10-16). "A row shows its state at all times" (ADR
+    // 0083 Decision 6) now wins: it shows the quiet `NotDownloaded` icon,
+    // the same choice packet 033 made for the Releases list.
+    let download_state = Some(match &library {
+        Some(library) => library.download_state.clone(),
+        None => ReleaseDownloadStateVm::in_library(false),
+    });
     SearchResultRowVm {
         id: row.id.clone(),
         label: row.label.clone(),
@@ -190,7 +207,8 @@ pub(super) fn release_row_vm(
         thumbnail_href: row.thumbnail_href.clone(),
         art: None,
         a11y_label: row.a11y_label.clone(),
-        state_word: library.map(|library| library.state_word),
+        state_word: None,
+        download_state,
         badge,
         selection: selection.row_selection(key.as_ref(), &row.label),
         key,
@@ -228,6 +246,7 @@ pub(super) fn track_row_vm(
         art: None,
         a11y_label: row.a11y_label.clone(),
         state_word: library.map(|library| library.state_word),
+        download_state: None,
         badge: None,
         selection: selection.row_selection(key.as_ref(), &row.label),
         key,
@@ -266,6 +285,7 @@ pub(super) fn artist_row_vm(
         }),
         a11y_label,
         state_word: None,
+        download_state: None,
         badge,
         selection: RowSelectionVm::none(),
         key: None,

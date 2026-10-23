@@ -10,6 +10,8 @@ Amended 2026-10-20: Decision 6 gives the drop target of a dragged track (operato
 
 Amended 2026-10-21: Decision 6 lets a drag in selection mode carry each checked track (operator decision of 2026-10-21).
 
+Amended 2026-10-22 by operator decision: Decision 6 shows the download state of a track row and a release row as one icon. A partly downloaded release also shows a count. [ADR 0084 task 033](../tasks/adr-0084-task-033-download-state-icons.md) builds it.
+
 Amended 2026-10-07: Decision 5 names the main action until a page can play a track.
 
 It amends [ADR 0025](0025-theme-icon-style-boundary.md) (entity roles get their own palette), [ADR 0062](0062-music-content-surface.md) (a tile is a release) and [ADR 0066](0066-configuration-and-startup-failure-recovery.md) (the normal-shell notice opens from the status bar).
@@ -100,6 +102,7 @@ Until a page can play a track ([ADR 0068](0068-show-cue-and-audition-isolation.m
 ### 6. Rows Show Information And Hide Most Actions
 
 - A row shows its information and its state at all times.
+- A track row and a release row show their download state as an icon in one column. Not downloaded: `CloudDownload` in the accent color, the one state that is a button. Queued: `Clock`. Downloading: `LoaderCircle`, which turns. Downloaded: `CloudCheck`, quiet. Each icon has a tooltip and an accessibility label, so color is never the only signal. A partly downloaded release also shows a short count beside its icon, for example "3 of 9". The operator decided this on 2026-10-22.
 - A row shows its actions on hover and on keyboard focus.
 - The right-click menu of a row holds the same items as its "⋯" menu.
 - A track can be dragged onto a playlist in the sidebar. Since ADR 0084, the sidebar holds the "Playlists" destination. While a track is held over it, the list column opens Playlists, and the track drops on a playlist row there. The operator decided this on 2026-10-20.

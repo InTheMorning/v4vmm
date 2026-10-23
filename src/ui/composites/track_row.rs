@@ -315,9 +315,24 @@ const fn column_selector(column: TrackRowColumn) -> &'static str {
     }
 }
 
-/// The download-state cell (ADR 0083 task 006, decision D6): a download
-/// button, the queued icon or the downloading icon, each with a tooltip.
-/// An empty slot keeps its width.
+/// The icon, the color role and the turning fact of a download-state icon
+/// that is not the download button (ADR 0083 Decision 6, amended
+/// 2026-10-22): the queued, downloading and downloaded states.
+const fn download_status_icon(state: DownloadSlotState) -> Option<(IconName, SemanticColor, bool)> {
+    match state {
+        DownloadSlotState::Queued => Some((IconName::Queued, SemanticColor::SecondaryLabel, false)),
+        DownloadSlotState::Downloading => Some((IconName::InProgress, SemanticColor::Accent, true)),
+        DownloadSlotState::Downloaded => {
+            Some((IconName::CloudCheck, SemanticColor::TertiaryLabel, false))
+        }
+        DownloadSlotState::Download | DownloadSlotState::Empty => None,
+    }
+}
+
+/// The download-state cell (ADR 0083 task 006, decision D6, amended
+/// 2026-10-22): a download button, the queued icon, the turning
+/// downloading icon, or the downloaded icon, each with a tooltip and an
+/// accessibility label. An empty slot keeps its width.
 fn download_cell(
     slot: Option<DownloadSlotVm>,
     on_download: Option<ActionHandler>,
@@ -329,46 +344,39 @@ fn download_cell(
     };
     let tooltip = slot.tooltip.unwrap_or_default();
     let a11y_label = slot.a11y_label.clone().unwrap_or_default();
-    match slot.state {
-        DownloadSlotState::Empty => cell,
-        DownloadSlotState::Download => {
-            let mut button = Button::styled(SharedString::from(slot.id), ControlStyle::RowAction)
-                .leading_icon(IconName::CloudDownload)
-                .label("")
-                .tooltip(tooltip)
-                .a11y_label(a11y_label)
-                .disabled(!slot.available);
-            if let (true, Some(handler)) = (slot.available, on_download) {
-                button = button.on_click(move |_, window, cx| {
-                    cx.stop_propagation();
-                    handler(window, cx);
-                });
-            }
-            cell.child(button)
+    if slot.state == DownloadSlotState::Download {
+        let mut button = Button::styled(SharedString::from(slot.id), ControlStyle::RowAction)
+            .leading_icon(IconName::CloudDownload)
+            .label("")
+            .tooltip(tooltip)
+            .a11y_label(a11y_label)
+            .disabled(!slot.available);
+        if let (true, Some(handler)) = (slot.available, on_download) {
+            button = button.on_click(move |_, window, cx| {
+                cx.stop_propagation();
+                handler(window, cx);
+            });
         }
-        DownloadSlotState::Queued | DownloadSlotState::Downloading => {
-            let icon = if slot.state == DownloadSlotState::Queued {
-                IconName::Queued
-            } else {
-                IconName::InProgress
-            };
-            cell.child(status_icon(
-                slot.id,
-                icon,
-                SemanticColor::SecondaryLabel,
-                tooltip,
-                cx,
-            ))
-        }
+        return cell.child(button);
     }
+    let Some((icon, role, turning)) = download_status_icon(slot.state) else {
+        return cell;
+    };
+    cell.child(status_icon(
+        slot.id, icon, role, turning, tooltip, a11y_label, cx,
+    ))
 }
 
-/// One status icon with its word in a tooltip.
+/// One status icon with its word in a tooltip and in an accessibility
+/// label (ADR 0083 Decision 6, amended 2026-10-22), so color is never the
+/// only signal.
 fn status_icon(
     id: String,
     icon: IconName,
     role: SemanticColor,
+    turning: bool,
     tooltip: &'static str,
+    a11y_label: String,
     cx: &App,
 ) -> impl IntoElement {
     let tooltip = Tooltip::new(tooltip);
@@ -378,7 +386,8 @@ fn status_icon(
         .flex()
         .items_center()
         .tooltip(move |window, cx| tooltip.build(window, cx))
-        .child(Icon::new(icon).color(color(cx, role)))
+        .aria_label(a11y_label)
+        .child(Icon::new(icon).color(color(cx, role)).turning(turning))
 }
 
 /// The icon and the color role of each `MusicBrainz` status (decision
@@ -495,7 +504,15 @@ impl RenderOnce for TrackRow {
                             )
                             .when_some(self.mb_status, |line, status| {
                                 let (icon, role) = mb_status_icon(status.icon);
-                                line.child(status_icon(mb_id, icon, role, status.label, cx))
+                                line.child(status_icon(
+                                    mb_id,
+                                    icon,
+                                    role,
+                                    false,
+                                    status.label,
+                                    status.label.to_owned(),
+                                    cx,
+                                ))
                             }),
                     )
                     .when_some(date_text, |column, date| {
@@ -608,6 +625,28 @@ pub(crate) fn checkbox_state_for(check_state: RowCheckState) -> CheckboxState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R33-01 (ADR 0083 Decision 6, amended 2026-10-22): `Queued` is
+    /// gray, `Downloading` is accent and turns, `Downloaded` is quiet
+    /// gray. `Download` and `Empty` show no icon of their own: `Download`
+    /// renders as the button, and `Empty` keeps the column bare.
+    #[test]
+    fn download_status_icon_maps_each_non_button_state() {
+        assert_eq!(
+            download_status_icon(DownloadSlotState::Queued),
+            Some((IconName::Queued, SemanticColor::SecondaryLabel, false))
+        );
+        assert_eq!(
+            download_status_icon(DownloadSlotState::Downloading),
+            Some((IconName::InProgress, SemanticColor::Accent, true))
+        );
+        assert_eq!(
+            download_status_icon(DownloadSlotState::Downloaded),
+            Some((IconName::CloudCheck, SemanticColor::TertiaryLabel, false))
+        );
+        assert_eq!(download_status_icon(DownloadSlotState::Download), None);
+        assert_eq!(download_status_icon(DownloadSlotState::Empty), None);
+    }
 
     #[test]
     fn from_vm_projects_row_contract() {

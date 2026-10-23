@@ -12,6 +12,7 @@
 use std::collections::BTreeSet;
 
 use crate::api::Feed;
+use crate::view_models::download_progress::DownloadPhase;
 use crate::view_models::index_feed_singles::IndexFeedSingles;
 use crate::view_models::index_name_list::{
     name_sort_key, watermark_shows, IndexNameListPage, MusicListScope,
@@ -21,6 +22,7 @@ use crate::view_models::library::{
     ReleasesRowId,
 };
 use crate::view_models::list_selection::{ListSelection, RowSelectionVm, SelectionMode};
+use crate::view_models::release_download_state::ReleaseDownloadStateVm;
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::singles_group::SinglesGroupKey;
 use crate::view_models::workspace::ReleaseKey;
@@ -99,79 +101,23 @@ pub(crate) struct LibraryReleaseEntry {
     pub(crate) entry: ReleasesListEntryVm,
 }
 
-/// The state word of a Library release (ADR 0084 Decision 4, packet 016
-/// decision D13).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ReleaseStateWord {
-    /// Each track is downloaded.
-    InLibrary,
-    /// Some tracks are downloaded, for example "3 of 7 tracks".
-    Partial { downloaded: usize, total: usize },
-    /// No track is downloaded, or the release has no track.
-    NotDownloaded,
-}
-
-impl ReleaseStateWord {
-    /// The state of a release with `downloaded` of `total` tracks in the
-    /// Library.
-    #[must_use]
-    pub(crate) const fn of_tracks(downloaded: usize, total: usize) -> Self {
-        if downloaded == 0 || total == 0 {
-            Self::NotDownloaded
-        } else if downloaded >= total {
-            Self::InLibrary
-        } else {
-            Self::Partial { downloaded, total }
-        }
-    }
-
-    /// The visible word.
-    #[must_use]
-    pub(crate) fn label(self) -> String {
-        match self {
-            Self::InLibrary => "In Library".to_owned(),
-            Self::Partial { downloaded, total } => format!("{downloaded} of {total} tracks"),
-            Self::NotDownloaded => "Not downloaded".to_owned(),
-        }
-    }
-
-    /// Whether the row shows the word in `scope` (decision D13 and the
-    /// operator answer of 2026-10-20). "Everything" shows each word. In
-    /// "Library", each row is a Library item, so only a partial state
-    /// shows.
-    #[must_use]
-    pub(crate) const fn shows_in(self, scope: MusicListScope) -> bool {
-        match scope {
-            MusicListScope::Everything => true,
-            MusicListScope::Library => matches!(self, Self::Partial { .. }),
-        }
-    }
-}
-
-/// Adds the state word to the secondary text of a Library release row,
-/// when `scope` shows it.
-pub(crate) fn add_state_word(
-    row: &mut DestinationListRowVm,
-    state: ReleaseStateWord,
-    scope: MusicListScope,
-) {
-    if state.shows_in(scope) {
-        row.secondary_text = format!(
-            "{}{RELEASE_ROW_SEPARATOR}{}",
-            row.secondary_text,
-            state.label()
-        );
-    }
-}
-
 /// The row of one `MusicIndex` release (packet 016 "The Releases list in
 /// Everything"): the title, then "`release_artist` · Kind", with no state
 /// word. The row reads only the fields of the list row, so it needs no
 /// detail request (decision D16). `None` for a row with no feed GUID.
+///
+/// `download_phase` gives the phase of a download job of the release's own
+/// key, when one is queued or running (ADR 0084 task 033, review
+/// correction of 2026-10-22). It wins over the quiet `NotDownloaded` icon,
+/// the same way `phase` wins in `library_release_row`.
 #[must_use]
-pub(crate) fn index_release_row(feed: &Feed) -> Option<DestinationListRowVm> {
+pub(crate) fn index_release_row(
+    feed: &Feed,
+    download_phase: impl Fn(&ReleaseKey) -> Option<DownloadPhase>,
+) -> Option<DestinationListRowVm> {
     let feed_guid = feed.feed_guid.as_deref().filter(|guid| !guid.is_empty())?;
     let key = ReleaseKey::FeedGuid(feed_guid.to_owned());
+    let phase = download_phase(&key);
     let title = index_release_title(feed);
     let track_count = feed
         .episode_count
@@ -201,6 +147,18 @@ pub(crate) fn index_release_row(feed: &Feed) -> Option<DestinationListRowVm> {
         selection: RowSelectionVm::none(),
         release_kind: Some(release_kind),
         menu: None,
+        // ADR 0084 task 033, Flag: a `MusicIndex` row that the Library
+        // does not hold showed no state word before this packet. "A row
+        // shows its state at all times" (ADR 0083 Decision 6), so it now
+        // shows the quiet `NotDownloaded` icon, or Queued or Downloading
+        // while its own job runs (review correction of 2026-10-22). The
+        // app has not read this feed's track list here, so a downloaded
+        // row never shows a count.
+        download_state: Some(match phase {
+            Some(DownloadPhase::Queued) => ReleaseDownloadStateVm::queued(),
+            Some(DownloadPhase::InFlight) => ReleaseDownloadStateVm::downloading(),
+            None => ReleaseDownloadStateVm::in_library(false),
+        }),
     })
 }
 
@@ -249,11 +207,16 @@ pub(crate) fn library_entries(mut library: Vec<LibraryReleaseEntry>) -> Vec<Rele
 /// - The entries come in the order of [`ReleaseOrderKey`].
 /// - While `MusicIndex` has more pages, an entry shows only at or before
 ///   the last loaded `MusicIndex` row.
+///
+/// `download_phase` gives the phase of a download job of a `MusicIndex`
+/// release's own key, when one is queued or running (ADR 0084 task 033,
+/// review correction of 2026-10-22). [`index_release_row`] reads it.
 #[must_use]
 pub(crate) fn everything_entries(
     library: Vec<LibraryReleaseEntry>,
     hidden_keys: &BTreeSet<ReleaseKey>,
     page: &IndexNameListPage<Feed>,
+    download_phase: impl Fn(&ReleaseKey) -> Option<DownloadPhase>,
 ) -> Vec<ReleasesListEntryVm> {
     if page.first_page_in_flight() {
         return Vec::new();
@@ -264,7 +227,7 @@ pub(crate) fn everything_entries(
         .iter()
         .filter_map(|feed| {
             let order = ReleaseOrderKey::index(feed)?;
-            let row = index_release_row(feed)?;
+            let row = index_release_row(feed, &download_phase)?;
             let DestinationListRowTarget::Release(key) = &row.open else {
                 return None;
             };
@@ -319,6 +282,7 @@ pub(crate) struct ReleasesDownloadPlan {
 pub(crate) mod tests {
     use super::*;
     use crate::view_models::index_name_list::IndexNameListBatch;
+    use crate::view_models::release_download_state::ReleaseDownloadState;
 
     /// The recorded rows of `GET /v1/feeds/by-name?include=named_feeds` on
     /// 2026-10-20, with the fields that the row reads.
@@ -368,6 +332,7 @@ pub(crate) mod tests {
                 selection: RowSelectionVm::none(),
                 release_kind: None,
                 menu: None,
+                download_state: None,
             }),
         }
     }
@@ -401,8 +366,12 @@ pub(crate) mod tests {
             })
             .collect();
 
-        let complete =
-            everything_entries(library.clone(), &keys, &loaded_page(recorded_rows(), false));
+        let complete = everything_entries(
+            library.clone(),
+            &keys,
+            &loaded_page(recorded_rows(), false),
+            |_| None,
+        );
         assert_eq!(
             labels(&complete),
             [
@@ -431,7 +400,10 @@ pub(crate) mod tests {
             "a LibraryFeed key never merges and comes after equal keys"
         );
 
-        let partial = everything_entries(library, &keys, &loaded_page(recorded_rows(), true));
+        let partial =
+            everything_entries(library, &keys, &loaded_page(recorded_rows(), true), |_| {
+                None
+            });
         assert_eq!(
             labels(&partial),
             [
@@ -450,7 +422,7 @@ pub(crate) mod tests {
         let mut page = IndexNameListPage::<Feed>::default();
         let _ = page.begin_load(false);
         let library = vec![library_row("Zebra", ReleaseKey::FeedGuid("zebra".into()))];
-        assert!(everything_entries(library, &BTreeSet::new(), &page).is_empty());
+        assert!(everything_entries(library, &BTreeSet::new(), &page, |_| None).is_empty());
     }
 
     /// R16-14: a `MusicIndex` row gives "`release_artist` · Kind" with no
@@ -458,14 +430,14 @@ pub(crate) mod tests {
     #[test]
     fn adr_0084_scopes_r16_14_index_row_text() {
         let rows = recorded_rows();
-        let liii = index_release_row(&rows[0]).unwrap();
+        let liii = index_release_row(&rows[0], |_| None).unwrap();
         assert_eq!(liii.label, "#LIII4PRESIDENT");
         assert_eq!(liii.secondary_text, "LIIINEKELA \u{b7} Single");
         assert_eq!(
             liii.open,
             DestinationListRowTarget::Release(ReleaseKey::FeedGuid("liii-album".into()))
         );
-        let motive = index_release_row(&rows[2]).unwrap();
+        let motive = index_release_row(&rows[2], |_| None).unwrap();
         assert_eq!(motive.secondary_text, "Motive to Kill \u{b7} Album");
         assert_eq!(
             motive.thumbnail_href.as_deref(),
@@ -477,29 +449,85 @@ pub(crate) mod tests {
             }
         }
         let no_guid: Feed = serde_json::from_value(serde_json::json!({"title": "x"})).unwrap();
-        assert!(index_release_row(&no_guid).is_none());
+        assert!(index_release_row(&no_guid, |_| None).is_none());
     }
 
-    /// R16-14 and decision D13: the state words, and the scope that shows
-    /// each of them.
+    /// R33-10 (ADR 0083 Decision 6, amended 2026-10-22, ADR 0084 task
+    /// 033): a `MusicIndex` row of the Releases list in "Everything" that
+    /// the Library does not hold shows the quiet `NotDownloaded` icon,
+    /// with no count text. This replaces R16-14 and packet 016 decision
+    /// D13: the state word no longer depends on the scope, because the
+    /// icon is compact enough to show at all times (ADR 0083 Decision 6).
     #[test]
-    fn adr_0084_scopes_r16_14_state_words() {
-        let full = ReleaseStateWord::of_tracks(7, 7);
-        let partial = ReleaseStateWord::of_tracks(3, 7);
-        let none = ReleaseStateWord::of_tracks(0, 7);
-        assert_eq!(full.label(), "In Library");
-        assert_eq!(partial.label(), "3 of 7 tracks");
-        assert_eq!(none.label(), "Not downloaded");
-        assert_eq!(
-            ReleaseStateWord::of_tracks(0, 0),
-            ReleaseStateWord::NotDownloaded
+    fn adr_0084_scopes_r33_10_index_row_shows_the_not_downloaded_icon() {
+        let feed = recorded_rows()
+            .into_iter()
+            .next()
+            .expect("one recorded row");
+        let row = index_release_row(&feed, |_| None).expect("the feed has a GUID");
+        let state = row.download_state.expect("every release row has one");
+        assert_eq!(state.state, ReleaseDownloadState::NotDownloaded);
+        assert_eq!(state.count_text, None);
+    }
+
+    /// Review correction of 2026-10-22 (ADR 0084 task 033): a `MusicIndex`
+    /// row shows the phase of its own download job: Queued, Downloading,
+    /// or the quiet `NotDownloaded` icon with no job active. Before this
+    /// correction, `index_release_row` always gave `NotDownloaded`, so a
+    /// queued or running download of a `MusicIndex` release never showed
+    /// in its row.
+    #[test]
+    fn adr_0084_task_033_index_release_row_shows_its_own_job_phase() {
+        let feed = recorded_rows()
+            .into_iter()
+            .next()
+            .expect("one recorded row");
+        let key = ReleaseKey::FeedGuid("liii-album".into());
+
+        let idle = index_release_row(&feed, |_| None)
+            .and_then(|row| row.download_state)
+            .expect("every release row has one");
+        assert_eq!(idle.state, ReleaseDownloadState::NotDownloaded);
+
+        let queued = index_release_row(&feed, |found| {
+            (*found == key).then_some(DownloadPhase::Queued)
+        })
+        .and_then(|row| row.download_state)
+        .expect("every release row has one");
+        assert_eq!(queued.state, ReleaseDownloadState::Queued);
+
+        let downloading = index_release_row(&feed, |found| {
+            (*found == key).then_some(DownloadPhase::InFlight)
+        })
+        .and_then(|row| row.download_state)
+        .expect("every release row has one");
+        assert_eq!(downloading.state, ReleaseDownloadState::Downloading);
+    }
+
+    /// Review correction of 2026-10-22 (ADR 0084 task 033):
+    /// `everything_entries` gives the Releases list row of a `MusicIndex`
+    /// release the phase of its own download job.
+    #[test]
+    fn adr_0084_task_033_everything_entries_threads_the_index_release_phase() {
+        let key = ReleaseKey::FeedGuid("motive-album".into());
+        let entries = everything_entries(
+            Vec::new(),
+            &BTreeSet::new(),
+            &loaded_page(recorded_rows(), false),
+            |found| (*found == key).then_some(DownloadPhase::InFlight),
         );
-        for word in [full, partial, none] {
-            assert!(word.shows_in(MusicListScope::Everything));
-        }
-        assert!(!full.shows_in(MusicListScope::Library));
-        assert!(partial.shows_in(MusicListScope::Library));
-        assert!(!none.shows_in(MusicListScope::Library));
+        let motive_state = entries
+            .iter()
+            .find_map(|entry| match entry {
+                ReleasesListEntryVm::Release(row)
+                    if row.open == DestinationListRowTarget::Release(key.clone()) =>
+                {
+                    row.download_state.as_ref()
+                }
+                _ => None,
+            })
+            .expect("the Motive to Kill row");
+        assert_eq!(motive_state.state, ReleaseDownloadState::Downloading);
     }
 
     /// R16-18: a scope change clears the selection and ends selection

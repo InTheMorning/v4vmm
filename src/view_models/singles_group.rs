@@ -20,6 +20,7 @@ use crate::db::TrackRow;
 use crate::view_models::album_page::{AlbumNameLinkTarget, AlbumNameLinkVm};
 use crate::view_models::artist_identity::{ArtistIdentity, NameFeedMatch, UNKNOWN_ARTIST_TEXT};
 use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
+use crate::view_models::download_progress::DownloadPhase;
 use crate::view_models::format::{fmt_date, plural};
 use crate::view_models::index_feed_singles::{
     feed_singles_request, FeedSinglesState, IndexFeedSingles,
@@ -34,6 +35,7 @@ use crate::view_models::library::{
 use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::named_feeds::{index_named_feeds, NamedFeed};
 use crate::view_models::publisher_page::PublisherPageVm;
+use crate::view_models::release_download_state::ReleaseDownloadStateVm;
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::releases_everything::{
     index_release_row, index_release_title, ReleasesDownloadPlan,
@@ -42,10 +44,8 @@ use crate::view_models::track::fmt_dur;
 use crate::view_models::workspace::ReleaseKey;
 use crate::views::FeedView;
 
-/// The separator between the count and the Library state of a group.
+/// The separator between the count and the identity level of a group.
 const SUMMARY_SEPARATOR: &str = " · ";
-/// The Library state of a group when each single is in the Library.
-const ALL_IN_LIBRARY_LABEL: &str = "In Library";
 /// The accessibility label of a closed group row chevron.
 const SHOW_SINGLES_LABEL: &str = "Show singles";
 /// The accessibility label of an open group row chevron.
@@ -258,44 +258,30 @@ impl<'a> SinglesGroup<'a> {
             .count()
     }
 
-    /// The count, the Library state and the identity level, for example
-    /// "7 singles · 5 in Library · By name" or "7 singles · In Library ·
-    /// Artist feed". One name can have a group at each level (ADR 0084
-    /// Decision 7), so the level tells the two rows apart. A group with no
-    /// Library single has no Library state, for example "38 singles ·
-    /// Artist feed" (packet 026 decision D9).
+    /// The count and the identity level, for example "7 singles · By
+    /// name" or "7 singles · Artist feed". One name can have a group at
+    /// each level (ADR 0084 Decision 7), so the level tells the two rows
+    /// apart. [`Self::download_state`] carries the Library state as an
+    /// icon instead of a word in this text (ADR 0083 Decision 6, amended
+    /// 2026-10-22; ADR 0084 task 033, which supersedes packet 026
+    /// decision D9).
     #[must_use]
     pub(crate) fn summary_text(&self) -> String {
-        match self.library_state_part() {
-            Some(state) => format!(
-                "{} singles{SUMMARY_SEPARATOR}{state}{SUMMARY_SEPARATOR}{}",
-                self.count(),
-                self.level_label()
-            ),
-            None => format!(
-                "{} singles{SUMMARY_SEPARATOR}{}",
-                self.count(),
-                self.level_label()
-            ),
-        }
+        format!(
+            "{} singles{SUMMARY_SEPARATOR}{}",
+            self.count(),
+            self.level_label()
+        )
     }
 
-    /// The Library state of [`Self::summary_text`]. `None` for a group with
-    /// no Library single (packet 026 decision D9).
-    fn library_state_part(&self) -> Option<String> {
-        (!self.singles.is_empty() || !self.matched_by_name.is_empty())
-            .then(|| self.library_state_text())
-    }
-
-    /// "In Library" when each single is in the Library, else "5 in
-    /// Library".
-    fn library_state_text(&self) -> String {
-        let in_library = self.in_library_count();
-        if in_library == self.count() {
-            ALL_IN_LIBRARY_LABEL.to_owned()
-        } else {
-            format!("{in_library} in Library")
-        }
+    /// The download-state icon of the group row (ADR 0083 Decision 6,
+    /// amended 2026-10-22; ADR 0084 task 033): the count of
+    /// [`Self::in_library_count`] of [`Self::count`]. A group formed only
+    /// by `MusicIndex` singles gives the quiet `NotDownloaded` icon, the
+    /// same choice this packet made for a bare `MusicIndex` release row.
+    #[must_use]
+    pub(crate) fn download_state(&self) -> ReleaseDownloadStateVm {
+        ReleaseDownloadStateVm::of_tracks(self.in_library_count(), self.count())
     }
 
     /// The identity level of the group: "By name" or "Artist feed".
@@ -690,12 +676,19 @@ pub(crate) struct SinglesGroupRowVm {
     pub(crate) element_id: String,
     /// The display artist, for example "Haleen".
     pub(crate) label: String,
-    /// The count, the Library state and the identity level, for example
-    /// "7 singles · 5 in Library · By name".
+    /// The count and the identity level, for example "7 singles · By
+    /// name".
     pub(crate) secondary_text: String,
-    /// The accessibility label, for example "Haleen, 7 singles, 5 in
-    /// Library, By name".
+    /// The accessibility label, for example "Haleen, 7 singles, By name".
+    /// [`Self::download_state`] carries its own accessibility label.
     pub(crate) a11y_label: String,
+    /// The download-state icon of the group row (ADR 0083 Decision 6,
+    /// amended 2026-10-22; ADR 0084 task 033), from the count of its
+    /// members that are in the Library of its total count. This
+    /// replaces the "In Library" and "n in Library" words that
+    /// [`Self::secondary_text`] and [`Self::a11y_label`] used to carry
+    /// (packet 026 decision D9).
+    pub(crate) download_state: ReleaseDownloadStateVm,
     /// The art of the group in the logo frame (ADR 0084 Decision 12).
     pub(crate) art: CollectionArtVm,
     /// The key of the group page.
@@ -727,7 +720,9 @@ impl SinglesGroupRowVm {
     /// Builds the group row. `release_row` gives the release row of one
     /// Library single, the same row that a release that is not in a group
     /// gets. A `MusicIndex` single gets the `MusicIndex` release row
-    /// ([`index_release_row`], packet 026). A single that a matched name
+    /// ([`index_release_row`], packet 026), with the phase of its own
+    /// download job from `index_download_phase` (ADR 0084 task 033,
+    /// review correction of 2026-10-22). A single that a matched name
     /// joins to the group gets the same Library release row, with
     /// [`mark_matched_by_name`] added (orchestrator decision of
     /// 2026-10-22, packet 032, which replaces decision D2).
@@ -736,28 +731,25 @@ impl SinglesGroupRowVm {
         group: &SinglesGroup<'_>,
         expanded: bool,
         release_row: impl Fn(&ArtistNode, &AlbumNode) -> Option<DestinationListRowVm>,
+        index_download_phase: impl Fn(&ReleaseKey) -> Option<DownloadPhase>,
     ) -> Self {
         let element_id = group_element_id(&group.identity);
         let count = group.count();
         let members = group.members();
-        let a11y_label = match group.library_state_part() {
-            Some(state) => format!(
-                "{}, {count} singles, {state}, {}",
-                group.display_artist,
-                group.level_label()
-            ),
-            None => format!(
-                "{}, {count} singles, {}",
-                group.display_artist,
-                group.level_label()
-            ),
-        };
+        let download_state = group.download_state();
+        let a11y_label = format!(
+            "{}, {count} singles, {}, {}",
+            group.display_artist,
+            download_state.a11y_label,
+            group.level_label()
+        );
         Self {
             disclosure_element_id: format!("{element_id}-disclosure"),
             element_id,
             label: group.display_artist.to_owned(),
             secondary_text: group.summary_text(),
             a11y_label,
+            download_state,
             art: group.collection_art(),
             open: group.key(),
             expanded,
@@ -771,7 +763,9 @@ impl SinglesGroupRowVm {
                     .iter()
                     .filter_map(|member| match member {
                         GroupMember::Library(single) => release_row(single.artist, single.album),
-                        GroupMember::Index(single) => index_release_row(single.feed),
+                        GroupMember::Index(single) => {
+                            index_release_row(single.feed, &index_download_phase)
+                        }
                     })
                     .collect();
                 rows.extend(group.matched_by_name.iter().filter_map(|single| {
@@ -1052,8 +1046,11 @@ impl SinglesGroupPageEntryVm {
 pub(crate) struct SinglesGroupPageVm {
     /// "Singles by Haleen". The breadcrumb label is the same text.
     pub(crate) title: String,
-    /// The same text as the group row, for example "7 singles · 5 in
-    /// Library". `None` for the empty state.
+    /// The same text as the group row, for example "7 singles · By
+    /// name". `None` for the empty state. Each row of [`Self::rows`]
+    /// carries its own download-state icon (ADR 0083 Decision 6, amended
+    /// 2026-10-22; ADR 0084 task 033), so this text no longer repeats an
+    /// aggregate Library count.
     pub(crate) subtitle: Option<String>,
     /// The note that names the identity level of the group. `None` for
     /// the empty state.
@@ -1364,6 +1361,7 @@ mod tests {
 
     use super::*;
     use crate::view_models::download_progress::DownloadActivity;
+    use crate::view_models::release_download_state::ReleaseDownloadState;
     use crate::views::{FeedMetadataFacts, LocalIdentityFacts};
 
     fn track(id: i64, feed_id: i64, pub_date: Option<i64>, in_library: bool) -> TrackRow {
@@ -1856,10 +1854,7 @@ mod tests {
             &BusyItems::default(),
         );
         assert_eq!(page.title, "Singles by Haleen");
-        assert_eq!(
-            page.subtitle.as_deref(),
-            Some("7 singles · In Library · By name")
-        );
+        assert_eq!(page.subtitle.as_deref(), Some("7 singles · By name"));
         let action = page.main_action.expect("a group has a main action");
         assert_eq!(action.label, "Add to playlist");
         assert_eq!(action.a11y_label, "Add the 7 singles to a playlist");
@@ -1908,10 +1903,7 @@ mod tests {
             &BusyItems::default(),
         );
         assert_eq!(page.identity_note, Some(PUBLISHER_LEVEL_NOTE));
-        assert_eq!(
-            page.subtitle.as_deref(),
-            Some("2 singles · In Library · Artist feed")
-        );
+        assert_eq!(page.subtitle.as_deref(), Some("2 singles · Artist feed"));
         assert_eq!(page.rows.len(), 2);
 
         let page = SinglesGroupPageVm::from_tree(
@@ -1944,7 +1936,7 @@ mod tests {
         assert_eq!(page.art, Some(newest_four.clone()));
 
         let groups = singles_groups(&tree);
-        let row = SinglesGroupRowVm::new(&groups[0], false, |_, _| None);
+        let row = SinglesGroupRowVm::new(&groups[0], false, |_, _| None, |_| None);
         assert_eq!(row.art, newest_four);
 
         let empty = SinglesGroupPageVm::from_tree(
@@ -1989,7 +1981,7 @@ mod tests {
         let groups = singles_groups(&tree);
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].collection_art(), expected);
-        let row = SinglesGroupRowVm::new(&groups[0], false, |_, _| None);
+        let row = SinglesGroupRowVm::new(&groups[0], false, |_, _| None, |_| None);
         assert_eq!(row.art, expected);
         let key = SinglesGroupKey(ArtistIdentity::Publisher("pub".to_owned()));
         let page = SinglesGroupPageVm::from_tree(
@@ -2046,7 +2038,7 @@ mod tests {
             let groups = singles_groups(&tree);
             assert_eq!(groups.len(), 1, "{role:?}");
             assert!(gives_image(&groups[0].collection_art()), "{role:?}");
-            let row = SinglesGroupRowVm::new(&groups[0], false, |_, _| None);
+            let row = SinglesGroupRowVm::new(&groups[0], false, |_, _| None, |_| None);
             assert!(gives_image(&row.art), "{role:?}");
             let key = SinglesGroupKey(ArtistIdentity::Publisher("pub".to_owned()));
             let page = SinglesGroupPageVm::from_tree(
@@ -2346,9 +2338,14 @@ mod tests {
         assert_eq!(group.index_singles.len(), 1);
         assert!(group.contains(&ReleaseKey::FeedGuid("i1".to_owned())));
         assert_eq!(group.display_artist, "Haleen");
+        assert_eq!(group.summary_text(), "3 singles \u{b7} Artist feed");
         assert_eq!(
-            group.summary_text(),
-            "3 singles \u{b7} 1 in Library \u{b7} Artist feed"
+            group.download_state().state,
+            ReleaseDownloadState::Partial {
+                downloaded: 1,
+                total: 3
+            },
+            "the Library count moved from the text to the icon (ADR 0083 Decision 6, amended 2026-10-22)"
         );
 
         let one_library = LibraryTree {
@@ -2367,9 +2364,13 @@ mod tests {
             1,
             "one Library single and one MusicIndex single"
         );
+        assert_eq!(groups[0].summary_text(), "2 singles \u{b7} Artist feed");
         assert_eq!(
-            groups[0].summary_text(),
-            "2 singles \u{b7} 1 in Library \u{b7} Artist feed"
+            groups[0].download_state().state,
+            ReleaseDownloadState::Partial {
+                downloaded: 1,
+                total: 2
+            }
         );
     }
 
@@ -2388,10 +2389,17 @@ mod tests {
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].summary_text(), "38 singles \u{b7} Artist feed");
         assert_eq!(groups[0].display_artist, "Haleen");
-        let row = SinglesGroupRowVm::new(&groups[0], false, |_, _| None);
+        let row = SinglesGroupRowVm::new(&groups[0], false, |_, _| None, |_| None);
         assert_eq!(row.label, "Haleen");
         assert_eq!(row.secondary_text, "38 singles \u{b7} Artist feed");
-        assert_eq!(row.a11y_label, "Haleen, 38 singles, Artist feed");
+        assert_eq!(
+            row.a11y_label,
+            "Haleen, 38 singles, Not downloaded, Artist feed"
+        );
+        assert_eq!(
+            row.download_state.state,
+            ReleaseDownloadState::NotDownloaded
+        );
         assert_eq!(row.single_keys.len(), 38);
 
         let all_in = LibraryTree {
@@ -2405,9 +2413,10 @@ mod tests {
         };
         let empty = IndexFeedSingles::default();
         let groups = singles_groups_everything(&all_in, &empty);
+        assert_eq!(groups[0].summary_text(), "2 singles \u{b7} Artist feed");
         assert_eq!(
-            groups[0].summary_text(),
-            "2 singles \u{b7} In Library \u{b7} Artist feed"
+            groups[0].download_state().state,
+            ReleaseDownloadState::Downloaded
         );
 
         let mut no_title = single_naming("x1", "X", "feed-x", 2);
@@ -2489,9 +2498,10 @@ mod tests {
                 selection: RowSelectionVm::none(),
                 release_kind: None,
                 menu: None,
+                download_state: None,
             })
         };
-        let row = SinglesGroupRowVm::new(&groups[0], true, library_row);
+        let row = SinglesGroupRowVm::new(&groups[0], true, library_row, |_| None);
         let labels: Vec<&str> = row.singles.iter().map(|row| row.label.as_str()).collect();
         assert_eq!(
             labels,
@@ -2520,6 +2530,80 @@ mod tests {
             )
         );
         assert_eq!(groups[0].first_title_sort_key(), "b tie");
+    }
+
+    /// Review correction of 2026-10-22 (ADR 0084 task 033): the
+    /// disclosure of a singles group row gives a `MusicIndex` single the
+    /// phase of its own download job, Queued or Downloading, the same as
+    /// the Releases list row of the same release. Before this
+    /// correction, `SinglesGroupRowVm::new` gave `index_release_row` no
+    /// phase, so a queued or running download never showed.
+    #[test]
+    fn adr_0084_task_033_disclosed_index_single_shows_its_own_job_phase() {
+        let tree = LibraryTree {
+            artists: vec![artist(
+                "Haleen",
+                vec![with_publisher(
+                    single("Library Single", 1, Some(100), true),
+                    HALEEN,
+                )],
+            )],
+        };
+        let store = fills(
+            HALEEN,
+            vec![single_naming("i-new", "Index New", HALEEN, 300)],
+        );
+        let groups = singles_groups_everything(&tree, &store);
+        let group = &groups[0];
+        let index_key = ReleaseKey::FeedGuid("i-new".to_owned());
+        let library_row = |artist: &ArtistNode, album: &AlbumNode| {
+            Some(DestinationListRowVm {
+                element_id: album.name.clone(),
+                label: album.name.clone(),
+                secondary_text: format!("{} \u{b7} Library", artist.name),
+                a11y_label: String::new(),
+                thumbnail_href: None,
+                art: None,
+                open: crate::view_models::library::DestinationListRowTarget::Release(
+                    album.release_key().unwrap(),
+                ),
+                selection: RowSelectionVm::none(),
+                release_kind: None,
+                menu: None,
+                download_state: None,
+            })
+        };
+        let find_index_row = |rows: &[DestinationListRowVm]| -> ReleaseDownloadState {
+            rows.iter()
+                .find(|row| row.label == "Index New")
+                .expect("the disclosed MusicIndex single")
+                .download_state
+                .as_ref()
+                .expect("every release row has one")
+                .state
+        };
+
+        let idle = SinglesGroupRowVm::new(group, true, library_row, |_| None);
+        assert_eq!(
+            find_index_row(&idle.singles),
+            ReleaseDownloadState::NotDownloaded
+        );
+
+        let queued = SinglesGroupRowVm::new(group, true, library_row, |key| {
+            (*key == index_key).then_some(DownloadPhase::Queued)
+        });
+        assert_eq!(
+            find_index_row(&queued.singles),
+            ReleaseDownloadState::Queued
+        );
+
+        let downloading = SinglesGroupRowVm::new(group, true, library_row, |key| {
+            (*key == index_key).then_some(DownloadPhase::InFlight)
+        });
+        assert_eq!(
+            find_index_row(&downloading.singles),
+            ReleaseDownloadState::Downloading
+        );
     }
 
     /// Orchestrator decision of 2026-10-22, which replaces D2 of packet
@@ -2559,9 +2643,10 @@ mod tests {
                 selection: RowSelectionVm::none(),
                 release_kind: None,
                 menu: None,
+                download_state: None,
             })
         };
-        let row = SinglesGroupRowVm::new(group, true, library_row);
+        let row = SinglesGroupRowVm::new(group, true, library_row, |_| None);
         assert_eq!(
             row.singles.len(),
             group.count(),
@@ -2714,7 +2799,7 @@ mod tests {
         assert_eq!(page.title, "Singles by Haleen");
         assert_eq!(
             page.subtitle.as_deref(),
-            Some("55 singles \u{b7} 3 in Library \u{b7} Artist feed")
+            Some("55 singles \u{b7} Artist feed")
         );
         assert_eq!(page.index_status, None, "the app has the result");
         assert_eq!(page.more_note, None);
@@ -2722,10 +2807,14 @@ mod tests {
         let mut vm = crate::view_models::library::LibraryViewModel::new();
         vm.replace_tree(tree.clone());
         let library_groups = singles_groups(&tree);
-        let library_row = SinglesGroupRowVm::new(&library_groups[0], false, |_, _| None);
+        let library_row = SinglesGroupRowVm::new(&library_groups[0], false, |_, _| None, |_| None);
         assert_eq!(
-            library_row.secondary_text, "3 singles \u{b7} In Library \u{b7} Artist feed",
+            library_row.secondary_text, "3 singles \u{b7} Artist feed",
             "the scope \"Library\" keeps its row (decision D15)"
+        );
+        assert_eq!(
+            library_row.download_state.state,
+            ReleaseDownloadState::Downloaded
         );
         assert_eq!(library_row.open, haleen_key());
         let generation = vm.index_feed_singles_mut().begin_request();

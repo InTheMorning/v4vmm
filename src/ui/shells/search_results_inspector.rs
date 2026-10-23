@@ -453,7 +453,7 @@ fn render_active_result_list(
                         href.and_then(|href| slots.thumbnail_for_href(href)),
                     )
                 };
-                render_result_row(tab, row.clone(), leading, handlers)
+                render_result_row(tab, row.clone(), leading, handlers, cx)
             })
             .collect()
     };
