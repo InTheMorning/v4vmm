@@ -141,6 +141,8 @@ Steps:
       The audit of 2026-10-20 added packet 021, one release page assembly for both origins, and packet 022, the download queue ([run record](../reviews/orchestrated-run-2026-10-20.md)).
    7. Search results in the list column (Decision 2). Saved searches need storage first. The [ADR 0084 phase plan](adr-0084-music-column-browser-phase-plan.md) registers them as packet 012, by operator decision of 2026-10-16.
    8. The logo frame for collections (Decision 12).
+   9. The window groups of New releases and the saved searches. The operator asked for them on 2026-10-22 and answered the open questions on 2026-10-23. [ADR 0086](../adr/0086-new-releases-singles-window.md) is Accepted. Its [phase plan](adr-0086-new-releases-window-groups-phase-plan.md) holds six packets.
+   10. Search fields, the field list and live results. The operator asked for them and accepted [ADR 0087](../adr/0087-search-fields-and-live-results.md) on 2026-10-23.
 
 ### Phase 5: Settings
 
@@ -149,6 +151,49 @@ ADR 0069 and its task 002 continue. The grouped Settings keep each report and lo
 ### Phase 6: Player And Cue
 
 A separate ADR, after the Library work. The playback defect of one song that does not change is a separate early packet.
+
+## Remaining Order - 2026-10-23
+
+The orchestrator wrote this order on 2026-10-23, from the operator answers on ADR 0086 of the same day. It replaces the phase numbers as the order of work. Each step is one session or more. A step starts only after the visual check of the step before it.
+
+The publisher show-log trigger of the [delivery order](broadcast-chain-delivery-order.md#current-delivery-order) stays first: when a real show is scheduled, publisher show-log task 001 comes before each step below.
+
+### Phase 4A: Close
+
+1. The operator accepted [ADR 0086](../adr/0086-new-releases-singles-window.md) on 2026-10-23.
+2. The operator walks the open checks of the surfaces that ADR 0086 changes: [packet 020](../tasks/adr-0084-task-020-discover-selection.md) V1 to V6 and [packet 026](../tasks/adr-0084-task-026-index-singles-groups.md) V1 to V10. A defect that these checks find is then not mixed with a defect of ADR 0086. The operator moved this walk to the start of the final walk of the [run of 2026-10-23](../reviews/orchestrated-run-2026-10-23.md).
+3. [ADR 0086 packets](adr-0086-new-releases-window-groups-phase-plan.md) 001 to 005, in register order. Before packet 005, the operator walks the open checks of [packet 012](../tasks/adr-0084-task-012-saved-searches.md).
+4. [ADR 0087 packets](adr-0087-search-fields-phase-plan.md) 001 to 005: the search fields, the field list and the live results (operator decision of 2026-10-23). Packet 006 waits for the Stophammer release of open request 10.
+
+### Phase 5: Settings
+
+5. [ADR 0069 task 002](../tasks/adr-0069-task-002-shared-guarded-editor.md), the shared guarded editor. It is Ready.
+6. ADR 0086 packet 006, the window length in Settings. It uses the editor of step 5.
+
+ADR 0069 phases 003 to 005 wait for the full ADR 0066 release (step 12).
+
+### Ready Defects
+
+7. [The live value URI plan](livevalue-uri-is-a-url.md). It is Ready and small. It must be complete before the relay adoption of row 3 of the delivery order.
+
+### Phase 4: Remaining Library Work
+
+Each step needs its packet written first.
+
+8. The download state of the release rows of the feed page and the name page: a count of a partial release, "Queued" and "Downloading" (open finding of ADR 0084 packet 033 D1).
+9. The inspection view of RSS, MusicIndex and file tags (ADR 0083 Decision 8). It includes the "Inspect sources" view of an Index track page and the contributors panel of an Index release page (open findings of the ADR 0084 phase plan).
+10. The `TYER` difference of an MP4 file in "Update n files" ([ADR 0080 plan](adr-0080-tag-frames-phase-plan.md)).
+11. The payment split bar for the track page and the release page.
+
+### Phase 6: Player And Cue
+
+12. The operator decides [ADR 0068](../adr/0068-show-cue-and-audition-isolation.md), and an agent diagnoses the mpv IPC error. Then the playback defect of one song that does not change. Then the playback position after a move or a removal of playlist rows (open finding of the ADR 0084 phase plan). ADR 0066 task 004 can then pass, and the configuration-format gate opens for ADR 0069 phase 003 and deferred item 7.
+
+### Later
+
+13. The responsiveness phase: the open items of "Throughout: Responsiveness And Background Feedback".
+14. The broadcast chain rows 3 to 6 of the [delivery order](broadcast-chain-delivery-order.md#current-delivery-order), in their order.
+15. Procedures for the visual requirements §8 and §9, which cannot run as written.
 
 ### Throughout: Code Correctness
 
@@ -174,6 +219,7 @@ The operator asked on 2026-10-08 for a later phase that tunes how fast the app r
    ADR 0084 packet 022 owns it from 2026-10-20.
 9. 2026-10-12: the Needs attention count runs the broadcast readiness report on the UI thread after each Library event that can change it: load, feed check, repair, download and removal. The report reads the database and examines each track file (`refresh_current_broadcast_readiness_report` in `src/library/app_impl.rs`, ADR 0084 task 005).
 10. 2026-10-16: scroll is slow in "New releases" while the tiles show placeholders, in the debug build and in the release build. The possible cause is the thumbnail fetch: each tile starts one `FetchThumbnail` command on the tokio blocking pool, with no limit, and each command downloads, decodes, scales and encodes one cover. Many of these commands at one time can use all processor cores and slow the UI thread. No measurement confirms this cause (`thumbnail_for_url` in `src/library/app_impl.rs`, `read_or_download` in `src/media/image_cache.rs`, ADR 0084 task 006). On 2026-10-16 the operator found no lag in a normal debug build. The lag came from a binary with GPUI test-support, which draws at once after each effect. The next page still takes about 400 ms to show, and the list shows no loading state in that time. On 2026-10-17 the orchestrator found the cause of the 400 ms. `fetch_recent_feed_result_rows` in `src/application/queries/feed.rs` reads the full detail of each release on the page. It sends one MusicIndex request for each of the 20 releases, one after the other.
+    [ADR 0086 packet 001](adr-0086-new-releases-window-groups-phase-plan.md) owns the 400 ms from 2026-10-23: at most 4 reads run at the same time.
 11. 2026-10-16: the broadcast service watch runs the `butt` status command one second after each previous run ends, also in Music. In a 41-second profile of task 006 check V6, the app started the `butt` AppImage 16 times. These runs used 72% of the processor samples of the profile, and the UI thread used 14%. Each AppImage start costs much more than the status read (`BROADCAST_SERVICE_POLL_INTERVAL` in `src/runtime/broadcast_service_watch.rs`, `status` in `src/broadcast/encoder.rs`).
     [ADR 0059 task 018](../tasks/archive/adr-0059-task-018-service-watch-pace.md) owns it from 2026-10-18.
 12. 2026-10-18: the operator heard the processor fan run faster with the debug build. The same watch also runs `systemctl --user show` two times each second, for the publisher unit and the producer unit (`ServiceControl::show` in `src/broadcast/control.rs`).
@@ -189,6 +235,8 @@ The operator asked on 2026-10-08 for a later phase that tunes how fast the app r
 20. 2026-10-21: a search row whose image load fails does not try again in the same session. The row keeps its monogram until the next start (`src/app/search_dispatch.rs`, ADR 0084 packet 028).
 21. 2026-10-21: while the Index part of a search loads and the tab has Library rows, the page shows no loading row. The Index rows then appear with no notice, for example after Back to a search (`src/view_models/search_results/mod.rs`, ADR 0084 packet 010).
 22. 2026-10-22: once in each session, after the first load of the Library tree, the app sends one `HydrateAlbumIdentity` request for each Library release that has a feed GUID and no stored feed link, at most 4 at a time, with no progress state. A release whose recorded MusicIndex answer names no publisher is not sent again (`start_album_identity_backfill` in `src/library/app_impl.rs`, ADR 0084 packet 034).
+23. 2026-10-23: by ADR 0086 packet 003, one New releases page request can send a maximum of 6 list requests. Their detail reads also run before the tiles show. The loading state shows no progress in that time (`start_recent_music_load` in `src/library/app_impl.rs`, ADR 0086 packet 003). No measurement confirms a delay.
+24. 2026-10-23: by ADR 0087 Decision 4, a search runs after each pause in the typing. Each run sends three Index requests, and the field list sends one `GET /v1/artist-names` request for `artist:`. The field `is:ready` reads the show readiness of each matched track (`src/app/search_dispatch.rs`, ADR 0087). Each run also keeps the artist name checks of item 17, so each pause can send them again (ADR 0087 packet 003 D13). No measurement confirms a delay.
 
 ## Visual Requirements Moved From Pending Checks - 2026-10-07
 

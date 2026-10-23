@@ -71,6 +71,7 @@ The overhaul plan names eight steps. Step 2 has two packets, 002 and 003, becaus
 4. Packets 013 and then 014 before packet 007, by operator decisions of 2026-10-16. Then packets 007, 015 and 016, then packets 008 to 012 and 017 in register order. Packet 017 comes after packet 008.
    Stophammer release 0.12.0 delivered request 8 on 2026-10-18. Packets 010, 016 and 017 wait for no Stophammer change.
    The [run of 2026-10-20](../reviews/orchestrated-run-2026-10-20.md) does packets 021, 022, 020 and 011 in that order. The operator walks their visual checks at the end of the run. Write each packet at the start of its session, from the result of the packet before it.
+5. Each packet of this register is implemented or complete. The [remaining order](design-and-cleanup-overhaul-plan.md#remaining-order---2026-10-23) of the overhaul plan owns the next steps. The [ADR 0086 phase plan](adr-0086-new-releases-window-groups-phase-plan.md) continues the Discover work.
 
 ## Open Findings
 

@@ -22,6 +22,10 @@ It amends these decisions:
 - [ADR 0082](0082-publisher-roles-belong-to-each-album-link.md) Decision 2: each group of a publisher page divides its releases by kind (Decision 6).
 - [ADR 0083](0083-design-language.md): Decision 9 is superseded by Decision 3 of this ADR. Decisions 4, 5 and 6 gain the additions of Decisions 12, 5 and 10.
 
+Amended 2026-10-23 by [ADR 0087](0087-search-fields-and-live-results.md): in Decision 2, the toolbar search field shows a field list, reads fields in the query text and shows results while the curator types. In Decision 3, a saved search runs its fields.
+
+Amended 2026-10-23 by [ADR 0086](0086-new-releases-singles-window.md): in Decision 3, New releases and the saved searches group the singles of one artist by a window. Decision 6 stays for the Releases list.
+
 Amended 2026-10-18 by [ADR 0085](0085-artists-by-confirmation.md): in Decision 7, the publisher level is the feed level, and ADR 0085 Decisions 5 and 6 replace the "Publisher" link and the label rule. ADR 0085 Decision 3 groups the releases of an artist page by kind.
 
 Amended 2026-10-20: the operator decided the download rules of the action bar. Decision 10 now gives one download queue and a progress item. The operator also decided that an image that an artist feed gives replaces the logo mosaic (Decision 12). The name level uses the sort key of a name (Decision 7). A feed page lists the releases that match its name (Decision 7).

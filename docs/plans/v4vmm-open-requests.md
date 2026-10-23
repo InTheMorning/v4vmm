@@ -28,7 +28,8 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 7 | The named feed rank and the release kind facts in each publisher relationship entry | API field addition | Deployed in release 0.11.0 on 2026-10-18, without `remote_release_kind` |
 | 8 | Each list row and each search row is complete | API rule and field additions | Deployed in release 0.12.0 on 2026-10-18 |
 | 9 | A named feed entry states its confirmation | API field, filter and include additions | Deployed in release 0.13.0 on 2026-10-21 |
-| 10 | Search accepts each query text | Search correction | Draft - 2026-10-21. The v4vmm operator reviews it first |
+| 10 | Search accepts words, phrases and field filters | Search correction and API parameter additions | Draft - 2026-10-23. The v4vmm operator reviews it first |
+| 11 | A feed search hit gives its release date and its named feeds | API field and include additions | Draft - 2026-10-23. The v4vmm operator asked for it on 2026-10-23 |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -249,18 +250,78 @@ The field names are a proposal. Stophammer selects the names in its own ADR.
 - Packet 010 uses item 3 when it exists. Until then, it gives each Index publisher row the badge "Feed", unless the Library Artists list holds that feed.
 - v4vmm sends no read for each row in place of these items.
 
-### 10. Search Accepts Each Query Text
+### 10. Search Accepts Words, Phrases And Field Filters
 
-**What happens.** On 2026-10-21, `GET /v1/search?q=haleen%27` gave `400` with the body `{"error":"invalid search query: SQLite error: fts5: syntax error near \"'\""}`. The query is the word `haleen` and an apostrophe. The server gives the text of the query to FTS5 as a query expression. Thus an apostrophe, a double quote or an FTS5 operator in a name causes a syntax error.
+**What happens.** On 2026-10-21, `GET /v1/search?q=haleen%27` gave `400` with the body `{"error":"invalid search query: SQLite error: fts5: syntax error near \"'\""}`. The query is the word `haleen` and an apostrophe.
 
-**What it costs.** Names of music often have an apostrophe, for example "Rock 'n' Roll" or "Don't Stop". A curator who types such a name gets no Index results. The error tells a FTS5 fact, and a client cannot tell a user how to correct the query.
+`sanitize_fts5_query` in `src/search.rs` removes some operator characters and the words `AND`, `OR`, `NOT` and `NEAR`. It does not remove an apostrophe or a colon. The rest goes to FTS5 as a query expression.
+Thus an apostrophe in a name gives `400`. A colon after the name of an FTS5 column gives a column filter by chance: `title:foo` works, and `artist:foo` gives `400`.
+
+No route filters a search by release kind, date or duration. The FTS5 table has the columns `name`, `title`, `description` and `tags`.
+
+**What it costs.** Names of music often have an apostrophe, for example "Rock 'n' Roll" or "Don't Stop". A curator who types such a name gets no Index results.
+v4vmm ADR 0087 gives the search field of v4vmm a set of fields, for example `artist:jsmovie kind:single after:2026-10-01`. v4vmm parses this text. It needs a way to send each field to Stophammer that is not query syntax.
 
 **Request.**
 
-1. Treat the text of `q` as words, not as an FTS5 expression. One method is to put each word in double quotes, with each double quote in the word doubled. Then each query text gives `200`, possibly with no rows.
-2. If Stophammer keeps a query syntax, give a `400` with a stable error code, for example `invalid_query`, and state the syntax in the contract.
+1. Treat the text of `q` as words and phrases only. A phrase is text in double quotes. Each other character is part of a word. Then each query text gives `200`, possibly with no rows.
+2. Add filter parameters to `GET /v1/search`. Each filter applies together with `q` and with the other filters:
 
-**What v4vmm does with it.** v4vmm stops the report of a query error as a failure of the MusicIndex setup. That fix is in v4vmm and needs no Stophammer change. Until item 1 exists, a query with an apostrophe gives the Library rows and a note that MusicIndex did not accept the query.
+   | Parameter | Value | `type=feed` | `type=track` |
+   |---|---|---|---|
+   | `artist` | text | `release_artist` | `track_artist` |
+   | `title` | text | the feed title | the track title |
+   | `release` | text | the feed title | the title of the feed of the track |
+   | `kind` | `album`, `ep`, `single`, with commas | `release_kind` | the `release_kind` of the feed of the track |
+   | `after`, `before` | a date | `newest_item_at` | `pub_date` |
+   | `min_duration`, `max_duration` | seconds | none | `duration_secs` |
+
+3. An exclusion for the words, the phrases and each text filter. One method is a second parameter for each, for example `not_q=remix` and `not_title=remix`. A row that matches an exclusion does not show.
+   v4vmm ADR 0087 lets a curator exclude a term with `-`, for example `-title:remix`. Without this item, a v4vmm query with an exclusion shows no Index rows.
+4. A filter that a type cannot apply gives `400` with a stable error code, for example `unsupported_filter`. A client can then tell the curator which field the Index did not apply.
+5. Allow a search with filters and no `q`, for example `kind=single&after=2026-10-01`.
+6. State the filters in the contract, so that a client can find which filters the deployed release supports.
+
+The parameter names are a proposal. Stophammer selects the names in its own ADR.
+Request 11 asks for the date and the named feeds of each feed hit. The two requests are separate, but a filter by date is more useful when the hit also shows its date.
+
+**What v4vmm does with it.** v4vmm stops the report of a query error as a failure of the MusicIndex setup. That fix is in v4vmm and needs no Stophammer change.
+v4vmm ADR 0087 sends each field as a parameter, never as syntax in `q`. Until Stophammer supports a filter, a v4vmm query with that field shows no Index rows and names the field.
+
+### 11. A Feed Search Hit Gives Its Release Date And Its Named Feeds
+
+**What happens.** On 2026-10-23, the deployed release 0.13.2 gave this row for `GET /v1/search?q=jsmovie&type=feed&limit=2`:
+
+```json
+{"entity_type": "feed", "entity_id": "84b0e282-1abe-5d1d-8b87-48a6a227247f", "rank": -11.377059645913686,
+ "quality_score": 85, "title": "Cut", "feed_image_url": "https://d12wklypp119aj.cloudfront.net/image/839e4d3e-a650-4848-ae46-ea587766344a.jpg",
+ "release_artist": "jSmovie", "release_artist_source": "itunes_author", "episode_count": 1}
+```
+
+The row gives no `newest_item_at`. `SearchResponseItem` has `pub_date`, but `feed_search_summary` in `src/query.rs` leaves it empty for a feed hit: "A feed row holds no track publication date, so `pub_date` stays empty."
+
+The `include` parameter of `GET /v1/search` supports only `link_facts`. `GET /v1/feeds/recent` supports `link_facts` and `named_feeds`. On the same day, `GET /v1/feeds/recent?limit=1&include=named_feeds` gave `newest_item_at` and a `named_feeds` list with `publisher_feed_guid`, `album_names_rank`, `role`, `role_agreement` and `two_way_validated`.
+
+Thus a feed search hit does not follow the rule of request 8 item 1. A client must read each hit again to date it or to key it by its artist feed.
+
+**Why v4vmm needs it.** v4vmm ADR 0086 groups the singles of one artist in one window of 14 days. New releases and the saved searches of Discover use the same groups (Decision 6).
+
+The window of a single comes from its release date. The group key comes from the named feeds of the release. The New releases rows give both facts.
+A saved search runs `GET /v1/search`, and its rows give neither fact. Thus only the singles that the Library holds can group in a saved search. Each Index single shows as a tile of its own.
+
+ADR 0075 packet 047 of v4vmm forbids a detail read for each search row, so v4vmm cannot read each hit again.
+
+The weakest part: only the saved searches need it. The toolbar search of v4vmm shows no groups.
+
+**Request.**
+
+1. On each `type=feed` hit of `GET /v1/search`, `newest_item_at`, as the rows of `GET /v1/feeds/recent` give it. A hit can also give the value in `pub_date`, if the contract states that meaning for a feed hit.
+2. `include=named_feeds` on `GET /v1/search`, with the items that `GET /v1/feeds/recent?include=named_feeds` gives, on each `type=feed` hit.
+
+The field names are a proposal. Stophammer selects the names in its own ADR.
+
+**What v4vmm does with it.** v4vmm ADR 0086 packet 005 groups the Library singles of a saved search. Its chain reads the release date of each row, so an Index hit groups when item 1 is deployed.
+Item 2 lets the hit use the artist feed key of New releases. Without item 2, an Index hit has only the text of its artist. When Stophammer deploys item 1 or item 2, v4vmm replaces the stored contract in the same change as the decode change (v4vmm ADR 0075 section 6).
 
 
 **The retention of a publisher resolution.** When an album feed changes or disappears, what happens to its stored back-link resolution and its `publisher_link_observed_at`?
