@@ -43,10 +43,12 @@ The operator resumed visual checks on 2026-10-02. [Pending human checks](docs/pe
 holds each open check. Walk a new check right after its packet. The procedures in `docs/runbooks/` stay
 regression checks.
 
-Exception for the orchestrated run of 2026-10-23: one orchestrator session runs ADR 0086 packets 001 to 005 and ADR 0087 packets 001 to 005.
+Exception for the orchestrated run of 2026-10-23: one orchestrator session runs ADR 0086 packets 001 to 005. It also runs ADR 0087 packets 001 to 005.
+
 The operator walks the visual checks of the run at its end. The operator decided both points on 2026-10-23. The orchestrator commits each reviewed
 packet. The [run record](docs/reviews/orchestrated-run-2026-10-23.md) holds the steps, the decisions and the final walk.
-Delete this paragraph when the operator closes the run.
+
+Each packet of the run is implemented. The final walk of the run is open. Delete these paragraphs when the operator closes the run.
 
 Ready packets include
 [ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md).

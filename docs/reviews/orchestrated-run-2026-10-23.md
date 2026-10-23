@@ -2,7 +2,7 @@
 
 ## Status
 
-Open - 2026-10-23. One orchestrator session runs the steps below. The operator walks the visual checks of the run at its end.
+Implementation complete - 2026-10-23. Each packet of the run is implemented and committed. The final walk is open.
 
 This record is advisory. It states no rule. Each rule stays in its ADR.
 
@@ -106,4 +106,46 @@ None at the start of the run.
 
 ## Final Walk
 
-The orchestrator writes the final walk when the last packet is complete. It starts with ADR 0084 packet 020 V1 to V6 and packet 026 V1 to V10.
+Each packet of the run is implemented and committed. No person walked a visual check of the run. Each gate stays open in its packet `Status:` line, in `docs/pending-human-checks.md` section 6 and in the delivery order.
+
+### Setup
+
+The run adds no migration and no configuration key, so no backup is necessary.
+
+1. Open a terminal in a desktop session.
+2. Build the release binary for the checks of speed: `cd ~/build/v4vmm && cargo build --release`.
+3. Build the debug binary for the other checks: `cargo build --bin v4vmm`.
+4. Confirm that the debug binary is a normal build: `nm -C target/debug/v4vmm | grep -c TestDispatcher` gives `0`.
+5. Start the app: `./target/release/v4vmm` or `./target/debug/v4vmm`.
+
+The checks need these states:
+
+- `https://api.musicindex.org` is reachable.
+- New releases holds an artist with many singles, for example jSmovie.
+- The Library holds two or more singles of one artist with release dates within 14 days. A saved search finds them.
+- The Library holds one or more playlists, for the field `playlist:`.
+
+### Order
+
+Walk each check in Light and Dark, and at normal and narrow width. Each packet names what is wrong for each check in its "Visual Acceptance Criteria".
+
+1. ADR 0084 [packet 020](../tasks/adr-0084-task-020-discover-selection.md) V1 to V6 and [packet 026](../tasks/adr-0084-task-026-index-singles-groups.md) V1 to V10. These checks come first, so that an older defect is not mixed with a defect of the run.
+2. ADR 0086 [packet 001](../tasks/adr-0086-task-001-parallel-new-releases-detail-reads.md) V1 to V4, with the release binary.
+3. ADR 0086 [packet 002](../tasks/adr-0086-task-002-new-releases-window-groups.md) V1 to V4, V6 and V8.
+4. ADR 0086 [packet 003](../tasks/adr-0086-task-003-pager-closes-windows.md) V1 to V10. The checks of the load time use the release binary.
+5. ADR 0086 [packet 004](../tasks/adr-0086-task-004-window-group-page.md) V1 to V10.
+6. ADR 0086 [packet 005](../tasks/adr-0086-task-005-saved-search-window-groups.md) V1 to V7.
+7. ADR 0087 [packet 002](../tasks/adr-0087-task-002-library-fields-and-index-words.md) V1 to V9.
+8. ADR 0087 [packet 004](../tasks/adr-0087-task-004-field-list.md) V1 to V9.
+9. ADR 0087 [packet 003](../tasks/adr-0087-task-003-live-results.md) V1 to V9.
+10. ADR 0087 [packet 005](../tasks/adr-0087-task-005-field-list-values.md) V1 to V7.
+
+ADR 0087 packet 001 has no visual check.
+
+### Record
+
+Tell the orchestrator each result with its check name, for example "0086 003 V4 pass" or "0087 004 V2 fail: the list takes the focus". The orchestrator records each result in a walk log in this record, in the packet `Status:` line, in the delivery order and in `docs/pending-human-checks.md`.
+
+### Cleanup
+
+The walk changes no file. The tests of ADR 0087 packet 005 can leave a folder in the temporary folder. Remove it with `rm -rf "${TMPDIR:-/tmp}/v4vmm-search-field-list-test"`.
