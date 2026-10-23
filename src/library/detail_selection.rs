@@ -21,12 +21,12 @@ use crate::ui::composites::music_column_scroll::{key_scroll, ScrollReveal};
 use crate::ui::shells::library::detail::DetailRowSlot;
 use crate::ui::tokens::Size;
 use crate::view_models::detail_selection::{
-    discover_release_rows, discover_row_key, library_release_track_rows, playlist_entry_rows,
-    singles_group_release_rows, DetailPageRows, DetailRowClick, DetailRowKey, DetailSelection,
-    LibraryReleaseFacts,
+    discover_row_key, library_release_track_rows, playlist_entry_rows, singles_group_release_rows,
+    DetailPageRows, DetailRowClick, DetailRowKey, DetailSelection, LibraryReleaseFacts,
 };
 use crate::view_models::library::{ContentListSelectionTarget, PlaylistDetailVm};
 use crate::view_models::list_selection::{FocusStep, RowSelectionVm};
+use crate::view_models::window_groups::WindowGroupKey;
 use crate::view_models::workspace::{
     DetailScrollTarget, DiscoverView, FrameNavigationEntry, NavigationLocationId,
     NavigationPathStart, ReleaseKey,
@@ -237,12 +237,18 @@ impl LibraryApp {
                     |key| self.vm.library_release_facts(key),
                 )))
             }
+            // ADR 0086 packet 004 decision D11: in each mode, the
+            // selection rows are the shown items, and a group tile holds
+            // each member of its window.
             LibraryDetail::Discover(DiscoverView::NewReleases) if self.discover_is_open() => {
-                // ADR 0086 packet 002 decisions D9 and D10: in `Normal`,
-                // the selection rows are the shown items.
-                Some(DetailPageRows::Releases(discover_release_rows(
-                    self.vm
-                        .discover_selection_rows(self.detail_selection.mode()),
+                Some(self.vm.discover_page_rows())
+            }
+            // ADR 0086 Decision 4: the window group page has the rows of
+            // a singles group page.
+            LibraryDetail::WindowGroup(key) => {
+                let page = self.vm.window_group_page(key);
+                Some(DetailPageRows::Releases(singles_group_release_rows(
+                    &page.rows,
                     |key| self.vm.library_release_facts(key),
                 )))
             }
@@ -328,6 +334,80 @@ impl LibraryApp {
         if let Some(key) = self.discover_row_key_of(row_id) {
             self.toggle_detail_row(&key, cx);
         }
+    }
+
+    /// A click on the body of a group tile of New releases (ADR 0086
+    /// packet 004 decision D10). Ctrl+click and Shift+click select each
+    /// member of the window. A plain click in `Normal` mode opens the
+    /// window group page in the current path.
+    pub(crate) fn click_window_group_tile(
+        &mut self,
+        open_row_id: &str,
+        modifiers: Modifiers,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((anchor, page_key)) = self.window_group_tile_of(open_row_id) else {
+            return;
+        };
+        let Some(rows) = self.library_detail_page_rows() else {
+            return;
+        };
+        if self.click_detail_row(&anchor, modifiers, &rows, cx) {
+            self.open_window_group(&page_key, cx);
+        }
+    }
+
+    /// A click on the checkbox of a group tile of New releases (ADR 0086
+    /// packet 004 decision D12). It changes the selection of each member
+    /// of the window.
+    pub(crate) fn toggle_window_group_tile(&mut self, open_row_id: &str, cx: &mut Context<Self>) {
+        let Some((anchor, _)) = self.window_group_tile_of(open_row_id) else {
+            return;
+        };
+        let tile_row = self.library_detail_page_rows().and_then(|rows| {
+            rows.selection_rows()
+                .into_iter()
+                .find(|row| row.id == anchor)
+        });
+        if let Some(tile_row) = tile_row {
+            self.detail_selection.toggle_selection_row(&tile_row);
+            self.clear_pending_detail_scroll();
+            cx.notify();
+        }
+    }
+
+    /// The page entry of a group tile: `WindowGroup` of its key, when the
+    /// Discover view is open and `key` is the anchor key of a group tile
+    /// (ADR 0086 packet 004). Enter on the tile opens this entry.
+    pub(crate) fn window_group_entry_for(
+        &self,
+        key: &DetailRowKey,
+    ) -> Option<FrameNavigationEntry> {
+        if !self.discover_is_open() {
+            return None;
+        }
+        let DetailRowKey::Release(anchor) = key else {
+            return None;
+        };
+        self.vm
+            .new_releases_layout()
+            .group_tile_for_anchor(anchor)
+            .map(|tile| FrameNavigationEntry::WindowGroup(tile.page_key.clone()))
+    }
+
+    /// The anchor key and the page key of the group tile of the anchor row
+    /// `open_row_id`.
+    fn window_group_tile_of(&self, open_row_id: &str) -> Option<(DetailRowKey, WindowGroupKey)> {
+        let DetailRowKey::Release(anchor_key) = self.discover_row_key_of(open_row_id)? else {
+            return None;
+        };
+        let page_key = self
+            .vm
+            .new_releases_layout()
+            .group_tile_for_anchor(&anchor_key)?
+            .page_key
+            .clone();
+        Some((DetailRowKey::Release(page_key.anchor.clone()), page_key))
     }
 
     fn discover_row_key_of(&self, row_id: &str) -> Option<DetailRowKey> {

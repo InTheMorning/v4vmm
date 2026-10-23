@@ -34,9 +34,10 @@ impl TopApp {
         match entry {
             // ADR 0084 Decision 9: the Library gives the names of its pages.
             // ADR 0084 Decision 6: a singles group page is one of them.
-            FrameNavigationEntry::PlaylistDetail(_) | FrameNavigationEntry::SinglesGroup(_) => {
-                self.library.read(cx).navigation_label(entry)
-            }
+            // ADR 0086 Decision 4: a window group page is one of them.
+            FrameNavigationEntry::PlaylistDetail(_)
+            | FrameNavigationEntry::SinglesGroup(_)
+            | FrameNavigationEntry::WindowGroup(_) => self.library.read(cx).navigation_label(entry),
             // ADR 0084 Decision 4: the Library album name, the loaded Index
             // title, or the label the opening row gave.
             FrameNavigationEntry::Release(key) => self.release_navigation_label(key, cx),

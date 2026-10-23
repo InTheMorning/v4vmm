@@ -106,6 +106,7 @@ pub mod track;
 pub mod track_detail;
 pub mod track_metadata_grid;
 pub(crate) mod track_page;
+pub(crate) mod window_group_page;
 pub(crate) mod window_groups;
 pub(crate) mod workspace;
 

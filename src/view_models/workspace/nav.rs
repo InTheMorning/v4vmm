@@ -12,6 +12,7 @@ use crate::view_models::artist_identity::{
 };
 use crate::view_models::search_results::{saved_search_label, SavedSearchId};
 use crate::view_models::singles_group::SinglesGroupKey;
+use crate::view_models::window_groups::WindowGroupKey;
 
 /// A Music destination, in sidebar order (ADR 0084 Decision 2).
 ///
@@ -135,6 +136,9 @@ pub(crate) enum FrameNavigationEntry {
     /// The page of one Library singles group, by its group key (ADR 0084
     /// Decision 6). The key holds no label.
     SinglesGroup(SinglesGroupKey),
+    /// The page of one window group of New releases (ADR 0086 Decision 4).
+    /// The key holds the limits of the window when the page opened.
+    WindowGroup(WindowGroupKey),
     /// Search results by submitted query.
     Search(String),
     /// Application settings.
@@ -180,6 +184,9 @@ impl FrameNavigationEntry {
             // The Library gives the real title from its loaded tree. This
             // fallback shows only when the Library has no such group.
             Self::SinglesGroup(_) => "Singles".to_string(),
+            // The Library gives the title with the count. This fallback
+            // shows the tile title of the key.
+            Self::WindowGroup(key) => key.artist.clone(),
             Self::Search(query) => {
                 if query.trim().is_empty() {
                     "Search".to_string()

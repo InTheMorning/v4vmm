@@ -23461,3 +23461,85 @@ fn adr_0086_pager_extra_loads_in_the_view_model() {
     assert_ne!(projects, app);
     assert!(!pager_extra_loads_violations(&projects, &files).is_empty());
 }
+
+/// The violations of the rule that only `LibraryViewModel::window_group_page`
+/// builds the window group page (ADR 0086 packet 004 R86-4-24). `library` is
+/// the source of `src/view_models/library.rs`. `files` holds each other Rust
+/// file under `src/`, by its relative path.
+fn window_group_page_violations(library: &str, files: &[(String, String)]) -> Vec<String> {
+    const BUILD: &str = "WindowGroupPageVm::build(";
+    let mut violations = Vec::new();
+    let in_page = music_open_defects_fn_body(library, "window_group_page")
+        .map_or(0, |body| body.matches(BUILD).count());
+    if in_page != 1 || library.matches(BUILD).count() != 1 {
+        violations.push(format!(
+            "src/view_models/library.rs: call `{BUILD}` one time, in `fn window_group_page`"
+        ));
+    }
+    for (file, source) in files {
+        if source.contains(BUILD) {
+            violations.push(format!("{file}: calls `{BUILD}`"));
+        }
+        let shell_or_app = ["src/ui/", "src/library/", "src/app/"]
+            .iter()
+            .any(|prefix| file.starts_with(prefix));
+        if shell_or_app && source.contains("window_members(") {
+            violations.push(format!("{file}: calls `window_members(`"));
+        }
+        if file == "src/ui/shells/library/window_group.rs" && source.contains("NewReleasesLayout") {
+            violations.push(format!("{file}: names `NewReleasesLayout`"));
+        }
+    }
+    violations
+}
+
+/// R86-4-24 (ADR 0086 Task 004) situational guard: the members, the main
+/// action and the link of a window group page are built only in the view
+/// model, so the render and each handler read one page. Delete this guard
+/// when ADR 0086 Decision 4 is superseded.
+#[test]
+fn adr_0086_window_group_page_built_in_the_view_model() {
+    const FIX: &str = "ADR 0086 §4 The Group Opens A Window Group Page: the members, the main action and the link of a window group page are built only in `LibraryViewModel::window_group_page`.\nRead `LibraryViewModel::window_group_page(key)` in the render and in each handler. Do not resolve the members of a window outside the view model.";
+    let library = read_source(&manifest_path("src/view_models/library.rs"));
+    let files: Vec<(String, String)> = rust_files_under("src")
+        .into_iter()
+        .map(|path| (rel_path(&path), read_source(&path)))
+        .filter(|(file, _)| file != "src/view_models/library.rs")
+        .collect();
+    let violations = window_group_page_violations(&library, &files);
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+
+    // A copy of the shell that resolves the members of a window fails.
+    let shell_path = "src/ui/shells/library/window_group.rs";
+    let mutated: Vec<(String, String)> = files
+        .iter()
+        .map(|(file, source)| {
+            let source = if file == shell_path {
+                format!("{source}\nfn members(entries: &[WindowEntry], key: &WindowGroupKey) -> Vec<usize> {{ window_members(entries, key) }}\n")
+            } else {
+                source.clone()
+            };
+            (file.clone(), source)
+        })
+        .collect();
+    assert!(!window_group_page_violations(&library, &mutated).is_empty());
+    // A copy of the shell that reads the layout fails.
+    let mut layout_shell = files.clone();
+    layout_shell.push((
+        shell_path.to_owned(),
+        "fn tiles(layout: &NewReleasesLayout) {}".to_owned(),
+    ));
+    assert!(!window_group_page_violations(&library, &layout_shell).is_empty());
+    // A second build site in library.rs fails.
+    let twice = format!(
+        "{library}\nfn page_again(&self, key: &WindowGroupKey) {{ let _ = WindowGroupPageVm::build(key, a, b, c, d, e); }}\n"
+    );
+    assert!(!window_group_page_violations(&twice, &files).is_empty());
+    // A handler that builds the page fails.
+    let mut handler = files.clone();
+    handler.push((
+        "src/library/detail_selection.rs".to_owned(),
+        "let page = WindowGroupPageVm::build(&key, layout, &rows, tree, fills, busy);".to_owned(),
+    ));
+    assert!(!window_group_page_violations(&library, &handler).is_empty());
+}

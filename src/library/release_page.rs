@@ -144,13 +144,12 @@ impl LibraryApp {
             // its toggle directly (operator decision of 2026-10-22,
             // replacing packet 026 decision D13).
             LibraryDetail::SinglesGroup(key) => {
-                let page = self.singles_group_page(key);
-                match page.rows.into_iter().nth(row)? {
-                    SinglesGroupPageEntryVm::Library(single) => {
-                        Some((single.track, FrameNavigationEntry::Release(single.key)))
-                    }
-                    SinglesGroupPageEntryVm::Index(_) => None,
-                }
+                library_single_page_row(self.singles_group_page(key).rows, row)
+            }
+            // ADR 0086 Decision 4: the window group page has the rows of a
+            // singles group page.
+            LibraryDetail::WindowGroup(key) => {
+                library_single_page_row(self.vm.window_group_page(key).rows, row)
             }
             _ => None,
         }
@@ -205,5 +204,20 @@ impl LibraryApp {
             | ReleasePageCommand::CreatePlaylistForTrack(..) => return,
         }
         cx.notify();
+    }
+}
+
+/// The track of the Library single at `row` of a page of singles, and the
+/// release page that a plain click on the row opens. `None` for a
+/// `MusicIndex` row.
+fn library_single_page_row(
+    rows: Vec<SinglesGroupPageEntryVm>,
+    row: usize,
+) -> Option<(TrackRow, FrameNavigationEntry)> {
+    match rows.into_iter().nth(row)? {
+        SinglesGroupPageEntryVm::Library(single) => {
+            Some((single.track, FrameNavigationEntry::Release(single.key)))
+        }
+        SinglesGroupPageEntryVm::Index(_) => None,
     }
 }

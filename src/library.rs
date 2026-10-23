@@ -43,6 +43,7 @@ use crate::view_models::library_removal::{
 use crate::view_models::list_selection::{ListSelection, SelectionMode};
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
 use crate::view_models::singles_group::SinglesGroupKey;
+use crate::view_models::window_groups::WindowGroupKey;
 use crate::view_models::workspace::{
     ContentViewMode, DiscoverView, FrameNavigationEntry, NavigationPathStart, ReleaseKey, TrackKey,
 };
@@ -65,6 +66,9 @@ pub(crate) enum LibraryDetail {
     /// page reads the current tree at each render, so a download or a
     /// removal updates it in place.
     SinglesGroup(SinglesGroupKey),
+    /// The page of one window group of New releases (ADR 0086 Decision 4).
+    /// The page reads the cached layout at each render.
+    WindowGroup(WindowGroupKey),
 }
 
 #[derive(Clone, Debug)]

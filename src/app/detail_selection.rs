@@ -26,7 +26,8 @@ use crate::view_models::list_selection::FocusStep;
 use crate::view_models::search_results::IndexDetailDisplay;
 use crate::view_models::selection_action_bar::{SelectionActionBarVm, SelectionActionKind};
 use crate::view_models::workspace::{
-    FrameHeaderActionDisplay, FrameNavigationEntry, ReleasePageSource, TrackKey,
+    FrameHeaderActionDisplay, FrameNavigationEntry, NavigationPathStart, ReleasePageSource,
+    TrackKey,
 };
 use crate::views::FeedView;
 
@@ -95,6 +96,7 @@ impl TopApp {
                 }
             },
             FrameNavigationEntry::SinglesGroup(_)
+            | FrameNavigationEntry::WindowGroup(_)
             | FrameNavigationEntry::DiscoverView(_)
             | FrameNavigationEntry::PlaylistDetail(_) => library.library_detail_page_rows(),
             FrameNavigationEntry::PublisherDetail(_) => {
@@ -253,6 +255,12 @@ impl TopApp {
         let Some(key) = self.library.read(cx).focused_detail_row(window, cx) else {
             return;
         };
+        // ADR 0086 Decision 4: Enter on a group tile opens its window
+        // group page in the current path (packet 004 decision D10).
+        if let Some(entry) = self.library.read(cx).window_group_entry_for(&key) {
+            self.open_music_page(&entry, NavigationPathStart::CurrentPath, cx);
+            return;
+        }
         let label = self
             .detail_page_rows(cx)
             .and_then(|rows| rows.title_of(&key).map(str::to_owned))
@@ -430,7 +438,7 @@ impl TopApp {
                 }
                 self.download_index_track_keys(index_rows, cx);
             }
-            DetailPageRows::Releases(_) => {
+            DetailPageRows::Releases(_) | DetailPageRows::GroupedReleases { .. } => {
                 // ADR 0084 task 031: the plan and the bar count use the
                 // one availability rule. Thus a release with a job or a
                 // removal gets no second job.
@@ -525,7 +533,7 @@ impl TopApp {
             DetailPageRows::Tracks(_) | DetailPageRows::PlaylistEntries { .. } => {
                 library.add_tracks_to_playlist(track_ids, playlist_id, cx);
             }
-            DetailPageRows::Releases(_) => {
+            DetailPageRows::Releases(_) | DetailPageRows::GroupedReleases { .. } => {
                 library.add_albums_to_playlist(&feed_ids, playlist_id, cx);
             }
         });
@@ -555,7 +563,7 @@ impl TopApp {
             DetailPageRows::Tracks(_) | DetailPageRows::PlaylistEntries { .. } => {
                 library.create_playlist_and_add_tracks(name, track_ids, cx);
             }
-            DetailPageRows::Releases(_) => {
+            DetailPageRows::Releases(_) | DetailPageRows::GroupedReleases { .. } => {
                 library.create_playlist_and_add_albums(name, feed_ids, cx);
             }
         });
@@ -606,7 +614,7 @@ pub(super) fn detail_removal_items(
                 .collect(),
             "track",
         ),
-        DetailPageRows::Releases(_) => (
+        DetailPageRows::Releases(_) | DetailPageRows::GroupedReleases { .. } => (
             rows.selected_releases(selection)
                 .iter()
                 .filter_map(|row| row.library.map(|facts| (facts, row.title.clone())))

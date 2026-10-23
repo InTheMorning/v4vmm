@@ -16,10 +16,11 @@ use gpui::{
 use crate::library::LibraryApp;
 use crate::ui::composites::collection_art::{CollectionArt, CollectionArtImage};
 use crate::ui::composites::selectable_tile::SelectableTile;
+use crate::ui::composites::track_row::checkbox_state_for;
 use crate::ui::composites::{
     EntityKind, ListRow, ListRowA11yLabel, TagBadge, TagBadgeDisplay, ThumbnailSize,
 };
-use crate::ui::primitives::Label;
+use crate::ui::primitives::{Checkbox, Label};
 use crate::ui::shells::library::destination_lists::RowArts;
 use crate::ui::tokens::{FontSize, SemanticColor, Size, Spacing};
 use crate::view_models::collection_art::CollectionKind;
@@ -34,14 +35,40 @@ pub(crate) fn group_art(arts: &RowArts, tile: &WindowGroupTileVm) -> CollectionA
         .unwrap_or(CollectionArtImage::EntityColor)
 }
 
+/// The checkbox of a group tile or a group row, or `None` outside
+/// selection mode (ADR 0086 packet 004 decision D12). The view model gives
+/// the checked state, which can be mixed. The click changes the selection
+/// of each member of the window, and never opens the page.
+fn render_window_group_checkbox(
+    tile: &WindowGroupTileVm,
+    cx: &mut Context<LibraryApp>,
+) -> Option<AnyElement> {
+    if !tile.selection.checkbox_visible {
+        return None;
+    }
+    let open_row_id = tile.open_row_id.clone();
+    let checkbox = Checkbox::new(
+        SharedString::from(format!("{}-checkbox", tile.element_id)),
+        checkbox_state_for(tile.selection.check_state),
+    )
+    .a11y_label(tile.selection.checkbox_a11y_label.clone())
+    .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+        // Stop the click from also reaching the tile's own handler.
+        cx.stop_propagation();
+        this.toggle_window_group_tile(&open_row_id, cx);
+    }));
+    Some(checkbox.into_any_element())
+}
+
 /// Renders one group tile of New releases (ADR 0086 Decisions 2 and 3).
 /// It has the size, the colors and the text places of a release tile. A
-/// click opens the release page of the anchor single (packet 002 decision
-/// D8). The tile shows no checkbox (decision D9).
+/// click opens the window group page. Ctrl+click and Shift+click select
+/// each member of the window (packet 004 decision D10). In selection mode,
+/// the tile shows a checkbox (decision D11).
 pub(crate) fn render_window_group_tile(
     tile: &WindowGroupTileVm,
     art: CollectionArtImage,
-    (target, probe): (ContentListSelectionTarget, Option<AnyElement>),
+    (_target, probe): (ContentListSelectionTarget, Option<AnyElement>),
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let open_row_id = tile.open_row_id.clone();
@@ -50,7 +77,7 @@ pub(crate) fn render_window_group_tile(
         CollectionArt::new(art, CollectionKind::SinglesGroup, ThumbnailSize::Xl).into_any_element();
 
     SelectableTile::new(SharedString::from(tile.element_id.clone()), artwork)
-        .checkbox(None)
+        .checkbox(render_window_group_checkbox(tile, cx))
         .selected(tile.selection.is_marked())
         .focused(tile.selection.focused)
         .scroll_probe(probe)
@@ -72,18 +99,18 @@ pub(crate) fn render_window_group_tile(
         )
         .child(render_window_group_badges(tile, BadgePlace::First, cx))
         .on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
-            this.click_content_row(target, &open_row_id, event.modifiers(), cx);
+            this.click_window_group_tile(&open_row_id, event.modifiers(), cx);
         }))
         .into_any_element()
 }
 
 /// Renders one group row of New releases in the List mode (ADR 0086
 /// Decision 3). The art, the title and the badges have the places of a
-/// release row.
+/// release row. The row acts as the group tile (packet 004).
 pub(crate) fn render_window_group_row(
     tile: &WindowGroupTileVm,
     art: CollectionArtImage,
-    (target, probe): (ContentListSelectionTarget, Option<AnyElement>),
+    (_target, probe): (ContentListSelectionTarget, Option<AnyElement>),
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let open_row_id = tile.open_row_id.clone();
@@ -103,23 +130,26 @@ pub(crate) fn render_window_group_row(
         )
         .child(render_window_group_badges(tile, BadgePlace::Last, cx));
 
-    ListRow::new(SharedString::from(tile.element_id.clone()))
+    let mut row = ListRow::new(SharedString::from(tile.element_id.clone()))
         .a11y_label(ListRowA11yLabel {
             label: SharedString::from(tile.a11y_label.clone()),
         })
         .selected(tile.selection.is_marked())
         .focused(tile.selection.focused)
-        .scroll_probe(probe)
-        .child(CollectionArt::new(
-            art,
-            CollectionKind::SinglesGroup,
-            ThumbnailSize::Sm,
-        ))
-        .child(text)
-        .on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
-            this.click_content_row(target, &open_row_id, event.modifiers(), cx);
-        }))
-        .into_any_element()
+        .scroll_probe(probe);
+    if let Some(checkbox) = render_window_group_checkbox(tile, cx) {
+        row = row.checkbox(checkbox);
+    }
+    row.child(CollectionArt::new(
+        art,
+        CollectionKind::SinglesGroup,
+        ThumbnailSize::Sm,
+    ))
+    .child(text)
+    .on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
+        this.click_window_group_tile(&open_row_id, event.modifiers(), cx);
+    }))
+    .into_any_element()
 }
 
 /// The place of the kind badge on the status line of a group. A release

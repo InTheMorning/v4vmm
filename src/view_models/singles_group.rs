@@ -40,6 +40,7 @@ use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::releases_everything::{
     index_release_row, index_release_title, ReleasesDownloadPlan,
 };
+use crate::view_models::search_results::FeedResultDisplay;
 use crate::view_models::track::fmt_dur;
 use crate::view_models::workspace::ReleaseKey;
 use crate::views::FeedView;
@@ -832,13 +833,20 @@ pub(crate) fn singles_group_name_link(
     key: &ReleaseKey,
 ) -> Option<AlbumNameLinkVm> {
     let group = groups.iter().find(|group| group.contains(key))?;
+    Some(singles_group_link(group))
+}
+
+/// The name link to the page of `group`, for example "All 7 singles". The
+/// single page and the window group page (ADR 0086 Decision 4) use it.
+#[must_use]
+pub(crate) fn singles_group_link(group: &SinglesGroup<'_>) -> AlbumNameLinkVm {
     let count = group.count();
-    Some(AlbumNameLinkVm {
+    AlbumNameLinkVm {
         label: format!("All {count} singles"),
         a11y_label: format!("Open all {count} singles by {}", group.display_artist),
         note: None,
         target: AlbumNameLinkTarget::SinglesGroup(group.key()),
-    })
+    }
 }
 
 /// The name links of a release page (ADR 0084 Decision 6): the links of
@@ -986,14 +994,50 @@ pub(crate) struct SinglesGroupIndexRowVm {
     pub(crate) work: TrackRowWork,
 }
 
+/// The element id of a `MusicIndex` single row, from its release key.
+fn index_row_element_id(key: &ReleaseKey) -> String {
+    match key {
+        ReleaseKey::FeedGuid(guid) => format!("singles-group-index-row:{guid}"),
+        ReleaseKey::LibraryFeed(feed_id) => format!("singles-group-index-row:{feed_id}"),
+    }
+}
+
 impl SinglesGroupIndexRowVm {
+    /// The row of a New releases single that the Library does not hold
+    /// (ADR 0086 packet 004). The title is the row label and the image is
+    /// the row thumbnail. The duration is the first track of the loaded
+    /// feed. `date` is the release date of the single.
+    #[must_use]
+    pub(crate) fn from_feed_result(
+        row: &FeedResultDisplay,
+        key: ReleaseKey,
+        date: Option<i64>,
+        work: TrackRowWork,
+    ) -> Self {
+        let duration = row
+            .remote_feed
+            .as_ref()
+            .and_then(|feed| feed.tracks.first())
+            .and_then(|track| track.duration_secs)
+            .map(fmt_dur);
+        Self {
+            element_id: index_row_element_id(&key),
+            key,
+            title: row.label.clone(),
+            date_text: date.and_then(fmt_date),
+            duration,
+            image_url: row
+                .thumbnail_href
+                .clone()
+                .filter(|url| !url.trim().is_empty()),
+            work,
+        }
+    }
+
     fn new(single: &IndexGroupSingle<'_>, work: TrackRowWork) -> Self {
         let title = index_release_title(single.feed);
         let date_text = single.date.and_then(fmt_date);
-        let element_id = match &single.key {
-            ReleaseKey::FeedGuid(guid) => format!("singles-group-index-row:{guid}"),
-            ReleaseKey::LibraryFeed(feed_id) => format!("singles-group-index-row:{feed_id}"),
-        };
+        let element_id = index_row_element_id(&single.key);
         let duration = single
             .feed
             .tracks
@@ -1219,8 +1263,9 @@ fn page_rows(group: &SinglesGroup<'_>, busy: &BusyItems) -> Vec<SinglesGroupPage
 }
 
 /// The row of one Library single of a group page: the shared Library
-/// track row. `None` when the single has no track.
-fn library_single_row(
+/// track row. `None` when the single has no track. The window group page
+/// uses the same row (ADR 0086 packet 004 decision D2).
+pub(crate) fn library_single_row(
     single: &GroupSingle<'_>,
     busy: &BusyItems,
 ) -> Option<SinglesGroupPageEntryVm> {
@@ -1321,6 +1366,36 @@ fn main_action(group: &SinglesGroup<'_>, busy: bool) -> SinglesGroupActionVm {
             .collect(),
     };
     let missing_count = group.count() - group.in_library_count();
+    let library_feed_ids: Vec<i64> = library_singles()
+        .filter_map(|single| single.album.feed_id)
+        .collect();
+    singles_main_action(
+        missing,
+        missing_count,
+        library_feed_ids,
+        group.count(),
+        busy,
+    )
+}
+
+/// The main action of a page of singles: the group page of ADR 0084
+/// Decision 6 and the window group page of ADR 0086 Decision 4. This
+/// function is the one owner of the label text of the two pages.
+///
+/// - With `missing_count` above 0, the action is "Download n singles", with
+///   the plan `missing`.
+/// - Else the action is "Add to playlist", with `library_feed_ids`.
+///
+/// `count` is the number of singles of the page. While `busy` is true, the
+/// action is not available.
+#[must_use]
+pub(crate) fn singles_main_action(
+    missing: ReleasesDownloadPlan,
+    missing_count: usize,
+    library_feed_ids: Vec<i64>,
+    count: usize,
+    busy: bool,
+) -> SinglesGroupActionVm {
     let (action, label, a11y_label) = if missing_count > 0 {
         let noun = format!("single{}", plural(missing_count));
         let a11y_label = if missing_count == 1 {
@@ -1334,13 +1409,10 @@ fn main_action(group: &SinglesGroup<'_>, busy: bool) -> SinglesGroupActionVm {
             a11y_label,
         )
     } else {
-        let all: Vec<i64> = library_singles()
-            .filter_map(|single| single.album.feed_id)
-            .collect();
         (
-            SinglesGroupAction::AddToPlaylist(all),
+            SinglesGroupAction::AddToPlaylist(library_feed_ids),
             "Add to playlist".to_owned(),
-            format!("Add the {} singles to a playlist", group.count()),
+            format!("Add the {count} singles to a playlist"),
         )
     };
     SinglesGroupActionVm {

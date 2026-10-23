@@ -114,7 +114,7 @@ use crate::view_models::singles_group::{
     SinglesGroupKey, SinglesGroupPageEntryVm, SinglesGroupPageVm,
 };
 use crate::view_models::track_detail::TrackNameLinkTarget;
-use crate::view_models::window_groups::{ContentListItemVm, NewReleasesLayoutItem};
+use crate::view_models::window_groups::{ContentListItemVm, NewReleasesLayoutItem, WindowGroupKey};
 use crate::view_models::workspace::{
     resolve_music_sidebar_state, toggle_music_sidebar_preference, ContentViewMode,
     ContentViewModeControlDisplay, DiscoverView, FrameHeaderActionDisplay, FrameNavigationEntry,
@@ -715,6 +715,16 @@ impl LibraryApp {
                 );
             }
         }
+    }
+
+    /// Opens the window group page of `key` in the current path (ADR 0086
+    /// Decision 4). A click on a group tile of New releases calls it.
+    pub(crate) fn open_window_group(&mut self, key: &WindowGroupKey, cx: &mut Context<Self>) {
+        self.open_page(
+            FrameNavigationEntry::WindowGroup(key.clone()),
+            NavigationPathStart::CurrentPath,
+            cx,
+        );
     }
 
     /// Opens the page of a singles group from its row in the Releases list
@@ -1533,7 +1543,8 @@ impl LibraryApp {
             | LibraryDetail::Album(_)
             | LibraryDetail::Track(_)
             | LibraryDetail::Discover(_)
-            | LibraryDetail::SinglesGroup(_) => None,
+            | LibraryDetail::SinglesGroup(_)
+            | LibraryDetail::WindowGroup(_) => None,
         };
         if let Some(playlist_id) = playlist_id {
             self.select_playlist(playlist_id, cx);
@@ -2579,6 +2590,19 @@ impl LibraryApp {
                 self.detail = LibraryDetail::SinglesGroup(key.clone());
                 self.request_singles_group_feed(key, cx);
             }
+            // ADR 0086 Decision 4: the window group page reads the loaded
+            // New releases rows through the cached layout. The rows stay
+            // loaded after another destination (packet 004 "The page in
+            // the path"). Each open reads the MusicIndex singles of the
+            // feed, so the link to the group page can show.
+            FrameNavigationEntry::WindowGroup(key) => {
+                self.vm.set_active_destination(MusicDestination::Discover);
+                self.vm.clear_library_selection();
+                self.vm
+                    .replace_recent_music_content(&self.recent_music_page);
+                self.detail = LibraryDetail::WindowGroup(key.clone());
+                self.request_singles_group_feed(&key.group, cx);
+            }
             // ADR 0084 Decision 7: the top app renders the name level page,
             // as it renders the feed page.
             FrameNavigationEntry::Search(_)
@@ -2866,6 +2890,8 @@ impl LibraryApp {
                 let page = self.singles_group_page(key);
                 page.title
             }
+            // ADR 0086 Decision 4: the breadcrumb label is the page title.
+            FrameNavigationEntry::WindowGroup(key) => self.vm.window_group_page(key).title,
             _ => entry.display_label(),
         }
     }
@@ -3301,7 +3327,8 @@ impl LibraryApp {
             | LibraryDetail::Album(_)
             | LibraryDetail::Playlist(_)
             | LibraryDetail::Discover(_)
-            | LibraryDetail::SinglesGroup(_) => None,
+            | LibraryDetail::SinglesGroup(_)
+            | LibraryDetail::WindowGroup(_) => None,
         }
     }
 
@@ -5150,9 +5177,14 @@ impl LibraryApp {
         // row is the Library track row of a release page. It reads its art
         // by URL, the same as a release page track row. A `MusicIndex` row
         // reads its release image by URL (packet 026 decision D13).
-        if let LibraryDetail::SinglesGroup(key) = &self.detail {
-            let page = self.singles_group_page(key);
-            urls.extend(page.rows.iter().filter_map(|row| {
+        let page_rows = match &self.detail {
+            LibraryDetail::SinglesGroup(key) => Some(self.singles_group_page(key).rows),
+            // ADR 0086 Decision 4: the window group page has the same rows.
+            LibraryDetail::WindowGroup(key) => Some(self.vm.window_group_page(key).rows),
+            _ => None,
+        };
+        if let Some(page_rows) = page_rows {
+            urls.extend(page_rows.iter().filter_map(|row| {
                 match row {
                     SinglesGroupPageEntryVm::Library(row) => row
                         .track
@@ -5211,6 +5243,7 @@ impl LibraryApp {
         // show their header art in the logo frame.
         let header_art = match &self.detail {
             LibraryDetail::SinglesGroup(key) => self.singles_group_page(key).art,
+            LibraryDetail::WindowGroup(key) => self.vm.window_group_page(key).art,
             LibraryDetail::Playlist(detail) => Some(
                 crate::view_models::library::PlaylistDetailVm::new(
                     &detail.playlist,

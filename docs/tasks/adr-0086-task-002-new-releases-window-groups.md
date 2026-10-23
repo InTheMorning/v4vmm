@@ -1,6 +1,6 @@
 # ADR 0086 Task 002: New Releases Window Groups
 
-Status: Implemented - 2026-10-23. Cases R86-2-01 to R86-2-33 pass. Mechanical checks are Green. V1 to V8 are open, in the final walk of the run of 2026-10-23.
+Status: Implemented - 2026-10-23. Cases R86-2-01 to R86-2-33 pass. Mechanical checks are Green. V1 to V4, V6 and V8 are open, in the final walk of the run of 2026-10-23. Packet 004 replaced D8, D9, V5 and V7 on 2026-10-23.
 
 ## Goal
 
@@ -308,9 +308,9 @@ These are for the operator. No test proves them.
 - V2: a group tile shows the anchor cover as a square, the artist name, the date span, the "n Singles" badge and the state word. When some singles are in the Library, the count shows after "New". The tile has the same size and alignment as a release tile.
 - V3: change to the List mode. The same groups show as rows, with the same facts. The art, the title and the badges have the same positions as in a release row. Examine Light and Dark.
 - V4: make the window narrow. In the Tiles mode and the List mode, no text overlaps and no text goes outside its tile or row.
-- V5: click a group tile. The release page of the newest single of the group opens. Back shows New releases at the same scroll position.
+- V5 (replaced by packet 004 D10 on 2026-10-23): click a group tile. The release page of the newest single of the group opens. Back shows New releases at the same scroll position.
 - V6: move the keyboard focus with the arrow keys. The focus reaches a group tile, and Enter opens the same page as a click.
-- V7: click "Select". Each single shows as its own tile, with its checkbox. Click "Done". The groups show again.
+- V7 (replaced by packet 004 D11 on 2026-10-23): click "Select". Each single shows as its own tile, with its checkbox. Click "Done". The groups show again.
 - V8: click "Load more" until a page adds a single to the window of a group or of a single tile. The tile changes in place, with no navigation.
 
 ## Exclusions

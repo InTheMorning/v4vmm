@@ -34,7 +34,7 @@ use crate::view_models::selection_action_bar::{
 };
 use crate::view_models::singles_group::SinglesGroupPageEntryVm;
 use crate::view_models::window_groups::{
-    ContentListItemVm, NewReleasesLayout, NewReleasesLayoutItem,
+    ContentListItemVm, NewReleasesLayout, NewReleasesLayoutItem, WindowGroupTileVm,
 };
 use crate::view_models::workspace::{
     DiscoverView, FrameHeaderActionDisplay, FrameNavigationEntry, ReleaseKey, TrackKey,
@@ -91,7 +91,8 @@ impl DetailListKind {
             FrameNavigationEntry::SinglesGroup(_)
             | FrameNavigationEntry::PublisherDetail(_)
             | FrameNavigationEntry::ArtistName(_)
-            | FrameNavigationEntry::DiscoverView(DiscoverView::NewReleases) => Some(Self::Releases),
+            | FrameNavigationEntry::DiscoverView(DiscoverView::NewReleases)
+            | FrameNavigationEntry::WindowGroup(_) => Some(Self::Releases),
             FrameNavigationEntry::PlaylistDetail(_) => Some(Self::PlaylistEntries),
             _ => None,
         }
@@ -290,6 +291,15 @@ pub(crate) enum DetailPageRows {
     Tracks(Vec<DetailTrackRow>),
     /// The release rows of a singles group page or a feed page.
     Releases(Vec<DetailReleaseRow>),
+    /// The release rows of the Discover "New releases" view (ADR 0086
+    /// packet 004). `rows` holds each shown release and each member of
+    /// each group, in item order. The action bar counts these rows.
+    /// `tiles` holds one selection row for each shown item: a plain item
+    /// has one member, and a group tile has each member of its window.
+    GroupedReleases {
+        rows: Vec<DetailReleaseRow>,
+        tiles: Vec<SelectionRow<DetailRowKey, DetailRowKey>>,
+    },
     /// The entry rows of the playlist `playlist_id` (packet 025). The rows
     /// come from the full list, so a row that waits is also here.
     PlaylistEntries {
@@ -304,7 +314,7 @@ impl DetailPageRows {
     pub(crate) const fn kind(&self) -> DetailListKind {
         match self {
             Self::Tracks(_) => DetailListKind::Tracks,
-            Self::Releases(_) => DetailListKind::Releases,
+            Self::Releases(_) | Self::GroupedReleases { .. } => DetailListKind::Releases,
             Self::PlaylistEntries { .. } => DetailListKind::PlaylistEntries,
         }
     }
@@ -317,7 +327,7 @@ impl DetailPageRows {
                 .iter()
                 .filter_map(|row| row.key.clone().map(DetailRowKey::Track))
                 .collect(),
-            Self::Releases(rows) => rows
+            Self::Releases(rows) | Self::GroupedReleases { rows, .. } => rows
                 .iter()
                 .map(|row| DetailRowKey::Release(row.key.clone()))
                 .collect(),
@@ -329,9 +339,14 @@ impl DetailPageRows {
     }
 
     /// The rows for [`ListSelection`]. Each row has one member: its own
-    /// key. A row with no key is not in this list.
+    /// key. A row with no key is not in this list. The Discover view gives
+    /// its tiles: a group tile has each member of its window (ADR 0086
+    /// packet 004).
     #[must_use]
     pub(crate) fn selection_rows(&self) -> Vec<SelectionRow<DetailRowKey, DetailRowKey>> {
+        if let Self::GroupedReleases { tiles, .. } = self {
+            return tiles.clone();
+        }
         self.members()
             .into_iter()
             .map(SelectionRow::of_one)
@@ -344,6 +359,7 @@ impl DetailPageRows {
         match self {
             Self::Tracks(rows) => rows.iter().any(|row| row.key.is_some()),
             Self::Releases(rows) => !rows.is_empty(),
+            Self::GroupedReleases { tiles, .. } => !tiles.is_empty(),
             Self::PlaylistEntries { rows, .. } => !rows.is_empty(),
         }
     }
@@ -356,7 +372,10 @@ impl DetailPageRows {
                 .iter()
                 .find(|row| row.key.as_ref() == Some(key))
                 .map(|row| row.title.as_str()),
-            (Self::Releases(rows), DetailRowKey::Release(key)) => rows
+            (
+                Self::Releases(rows) | Self::GroupedReleases { rows, .. },
+                DetailRowKey::Release(key),
+            ) => rows
                 .iter()
                 .find(|row| &row.key == key)
                 .map(|row| row.title.as_str()),
@@ -372,7 +391,7 @@ impl DetailPageRows {
     pub(crate) fn playlist_entry(&self, key: &PlaylistEntryKey) -> Option<&DetailPlaylistEntryRow> {
         match self {
             Self::PlaylistEntries { rows, .. } => rows.iter().find(|row| &row.key == key),
-            Self::Tracks(_) | Self::Releases(_) => None,
+            Self::Tracks(_) | Self::Releases(_) | Self::GroupedReleases { .. } => None,
         }
     }
 
@@ -391,7 +410,7 @@ impl DetailPageRows {
                         .is_selected(&DetailRowKey::PlaylistEntry(row.key))
                 })
                 .collect(),
-            Self::Tracks(_) | Self::Releases(_) => Vec::new(),
+            Self::Tracks(_) | Self::Releases(_) | Self::GroupedReleases { .. } => Vec::new(),
         }
     }
 
@@ -401,7 +420,7 @@ impl DetailPageRows {
     pub(crate) fn add_to_playlist_choices(&self, playlists: &[Playlist]) -> Vec<Playlist> {
         let open = match self {
             Self::PlaylistEntries { playlist_id, .. } => Some(*playlist_id),
-            Self::Tracks(_) | Self::Releases(_) => None,
+            Self::Tracks(_) | Self::Releases(_) | Self::GroupedReleases { .. } => None,
         };
         playlists
             .iter()
@@ -424,7 +443,9 @@ impl DetailPageRows {
                     })
                 })
                 .collect(),
-            Self::Releases(_) | Self::PlaylistEntries { .. } => Vec::new(),
+            Self::Releases(_) | Self::GroupedReleases { .. } | Self::PlaylistEntries { .. } => {
+                Vec::new()
+            }
         }
     }
 
@@ -432,7 +453,7 @@ impl DetailPageRows {
     #[must_use]
     pub(crate) fn selected_releases(&self, selection: &DetailSelection) -> Vec<&DetailReleaseRow> {
         match self {
-            Self::Releases(rows) => rows
+            Self::Releases(rows) | Self::GroupedReleases { rows, .. } => rows
                 .iter()
                 .filter(|row| {
                     selection
@@ -508,7 +529,7 @@ impl DetailPageRows {
             // ADR 0084 task 031: the release row menu and this bar count
             // through the one availability rule. The detail rows hold no
             // job fact of an Index release.
-            Self::Releases(_) => {
+            Self::Releases(_) | Self::GroupedReleases { .. } => {
                 let selected = self.selected_releases(selection);
                 let counts = ReleaseActionCounts::of(selected.iter().map(|row| row.state()));
                 SelectionActionCounts {
@@ -649,7 +670,7 @@ impl DetailSelection {
                     self.row_selection(key.as_ref(), &row.title)
                 })
                 .collect(),
-            DetailPageRows::Releases(rows) => rows
+            DetailPageRows::Releases(rows) | DetailPageRows::GroupedReleases { rows, .. } => rows
                 .iter()
                 .map(|row| {
                     self.row_selection(Some(&DetailRowKey::Release(row.key.clone())), &row.title)
@@ -669,13 +690,22 @@ impl DetailSelection {
     /// `Selecting`, a plain click changes the selection of the row. Gives
     /// `true` when the caller must open the page of the row: a plain
     /// click in [`SelectionMode::Normal`].
+    ///
+    /// The row of `key` in `visible` gives the members, so a click on a
+    /// group tile acts on each member of its window (ADR 0086 packet 004
+    /// decision D12). A key that `visible` does not hold is a row of one
+    /// member.
     pub(crate) fn click(
         &mut self,
         key: &DetailRowKey,
         click: DetailRowClick,
         visible: &[SelectionRow<DetailRowKey, DetailRowKey>],
     ) -> bool {
-        let row = SelectionRow::of_one(key.clone());
+        let row = visible
+            .iter()
+            .find(|row| &row.id == key)
+            .cloned()
+            .unwrap_or_else(|| SelectionRow::of_one(key.clone()));
         match click {
             DetailRowClick::Toggle => {
                 self.mode = SelectionMode::Selecting;
@@ -703,6 +733,32 @@ impl DetailSelection {
     pub(crate) fn toggle_row(&mut self, key: &DetailRowKey) {
         self.mode = SelectionMode::Selecting;
         self.selection.toggle(&SelectionRow::of_one(key.clone()));
+    }
+
+    /// The checkbox of a group tile (ADR 0086 packet 004 decision D12): it
+    /// starts [`SelectionMode::Selecting`]. When each member of `row` is
+    /// selected, it clears each member. Else it selects each member.
+    pub(crate) fn toggle_selection_row(&mut self, row: &SelectionRow<DetailRowKey, DetailRowKey>) {
+        self.mode = SelectionMode::Selecting;
+        self.selection.toggle(row);
+    }
+
+    /// The selection facts of a group tile, named `title` (ADR 0086 packet
+    /// 004 decision D12). The checkbox is checked when each member is
+    /// selected, and mixed when some members are selected. A mixed tile
+    /// has no selected mark.
+    #[must_use]
+    pub(crate) fn tile_selection(
+        &self,
+        row: &SelectionRow<DetailRowKey, DetailRowKey>,
+        title: &str,
+    ) -> RowSelectionVm {
+        RowSelectionVm::for_group_row(
+            title,
+            self.selection.row_check_state(&row.members),
+            self.selection.focused() == Some(&row.id),
+            self.mode.is_selecting(),
+        )
     }
 
     /// Space: starts [`SelectionMode::Selecting`] and changes the
@@ -1035,37 +1091,113 @@ pub(crate) fn discover_row_key(row: &ContentListRowDisplay) -> Option<DetailRowK
         .map(|guid| DetailRowKey::Release(ReleaseKey::FeedGuid(guid.to_owned())))
 }
 
-/// The rows of the Discover "New releases" view (packet 020), in their
-/// visible order. A row with no key is not in this list. `facts` gives the
-/// Library facts of a release key, so the bar counts follow packet 018.
-#[must_use]
-pub(crate) fn discover_release_rows<'a>(
-    rows: impl IntoIterator<Item = &'a ContentListRowDisplay>,
-    facts: impl Fn(&ReleaseKey) -> Option<LibraryReleaseFacts>,
-) -> Vec<DetailReleaseRow> {
-    rows.into_iter()
-        .filter_map(|row| match discover_row_key(row)? {
-            DetailRowKey::Release(key) => Some(DetailReleaseRow {
-                title: row.title().to_owned(),
-                library: facts(&key),
-                key,
-            }),
-            DetailRowKey::Track(_) | DetailRowKey::PlaylistEntry(_) => None,
-        })
+/// The selection row of the group tile `tile`: the anchor key is its
+/// identity, and each member of its window is a member (ADR 0086 packet
+/// 004). `members` gives the row of each member, newest first.
+fn window_group_selection_row(
+    tile: &WindowGroupTileVm,
+    members: &[&ContentListRowDisplay],
+) -> SelectionRow<DetailRowKey, DetailRowKey> {
+    SelectionRow::new(
+        DetailRowKey::Release(tile.page_key.anchor.clone()),
+        members
+            .iter()
+            .filter_map(|row| discover_row_key(row))
+            .collect(),
+    )
+}
+
+/// The rows of each member of the window of `tile`, newest first.
+fn window_group_member_rows<'r>(
+    layout: &NewReleasesLayout,
+    tile: &WindowGroupTileVm,
+    rows_by_id: &BTreeMap<&str, &'r ContentListRowDisplay>,
+) -> Vec<&'r ContentListRowDisplay> {
+    layout
+        .window_member_row_ids(&tile.page_key)
+        .into_iter()
+        .filter_map(|row_id| rows_by_id.get(row_id).copied())
         .collect()
 }
 
-/// The items of the Discover "New releases" view with the selection facts
-/// of the detail column (packet 020, ADR 0086 packet 002). The row view and
-/// the tile view use these same items.
+/// The rows of the Discover "New releases" view (packet 020, ADR 0086
+/// packet 004), in item order.
 ///
-/// - In `SelectionMode::Normal`, the items follow `layout`. A plain item
-///   gives its row. A group item gives its group tile, with the selection
-///   facts of the anchor key and no visible checkbox.
-/// - In `SelectionMode::Selecting`, each row gives its row, with its
-///   checkbox (packet 002 decision D9).
-/// - When `layout` has no item, for example when the content list shows no
-///   New releases rows, each row gives its row.
+/// - `rows` of the result holds one release row for each shown release
+///   and for each member of each group. A row with no key is not in it.
+/// - `tiles` of the result holds one selection row for each shown item
+///   with a key. A group tile holds each member of its window.
+///
+/// When `layout` has no item, each row is a plain item. `facts` gives the
+/// Library facts of a release key, so the bar counts follow packet 018.
+#[must_use]
+pub(crate) fn discover_grouped_release_rows(
+    layout: &NewReleasesLayout,
+    rows: &[&ContentListRowDisplay],
+    facts: impl Fn(&ReleaseKey) -> Option<LibraryReleaseFacts>,
+) -> DetailPageRows {
+    let release_row = |row: &ContentListRowDisplay| match discover_row_key(row)? {
+        DetailRowKey::Release(key) => Some(DetailReleaseRow {
+            title: row.title().to_owned(),
+            library: facts(&key),
+            key,
+        }),
+        DetailRowKey::Track(_) | DetailRowKey::PlaylistEntry(_) => None,
+    };
+    let mut release_rows = Vec::new();
+    let mut tiles = Vec::new();
+    if layout.items().is_empty() {
+        for row in rows {
+            if let Some(release) = release_row(row) {
+                tiles.push(SelectionRow::of_one(DetailRowKey::Release(
+                    release.key.clone(),
+                )));
+                release_rows.push(release);
+            }
+        }
+        return DetailPageRows::GroupedReleases {
+            rows: release_rows,
+            tiles,
+        };
+    }
+    let rows_by_id: BTreeMap<&str, &ContentListRowDisplay> =
+        rows.iter().map(|row| (row.id.as_str(), *row)).collect();
+    for item in layout.items() {
+        match item {
+            NewReleasesLayoutItem::Release { row_id } => {
+                if let Some(release) = rows_by_id
+                    .get(row_id.as_str())
+                    .and_then(|row| release_row(row))
+                {
+                    tiles.push(SelectionRow::of_one(DetailRowKey::Release(
+                        release.key.clone(),
+                    )));
+                    release_rows.push(release);
+                }
+            }
+            NewReleasesLayoutItem::WindowGroup(tile) => {
+                let members = window_group_member_rows(layout, tile, &rows_by_id);
+                tiles.push(window_group_selection_row(tile, &members));
+                release_rows.extend(members.into_iter().filter_map(release_row));
+            }
+        }
+    }
+    DetailPageRows::GroupedReleases {
+        rows: release_rows,
+        tiles,
+    }
+}
+
+/// The items of the Discover "New releases" view with the selection facts
+/// of the detail column (packet 020, ADR 0086 packets 002 and 004). The
+/// row view and the tile view use these same items.
+///
+/// The items follow `layout` in both modes (packet 004 decision D11). A
+/// plain item gives its row. A group item gives its group tile, with the
+/// selection facts of [`DetailSelection::tile_selection`]: in
+/// `SelectionMode::Selecting`, the tile shows a checkbox that can be
+/// checked, mixed or clear. When `layout` has no item, for example when
+/// the content list shows no New releases rows, each row gives its row.
 ///
 /// A row with no key gets [`RowSelectionVm::none`].
 #[must_use]
@@ -1078,22 +1210,37 @@ pub(crate) fn discover_items_with_selection(
         row.selection = selection.row_selection(discover_row_key(&row).as_ref(), row.title());
         ContentListItemVm::Row(row)
     };
-    if selection.mode().is_selecting() || layout.items().is_empty() {
+    if layout.items().is_empty() {
         return rows.into_iter().map(with_selection).collect();
     }
+    let rows_by_id: BTreeMap<&str, &ContentListRowDisplay> =
+        rows.iter().map(|row| (row.id.as_str(), row)).collect();
+    let tile_rows: Vec<Option<SelectionRow<DetailRowKey, DetailRowKey>>> = layout
+        .items()
+        .iter()
+        .map(|item| match item {
+            NewReleasesLayoutItem::WindowGroup(tile) => Some(window_group_selection_row(
+                tile,
+                &window_group_member_rows(layout, tile, &rows_by_id),
+            )),
+            NewReleasesLayoutItem::Release { .. } => None,
+        })
+        .collect();
     let mut rows_by_id: BTreeMap<String, ContentListRowDisplay> =
         rows.into_iter().map(|row| (row.id.clone(), row)).collect();
     layout
         .items()
         .iter()
-        .filter_map(|item| match item {
-            NewReleasesLayoutItem::Release { row_id } => {
+        .zip(tile_rows)
+        .filter_map(|(item, tile_row)| match (item, tile_row) {
+            (NewReleasesLayoutItem::Release { row_id }, _) => {
                 rows_by_id.remove(row_id).map(with_selection)
             }
-            NewReleasesLayoutItem::WindowGroup(tile) => {
-                let key = rows_by_id.get(&tile.open_row_id).and_then(discover_row_key);
+            (NewReleasesLayoutItem::WindowGroup(tile), tile_row) => {
                 let mut tile = tile.as_ref().clone();
-                tile.selection = selection.row_selection(key.as_ref(), &tile.title);
+                tile.selection = tile_row.map_or_else(RowSelectionVm::none, |row| {
+                    selection.tile_selection(&row, &tile.title)
+                });
                 Some(ContentListItemVm::WindowGroup(Box::new(tile)))
             }
         })
@@ -1641,6 +1788,15 @@ mod tests {
             .collect()
     }
 
+    /// The rows of the Discover view of `rows`, with no window group.
+    fn discover_rows(
+        rows: &[ContentListRowDisplay],
+        facts: impl Fn(&ReleaseKey) -> Option<LibraryReleaseFacts>,
+    ) -> DetailPageRows {
+        let rows: Vec<&ContentListRowDisplay> = rows.iter().collect();
+        discover_grouped_release_rows(&NewReleasesLayout::default(), &rows, facts)
+    }
+
     fn discover_entry() -> FrameNavigationEntry {
         FrameNavigationEntry::DiscoverView(DiscoverView::NewReleases)
     }
@@ -1670,9 +1826,13 @@ mod tests {
             discover_row("index-feed:face-pale", "Face Pale"),
             discover_row("index-feed:", "No GUID"),
         ];
-        let releases = discover_release_rows(&rows, |_| None);
-        assert_eq!(releases.len(), 1);
-        assert_eq!(releases[0].title, "Face Pale");
+        let releases = discover_rows(&rows, |_| None);
+        assert_eq!(releases.members().len(), 1);
+        assert_eq!(releases.selection_rows().len(), 1);
+        assert_eq!(
+            releases.title_of(&DetailRowKey::Release(release_key("face-pale"))),
+            Some("Face Pale")
+        );
 
         let mut selection = DetailSelection::new();
         selection.bind(&discover_entry());
@@ -1698,7 +1858,7 @@ mod tests {
             discover_row("index-feed:downloaded", "Haleen"),
             discover_row("index-feed:partial", "Face Pale"),
         ];
-        let rows = DetailPageRows::Releases(discover_release_rows(&rows, |key| {
+        let rows = discover_rows(&rows, |key| {
             if key == &release_key("downloaded") {
                 Some(library_facts(9, true))
             } else if key == &release_key("partial") {
@@ -1706,7 +1866,7 @@ mod tests {
             } else {
                 None
             }
-        }));
+        });
         let mut selection = DetailSelection::new();
         selection.bind(&discover_entry());
         selection.select_all(&rows.selection_rows());
@@ -1767,7 +1927,7 @@ mod tests {
             discover_row("index-feed:b", "B"),
             discover_row("index-feed:c", "C"),
         ];
-        let rows = DetailPageRows::Releases(discover_release_rows(&rows, |_| None));
+        let rows = discover_rows(&rows, |_| None);
         let visible = rows.selection_rows();
         let key = |guid: &str| Some(DetailRowKey::Release(release_key(guid)));
         let mut selection = DetailSelection::new();

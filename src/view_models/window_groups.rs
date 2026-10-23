@@ -173,6 +173,60 @@ pub(crate) enum WindowItem {
     Group(WindowGroup),
 }
 
+/// The key of one window group page (ADR 0086 Decision 4, packet 004
+/// decision D3).
+///
+/// The key holds the key of the artist, the anchor single and the two
+/// limits of the window when the page opened. Equality compares these four
+/// fields. `artist` is a label only, as the label of `ArtistNameKey`.
+#[derive(Clone, Debug)]
+pub(crate) struct WindowGroupKey {
+    /// The key of the artist.
+    pub(crate) group: SinglesGroupKey,
+    /// The anchor single when the page opened.
+    pub(crate) anchor: ReleaseKey,
+    /// The release date of the anchor when the page opened.
+    pub(crate) anchor_date: i64,
+    /// The start of the window when the page opened.
+    pub(crate) window_start: i64,
+    /// The tile title when the page opened. Equality does not compare it.
+    pub(crate) artist: String,
+}
+
+impl PartialEq for WindowGroupKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.group == other.group
+            && self.anchor == other.anchor
+            && self.anchor_date == other.anchor_date
+            && self.window_start == other.window_start
+    }
+}
+
+impl Eq for WindowGroupKey {}
+
+/// The position of each member of the window `key`, newest first (packet
+/// 004 "The key of a window").
+///
+/// A member is an entry of the key of the artist whose release date is in
+/// the stored limits of the window. Equal dates keep the list order. The
+/// result does not read the current groups, so a history entry shows the
+/// window that the curator opened (packet 004 decision D4).
+#[must_use]
+pub(crate) fn window_members(entries: &[WindowEntry], key: &WindowGroupKey) -> Vec<usize> {
+    let mut members: Vec<(i64, usize)> = entries
+        .iter()
+        .filter(|entry| entry.group_key.as_ref() == Some(&key.group))
+        .filter_map(|entry| {
+            let date = entry.release_date?;
+            (key.window_start..=key.anchor_date)
+                .contains(&date)
+                .then_some((date, entry.position))
+        })
+        .collect();
+    members.sort_by_key(|(date, position)| (Reverse(*date), *position));
+    members.into_iter().map(|(_, position)| position).collect()
+}
+
 /// Makes the window groups of `entries` (ADR 0086 Decision 1).
 ///
 /// For each key, the newest single that is in no group is the anchor of a
@@ -307,7 +361,8 @@ impl WindowGroupStateVm {
 pub(crate) struct WindowGroupTileVm {
     /// The element id: [`WINDOW_GROUP_ELEMENT_PREFIX`] and the anchor row id.
     pub(crate) element_id: String,
-    /// The row id of the anchor. A click and Enter open this row.
+    /// The row id of the anchor. It identifies the tile. A click and Enter
+    /// open the window group page, not this row (packet 004 decision D10).
     pub(crate) open_row_id: String,
     /// The key of the group.
     pub(crate) key: SinglesGroupKey,
@@ -331,8 +386,10 @@ pub(crate) struct WindowGroupTileVm {
     pub(crate) art: CollectionArtVm,
     /// The loaded rows close the window (ADR 0086 Decision 5).
     pub(crate) window_closed: bool,
-    /// The selection facts of the anchor key.
+    /// The selection facts of the tile: a group row of each member key.
     pub(crate) selection: RowSelectionVm,
+    /// The key of the window group page that a click opens (packet 004).
+    pub(crate) page_key: WindowGroupKey,
 }
 
 impl WindowGroupTileVm {
@@ -362,6 +419,20 @@ impl WindowGroupTileVm {
         let state = WindowGroupStateVm::for_counts(count, group.in_library_count);
         let date_span = window_span_text(group.oldest_date, group.anchor_date);
         let window_closed = group.closed_by_rows;
+        let anchor = entries
+            .iter()
+            .find(|entry| entry.position == group.anchor)
+            .map_or_else(
+                || ReleaseKey::from_index_feed_guid(anchor_row_id),
+                |entry| entry.key.clone(),
+            );
+        let page_key = WindowGroupKey {
+            group: group.key.clone(),
+            anchor,
+            anchor_date: group.anchor_date,
+            window_start: group.window_start,
+            artist: title.to_owned(),
+        };
         Self {
             element_id: format!("{WINDOW_GROUP_ELEMENT_PREFIX}{anchor_row_id}"),
             open_row_id: anchor_row_id.to_owned(),
@@ -376,6 +447,7 @@ impl WindowGroupTileVm {
             art: CollectionArtVm::resolve(None, anchor_cover, CollectionKind::SinglesGroup),
             window_closed,
             selection: RowSelectionVm::none(),
+            page_key,
         }
     }
 
@@ -403,6 +475,14 @@ pub(crate) enum NewReleasesLayoutItem {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct NewReleasesLayout {
     items: Vec<NewReleasesLayoutItem>,
+    /// The window entry of each row, by position (packet 004).
+    entries: Vec<WindowEntry>,
+    /// The row id of each position.
+    row_ids: Vec<String>,
+    /// The positions of each single whose own identity is a name that the
+    /// tree joins to an artist feed (ADR 0084 Decision 6, packet 004
+    /// decision D6).
+    joined_by_name: BTreeSet<usize>,
 }
 
 impl NewReleasesLayout {
@@ -420,7 +500,15 @@ impl NewReleasesLayout {
         }
         let facts = window_entries(rows, tree);
         let entries: Vec<WindowEntry> = facts.iter().map(|fact| fact.entry.clone()).collect();
-        let mut layout = Self::default();
+        let mut layout = Self {
+            row_ids: rows.iter().map(|row| row.id.clone()).collect(),
+            joined_by_name: facts
+                .iter()
+                .filter(|fact| fact.joined_by_name)
+                .map(|fact| fact.entry.position)
+                .collect(),
+            ..Self::default()
+        };
         for item in window_groups(&entries, length) {
             match item {
                 WindowItem::Plain(position) => {
@@ -443,7 +531,43 @@ impl NewReleasesLayout {
                 }
             }
         }
+        layout.entries = entries;
         layout
+    }
+
+    /// The row id of each member of the window `key`, newest first (packet
+    /// 004). The members come from the stored limits of the key, not from
+    /// the current groups. Empty when the loaded rows hold no single of
+    /// the window.
+    #[must_use]
+    pub(crate) fn window_member_row_ids(&self, key: &WindowGroupKey) -> Vec<&str> {
+        window_members(&self.entries, key)
+            .into_iter()
+            .filter_map(|position| self.row_ids.get(position).map(String::as_str))
+            .collect()
+    }
+
+    /// Tells if the single of the row `row_id` joins its group through a
+    /// name match (ADR 0084 Decision 6). Its own identity is a name, and
+    /// the tree matches that name to one artist feed.
+    #[must_use]
+    pub(crate) fn joined_by_name(&self, row_id: &str) -> bool {
+        self.row_ids
+            .iter()
+            .position(|id| id == row_id)
+            .is_some_and(|position| self.joined_by_name.contains(&position))
+    }
+
+    /// The group tile whose anchor is `anchor`. `None` for a single that
+    /// is not the anchor of a tile.
+    #[must_use]
+    pub(crate) fn group_tile_for_anchor(&self, anchor: &ReleaseKey) -> Option<&WindowGroupTileVm> {
+        self.items.iter().find_map(|item| match item {
+            NewReleasesLayoutItem::WindowGroup(tile) if &tile.page_key.anchor == anchor => {
+                Some(tile.as_ref())
+            }
+            NewReleasesLayoutItem::WindowGroup(_) | NewReleasesLayoutItem::Release { .. } => None,
+        })
     }
 
     /// The items, in the order of the list.
@@ -453,8 +577,11 @@ impl NewReleasesLayout {
     }
 
     /// The row id of each item: the row of a plain item and the anchor row
-    /// of a group, in item order.
+    /// of a group, in item order. No production code calls it since
+    /// packet 004, which gives the selection rows through
+    /// `discover_grouped_release_rows`.
     #[must_use]
+    #[cfg(test)]
     pub(crate) fn shown_row_ids(&self) -> Vec<&str> {
         self.items
             .iter()
@@ -508,6 +635,9 @@ pub(crate) enum ContentListItemVm {
 struct RowWindowFacts {
     entry: WindowEntry,
     title: String,
+    /// The group key comes from a name that the tree matches to one artist
+    /// feed (packet 002 decision D4).
+    joined_by_name: bool,
 }
 
 /// The window entry of each row (ADR 0086 Decision 1, packet 002
@@ -563,6 +693,7 @@ fn row_window_facts(
         return RowWindowFacts {
             entry,
             title: UNKNOWN_ARTIST_TEXT.to_owned(),
+            joined_by_name: false,
         };
     };
 
@@ -584,8 +715,9 @@ fn row_window_facts(
         ),
     };
     entry.release_date = release_date;
+    let mut joined_by_name = false;
     if kind == ReleaseKind::Single {
-        entry.group_key = group_key(identity, matches);
+        (entry.group_key, joined_by_name) = group_key(identity, matches);
     }
 
     let title = library_title.unwrap_or_else(|| {
@@ -608,27 +740,36 @@ fn row_window_facts(
             })
             .unwrap_or_else(|| UNKNOWN_ARTIST_TEXT.to_owned())
     });
-    RowWindowFacts { entry, title }
+    RowWindowFacts {
+        entry,
+        title,
+        joined_by_name,
+    }
 }
 
-/// The group key of an identity (packet 002 decision D4). An empty name
-/// and the name "Unknown Artist" give no key, because they name no artist.
-fn group_key(identity: ArtistIdentity, matches: &NameFeedMatches) -> Option<SinglesGroupKey> {
+/// The group key of an identity (packet 002 decision D4), and `true` when
+/// a name match gives the key. An empty name and the name "Unknown
+/// Artist" give no key, because they name no artist.
+fn group_key(
+    identity: ArtistIdentity,
+    matches: &NameFeedMatches,
+) -> (Option<SinglesGroupKey>, bool) {
     match identity {
         ArtistIdentity::Name(key) => {
             if key.is_empty() || key == name_sort_key(UNKNOWN_ARTIST_TEXT) {
-                return None;
+                return (None, false);
             }
             match matches.get(&key) {
-                NameFeedMatch::MatchedFeed(feed_guid) => {
-                    Some(SinglesGroupKey(ArtistIdentity::Publisher(feed_guid)))
-                }
+                NameFeedMatch::MatchedFeed(feed_guid) => (
+                    Some(SinglesGroupKey(ArtistIdentity::Publisher(feed_guid))),
+                    true,
+                ),
                 NameFeedMatch::Ambiguous | NameFeedMatch::NoFeed => {
-                    Some(SinglesGroupKey(ArtistIdentity::Name(key)))
+                    (Some(SinglesGroupKey(ArtistIdentity::Name(key))), false)
                 }
             }
         }
-        publisher @ ArtistIdentity::Publisher(_) => Some(SinglesGroupKey(publisher)),
+        publisher @ ArtistIdentity::Publisher(_) => (Some(SinglesGroupKey(publisher)), false),
     }
 }
 
@@ -1271,5 +1412,112 @@ mod tests {
         let closed = layout(&closed, &LibraryTree::default());
         assert!(!closed.any_window_open());
         assert!(tiles(&closed)[0].window_closed);
+    }
+
+    /// The key of the window of R86-2-01: Oct 20 back to Oct 6.
+    fn r01_key(artist: &str) -> WindowGroupKey {
+        WindowGroupKey {
+            group: publisher("jsmovie"),
+            anchor: ReleaseKey::FeedGuid("guid-0".to_owned()),
+            anchor_date: oct(20),
+            window_start: oct(20) - WindowLength::DEFAULT.seconds(),
+            artist: artist.to_owned(),
+        }
+    }
+
+    /// R86-4-01: the members of the window of R86-2-01 are Oct 20, Oct 15
+    /// and Oct 8, in that order.
+    #[test]
+    fn adr_0086_window_group_page_r01_window_members_newest_first() {
+        let entries = singles(&[oct(8), oct(20), oct(1), oct(15)]);
+        assert_eq!(window_members(&entries, &r01_key("jSmovie")), [1, 3, 0]);
+    }
+
+    /// R86-4-02: no entry of another key, no album and no single with no
+    /// release date.
+    #[test]
+    fn adr_0086_window_group_page_r02_window_members_skip_other_entries() {
+        let entries = vec![
+            entry(0, Some(publisher("jsmovie")), Some(oct(20))),
+            entry(1, Some(publisher("rain")), Some(oct(18))),
+            entry(2, None, Some(oct(17))),
+            entry(3, Some(publisher("jsmovie")), None),
+            entry(4, Some(publisher("jsmovie")), Some(oct(15))),
+        ];
+        assert_eq!(window_members(&entries, &r01_key("jSmovie")), [0, 4]);
+    }
+
+    /// R86-4-03: the artist text is a label only. Each other field decides
+    /// the equality.
+    #[test]
+    fn adr_0086_window_group_page_r03_key_equality_ignores_the_artist() {
+        let key = r01_key("jSmovie");
+        assert_eq!(key, r01_key("JSMOVIE"));
+        let mut other = key.clone();
+        other.anchor = ReleaseKey::FeedGuid("guid-1".to_owned());
+        assert_ne!(key, other);
+        let mut other = key.clone();
+        other.anchor_date += 1;
+        assert_ne!(key, other);
+        let mut other = key.clone();
+        other.window_start += 1;
+        assert_ne!(key, other);
+    }
+
+    /// R86-4-04: the tile gives the page key of its group.
+    #[test]
+    fn adr_0086_window_group_page_r04_tile_gives_the_page_key() {
+        let rows = [
+            jsmovie_single("a", oct(20)),
+            jsmovie_single("b", oct(15)),
+            jsmovie_single("c", oct(8)),
+        ];
+        let layout = layout(&rows, &LibraryTree::default());
+        let tile = tiles(&layout)[0];
+        assert_eq!(tile.page_key.group, publisher("feed-jsmovie"));
+        assert_eq!(tile.page_key.anchor, ReleaseKey::FeedGuid("a".to_owned()));
+        assert_eq!(tile.page_key.anchor_date, oct(20));
+        assert_eq!(
+            tile.page_key.window_start,
+            oct(20) - WindowLength::DEFAULT.seconds()
+        );
+        assert_eq!(tile.page_key.artist, "jSmovie");
+        assert_eq!(
+            layout.window_member_row_ids(&tile.page_key),
+            ["index-feed:a", "index-feed:b", "index-feed:c"]
+        );
+    }
+
+    /// R86-4-25: `group_tile_for_anchor` gives the tile of the anchor key
+    /// only.
+    #[test]
+    fn adr_0086_window_group_page_r25_group_tile_for_anchor() {
+        let rows = [jsmovie_single("a", oct(20)), jsmovie_single("b", oct(15))];
+        let layout = layout(&rows, &LibraryTree::default());
+        let anchor = ReleaseKey::FeedGuid("a".to_owned());
+        assert_eq!(
+            layout
+                .group_tile_for_anchor(&anchor)
+                .map(|tile| tile.open_row_id.as_str()),
+            Some("index-feed:a")
+        );
+        assert!(layout
+            .group_tile_for_anchor(&ReleaseKey::FeedGuid("b".to_owned()))
+            .is_none());
+    }
+
+    /// R86-4-26: the default label of the entry is the artist of the key,
+    /// and the page has release rows.
+    #[test]
+    fn adr_0086_window_group_page_r26_entry_label_and_list_kind() {
+        use crate::view_models::detail_selection::DetailListKind;
+        use crate::view_models::workspace::FrameNavigationEntry;
+        let entry = FrameNavigationEntry::WindowGroup(r01_key("jSmovie"));
+        assert_eq!(entry.display_label(), "jSmovie");
+        assert!(entry.opens_detail_page());
+        assert_eq!(
+            DetailListKind::for_entry(&entry),
+            Some(DetailListKind::Releases)
+        );
     }
 }

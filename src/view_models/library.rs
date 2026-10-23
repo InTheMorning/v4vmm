@@ -39,7 +39,9 @@ use crate::view_models::artist_identity::{
 };
 use crate::view_models::artists_everything::{self, ArtistOrderKey, LibraryArtistRow};
 use crate::view_models::collection_art::{CollectionArtVm, CollectionKind};
-use crate::view_models::detail_selection::{LibraryReleaseFacts, ReleaseDownloaded};
+use crate::view_models::detail_selection::{
+    discover_grouped_release_rows, DetailPageRows, LibraryReleaseFacts, ReleaseDownloaded,
+};
 use crate::view_models::download_progress::{DownloadActivity, DownloadPhase, FeedKey};
 use crate::view_models::entity_detail::{
     EntityActionTarget, EntityActionVm, ReleaseMembershipState, TrackActionState,
@@ -93,7 +95,8 @@ use crate::view_models::singles_group::{
 use crate::view_models::text_filter::contains_normalized;
 #[cfg(test)]
 use crate::view_models::text_filter::normalize;
-use crate::view_models::window_groups::{NewReleasesLayout, WindowLength};
+use crate::view_models::window_group_page::WindowGroupPageVm;
+use crate::view_models::window_groups::{NewReleasesLayout, WindowGroupKey, WindowLength};
 use crate::view_models::workspace::{
     ContentViewMode, ContentViewModeControlDisplay, DiscoverView, FrameHeaderActionDisplay,
     FrameNavigationEntry, MusicDestination, MusicSidebarPreference, MusicSidebarState,
@@ -3137,26 +3140,33 @@ impl LibraryViewModel {
         self.refresh_new_releases_layout();
     }
 
-    /// The selection rows of the Discover "New releases" view (packet 002
-    /// decisions D9 and D10). In `Normal`, they are the shown items: each
-    /// plain row and each anchor row, in item order. In `Selecting`, they
-    /// are each visible row.
+    /// The selectable rows of the Discover "New releases" view (packet 004
+    /// decision D11). The rows hold each shown release and each member of
+    /// each group. The tiles hold one selection row for each shown item,
+    /// so a group tile acts as one tile in both modes.
     #[must_use]
-    pub(crate) fn discover_selection_rows(
-        &self,
-        mode: SelectionMode,
-    ) -> Vec<&ContentListRowDisplay> {
-        let rows = self.content_list_page.visible_rows();
-        if mode.is_selecting() || self.new_releases_layout.items().is_empty() {
-            return rows;
-        }
-        let rows_by_id: BTreeMap<&str, &ContentListRowDisplay> =
-            rows.iter().map(|row| (row.id.as_str(), *row)).collect();
-        self.new_releases_layout
-            .shown_row_ids()
-            .into_iter()
-            .filter_map(|row_id| rows_by_id.get(row_id).copied())
-            .collect()
+    pub(crate) fn discover_page_rows(&self) -> DetailPageRows {
+        discover_grouped_release_rows(
+            &self.new_releases_layout,
+            &self.content_list_page.visible_rows(),
+            |key| self.library_release_facts(key),
+        )
+    }
+
+    /// The page of the window `key` (ADR 0086 Decision 4). It reads the
+    /// cached layout, the tree, the loaded `MusicIndex` singles and the
+    /// busy items at each call, so a download or a removal changes the
+    /// page in place (packet 004 decision D13).
+    #[must_use]
+    pub(crate) fn window_group_page(&self, key: &WindowGroupKey) -> WindowGroupPageVm {
+        WindowGroupPageVm::build(
+            key,
+            &self.new_releases_layout,
+            &self.content_list_page.visible_rows(),
+            &self.snapshot.tree,
+            &self.index_feed_singles,
+            &self.busy,
+        )
     }
 
     /// Gives each "New releases" row that the Library holds its state word
@@ -12630,8 +12640,7 @@ mod tests {
 mod adr_0086_window_groups_tests {
     use super::*;
     use crate::view_models::detail_selection::{
-        discover_items_with_selection, discover_release_rows, DetailPageRows, DetailRowKey,
-        DetailSelection,
+        discover_items_with_selection, DetailRowKey, DetailSelection,
     };
     use crate::view_models::list_selection::FocusStep;
     use crate::view_models::named_feeds::NamedFeed;
@@ -12753,41 +12762,28 @@ mod adr_0086_window_groups_tests {
         ]
     }
 
-    /// R86-2-23: `open_row_id` is the anchor row. In `Normal`, the
-    /// selection rows are each plain row and each anchor row, in item
-    /// order.
+    /// R86-2-23, moved to `discover_page_rows` by packet 004 decision
+    /// D11: `open_row_id` is the anchor row. The selection rows are each
+    /// plain row and each group tile, in item order.
     #[test]
-    fn adr_0086_window_groups_r23_normal_selection_rows_are_the_items() {
+    fn adr_0086_window_groups_r23_selection_rows_are_the_items() {
         let (vm, _) = view_model(r01_rows(), false);
         let layout = vm.new_releases_layout();
         let NewReleasesLayoutItem::WindowGroup(tile) = &layout.items()[0] else {
             panic!("the first item is the group");
         };
         assert_eq!(tile.open_row_id, "index-feed:a");
-        assert_eq!(
-            ids(&vm.discover_selection_rows(SelectionMode::Normal)),
-            ["index-feed:a", "index-feed:rain", "index-feed:d"]
-        );
+        let tile_ids: Vec<DetailRowKey> = vm
+            .discover_page_rows()
+            .selection_rows()
+            .into_iter()
+            .map(|row| row.id)
+            .collect();
+        let key = |guid: &str| DetailRowKey::Release(ReleaseKey::FeedGuid(guid.to_owned()));
+        assert_eq!(tile_ids, [key("a"), key("rain"), key("d")]);
         assert_eq!(
             layout.shown_row_ids(),
             ["index-feed:a", "index-feed:rain", "index-feed:d"]
-        );
-    }
-
-    /// R86-2-24 (the view model part): in `Selecting`, the selection rows
-    /// are each visible row.
-    #[test]
-    fn adr_0086_window_groups_r24_selecting_rows_are_each_row() {
-        let (vm, _) = view_model(r01_rows(), false);
-        assert_eq!(
-            ids(&vm.discover_selection_rows(SelectionMode::Selecting)),
-            [
-                "index-feed:a",
-                "index-feed:rain",
-                "index-feed:b",
-                "index-feed:c",
-                "index-feed:d"
-            ]
         );
     }
 
@@ -12888,21 +12884,6 @@ mod adr_0086_window_groups_tests {
             .collect()
     }
 
-    /// R86-2-24 (the items part): in `Selecting`, the items are only rows,
-    /// each with a visible checkbox.
-    #[test]
-    fn adr_0086_window_groups_r24_selecting_items_are_rows_with_checkboxes() {
-        let (vm, _) = view_model(r01_rows(), false);
-        let mut selection = discover_selection();
-        selection.toggle_mode();
-        let items = items(&vm, &selection);
-        assert_eq!(items.len(), 5);
-        assert!(items.iter().all(|item| matches!(
-            item,
-            ContentListItemVm::Row(row) if row.selection.checkbox_visible
-        )));
-    }
-
     /// R86-2-25: in `Normal`, the items give the groups. A group tile is
     /// focused when its anchor key has the focus, and it has no visible
     /// checkbox.
@@ -12910,10 +12891,7 @@ mod adr_0086_window_groups_tests {
     fn adr_0086_window_groups_r25_group_tile_takes_the_anchor_focus() {
         let (vm, _) = view_model(r01_rows(), false);
         let mut selection = discover_selection();
-        let rows = DetailPageRows::Releases(discover_release_rows(
-            vm.discover_selection_rows(selection.mode()),
-            |_| None,
-        ));
+        let rows = vm.discover_page_rows();
         let focused = selection.move_focus(FocusStep::Down, &rows.selection_rows());
         assert_eq!(
             focused,
@@ -13267,5 +13245,463 @@ mod adr_0086_window_groups_tests {
             ))
         );
         assert_eq!(vm.content_list_page().load_more_display(), None);
+    }
+
+    /// The window group page (ADR 0086 packet 004).
+    mod window_group_page {
+        use super::*;
+        use crate::view_models::album_page::AlbumNameLinkTarget;
+        use crate::view_models::detail_selection::{DetailPageRows, DetailRowClick};
+        use crate::view_models::download_progress::{DownloadActivity, FeedKey};
+        use crate::view_models::list_selection::RowCheckState;
+        use crate::view_models::singles_group::{
+            SinglesGroupAction, SinglesGroupActionVm, SinglesGroupPageEntryVm,
+        };
+        use crate::view_models::window_group_page::{
+            window_group_title, WINDOW_GROUP_EMPTY_MESSAGE,
+        };
+        use crate::view_models::window_groups::WindowGroupKey;
+        use crate::view_models::workspace::FrameNavigationState;
+
+        /// A Library single of jSmovie with the Library feed id `feed_id`
+        /// and one track on `date`.
+        fn library_single(guid: &str, feed_id: i64, date: i64, downloaded: bool) -> AlbumNode {
+            AlbumNode {
+                name: format!("Single {guid}"),
+                feed_id: Some(feed_id),
+                feed_guid: Some(guid.to_owned()),
+                feed_url: None,
+                language: None,
+                description: None,
+                image_href: None,
+                named_feeds: vec![artist_feed()],
+                identity_facts: LocalIdentityFacts::default(),
+                metadata_facts: Box::new(FeedMetadataFacts::default()),
+                stored_values: None,
+                tracks: vec![TrackRow {
+                    id: feed_id * 10,
+                    feed_id,
+                    pub_date: Some(date),
+                    is_in_library: downloaded,
+                    ..TrackRow::default()
+                }],
+            }
+        }
+
+        fn jsmovie_tree(albums: Vec<AlbumNode>) -> LibraryTree {
+            LibraryTree {
+                artists: vec![ArtistNode {
+                    name: "jSmovie".to_owned(),
+                    albums,
+                }],
+            }
+        }
+
+        /// The page key of the first group tile of `vm`.
+        fn first_key(vm: &LibraryViewModel) -> WindowGroupKey {
+            group_tiles(vm)
+                .first()
+                .expect("the layout has a group")
+                .page_key
+                .clone()
+        }
+
+        fn release(guid: &str) -> ReleaseKey {
+            ReleaseKey::FeedGuid(guid.to_owned())
+        }
+
+        fn detail_key(guid: &str) -> DetailRowKey {
+            DetailRowKey::Release(release(guid))
+        }
+
+        fn row_kinds(rows: &[SinglesGroupPageEntryVm]) -> Vec<(ReleaseKey, &'static str)> {
+            rows.iter()
+                .map(|row| {
+                    let kind = match row {
+                        SinglesGroupPageEntryVm::Library(_) => "library",
+                        SinglesGroupPageEntryVm::Index(_) => "index",
+                    };
+                    (row.key().clone(), kind)
+                })
+                .collect()
+        }
+
+        fn main_action(vm: &LibraryViewModel) -> SinglesGroupActionVm {
+            vm.window_group_page(&first_key(vm))
+                .main_action
+                .expect("the page has members")
+        }
+
+        /// The selection facts of the first item, the group tile.
+        fn tile_selection(vm: &LibraryViewModel, selection: &DetailSelection) -> RowSelectionVm {
+            match &items(vm, selection)[0] {
+                ContentListItemVm::WindowGroup(tile) => tile.selection.clone(),
+                ContentListItemVm::Row(_) => panic!("the first item is the group"),
+            }
+        }
+
+        /// R86-4-05: the rows are newest first. A Library member gives
+        /// `Library`, and an Index member gives `Index`.
+        #[test]
+        fn adr_0086_window_group_page_r05_rows_newest_first() {
+            let (mut vm, _) = view_model(r01_rows(), false);
+            vm.replace_tree(jsmovie_tree(vec![library_single("b", 2, oct(15), false)]));
+            let page = vm.window_group_page(&first_key(&vm));
+            assert_eq!(
+                row_kinds(&page.rows),
+                [
+                    (release("a"), "index"),
+                    (release("b"), "library"),
+                    (release("c"), "index")
+                ]
+            );
+            assert_eq!(page.date_span.as_deref(), Some("Oct 8 to Oct 20"));
+            assert_eq!(page.empty_message, None);
+        }
+
+        /// R86-4-06: a member that a name joins to the feed comes last,
+        /// under "Matched by name".
+        #[test]
+        fn adr_0086_window_group_page_r06_matched_by_name_comes_last() {
+            let (_, named) = single("n", oct(18));
+            let mut named = named;
+            if let Some(feed) = named.remote_feed.as_mut() {
+                feed.named_feeds.clear();
+            }
+            let rows = vec![
+                single("a", oct(20)),
+                (0, named),
+                single("b", oct(15)),
+                single("c", oct(8)),
+            ];
+            let (mut vm, _) = view_model(rows, false);
+            vm.replace_tree(jsmovie_tree(vec![library_single("lib", 9, oct(1), true)]));
+            let page = vm.window_group_page(&first_key(&vm));
+            let keys: Vec<ReleaseKey> = page.rows.iter().map(|row| row.key().clone()).collect();
+            assert_eq!(
+                keys,
+                [release("a"), release("b"), release("c"), release("n")]
+            );
+            assert_eq!(page.matched_by_name.map(|heading| heading.count), Some(1));
+            assert_eq!(page.title, "jSmovie · 4 singles");
+        }
+
+        /// R86-4-07: one Index member gives "Download 1 single", with its
+        /// feed GUID and its title.
+        #[test]
+        fn adr_0086_window_group_page_r07_one_index_member_downloads() {
+            let (mut vm, _) = view_model(r01_rows(), false);
+            vm.replace_tree(jsmovie_tree(vec![
+                library_single("a", 1, oct(20), true),
+                library_single("b", 2, oct(15), true),
+            ]));
+            let action = main_action(&vm);
+            assert_eq!(action.label, "Download 1 single");
+            let SinglesGroupAction::DownloadSingles(plan) = action.action else {
+                panic!("the download action");
+            };
+            assert!(plan.library_feed_ids.is_empty());
+            assert_eq!(
+                plan.index_releases,
+                [("c".to_owned(), Some("Single c".to_owned()))]
+            );
+        }
+
+        /// R86-4-08: two Library members that are not downloaded and one
+        /// Index member give "Download 3 singles".
+        #[test]
+        fn adr_0086_window_group_page_r08_three_singles_to_download() {
+            let (mut vm, _) = view_model(r01_rows(), false);
+            vm.replace_tree(jsmovie_tree(vec![
+                library_single("a", 1, oct(20), false),
+                library_single("b", 2, oct(15), false),
+            ]));
+            let action = main_action(&vm);
+            assert_eq!(action.label, "Download 3 singles");
+            assert!(action.available);
+            let SinglesGroupAction::DownloadSingles(plan) = action.action else {
+                panic!("the download action");
+            };
+            assert_eq!(plan.library_feed_ids, [1, 2]);
+            assert_eq!(plan.index_releases.len(), 1);
+        }
+
+        /// R86-4-09: each member in the Library gives "Add to playlist"
+        /// with the Library feed id of each member.
+        #[test]
+        fn adr_0086_window_group_page_r09_each_member_in_library() {
+            let (mut vm, _) = view_model(r01_rows(), false);
+            vm.replace_tree(jsmovie_tree(vec![
+                library_single("a", 1, oct(20), true),
+                library_single("b", 2, oct(15), true),
+                library_single("c", 3, oct(8), true),
+            ]));
+            let action = main_action(&vm);
+            assert_eq!(action.label, "Add to playlist");
+            assert_eq!(
+                action.action,
+                SinglesGroupAction::AddToPlaylist(vec![1, 2, 3])
+            );
+        }
+
+        /// R86-4-10: while one member downloads, the main action is not
+        /// available.
+        #[test]
+        fn adr_0086_window_group_page_r10_busy_member_disables_the_action() {
+            let (mut vm, _) = view_model(r01_rows(), false);
+            assert!(main_action(&vm).available);
+            vm.set_download_activity(DownloadActivity {
+                keys: BTreeSet::from([FeedKey::Guid("c".to_owned())]),
+                ..DownloadActivity::default()
+            });
+            assert!(!main_action(&vm).available);
+        }
+
+        /// R86-4-11: a group of 23 singles that holds each member gives
+        /// "All 23 singles".
+        #[test]
+        fn adr_0086_window_group_page_r11_link_to_the_group_of_23() {
+            let (mut vm, _) = view_model(r01_rows(), false);
+            let mut albums = vec![
+                library_single("a", 1, oct(20), true),
+                library_single("b", 2, oct(15), true),
+                library_single("c", 3, oct(8), true),
+            ];
+            for index in 0..20 {
+                albums.push(library_single(
+                    &format!("older-{index}"),
+                    100 + index,
+                    oct(1),
+                    true,
+                ));
+            }
+            vm.replace_tree(jsmovie_tree(albums));
+            let key = first_key(&vm);
+            let link = vm
+                .window_group_page(&key)
+                .all_singles_link
+                .expect("the group holds each member");
+            assert_eq!(link.label, "All 23 singles");
+            assert_eq!(link.target, AlbumNameLinkTarget::SinglesGroup(key.group));
+        }
+
+        /// R86-4-12: no link when the group does not hold each member, and
+        /// no link when no group has the key.
+        #[test]
+        fn adr_0086_window_group_page_r12_no_link_without_each_member() {
+            let (mut vm, _) = view_model(r01_rows(), false);
+            assert!(vm
+                .window_group_page(&first_key(&vm))
+                .all_singles_link
+                .is_none());
+            vm.replace_tree(jsmovie_tree(vec![
+                library_single("x", 7, oct(2), true),
+                library_single("y", 8, oct(3), true),
+            ]));
+            assert!(vm
+                .window_group_page(&first_key(&vm))
+                .all_singles_link
+                .is_none());
+        }
+
+        /// R86-4-13: the title has the artist and the count.
+        #[test]
+        fn adr_0086_window_group_page_r13_title_has_the_count() {
+            assert_eq!(window_group_title("jSmovie", 9), "jSmovie · 9 singles");
+            assert_eq!(window_group_title("jSmovie", 1), "jSmovie · 1 single");
+            assert_eq!(window_group_title("jSmovie", 0), "jSmovie");
+        }
+
+        /// R86-4-14: the breadcrumb labels of the path to the page.
+        #[test]
+        fn adr_0086_window_group_page_r14_breadcrumb_labels() {
+            let (vm, _) = view_model(singles_on(12..=20), false);
+            let key = first_key(&vm);
+            let mut nav = FrameNavigationState::new(FrameNavigationEntry::Destination(
+                MusicDestination::Discover,
+            ));
+            nav.push(FrameNavigationEntry::DiscoverView(
+                DiscoverView::NewReleases,
+            ));
+            nav.push(FrameNavigationEntry::WindowGroup(key));
+            let labels: Vec<String> = nav
+                .path_entries()
+                .iter()
+                .map(|entry| match entry {
+                    FrameNavigationEntry::WindowGroup(key) => vm.window_group_page(key).title,
+                    other => other.display_label(),
+                })
+                .collect();
+            assert_eq!(labels, ["Discover", "New releases", "jSmovie · 9 singles"]);
+        }
+
+        /// R86-4-15: Back and Forward between a member page and the window
+        /// group page.
+        #[test]
+        fn adr_0086_window_group_page_r15_back_and_forward() {
+            let (vm, _) = view_model(r01_rows(), false);
+            let window = FrameNavigationEntry::WindowGroup(first_key(&vm));
+            let member = FrameNavigationEntry::Release(release("b"));
+            let mut nav = FrameNavigationState::new(FrameNavigationEntry::Destination(
+                MusicDestination::Discover,
+            ));
+            nav.push(FrameNavigationEntry::DiscoverView(
+                DiscoverView::NewReleases,
+            ));
+            nav.push(window.clone());
+            nav.push(member.clone());
+            assert_eq!(nav.go_back().ok(), Some(&window));
+            assert_eq!(nav.go_forward().ok(), Some(&member));
+            assert_eq!(nav.go_back().ok(), Some(&window));
+        }
+
+        /// R86-4-16: a newer single moves the anchor of the tile. The old
+        /// key still gives the three members of R86-2-01.
+        #[test]
+        fn adr_0086_window_group_page_r16_old_key_keeps_its_window() {
+            let (mut vm, mut page) = view_model(r01_rows(), true);
+            let old_key = first_key(&vm);
+            vm.begin_recent_music_content_load(true);
+            page.load_recorded_page(batch(vec![single("z", oct(22))], false), true);
+            vm.replace_recent_music_content(&page);
+            assert_eq!(first_key(&vm).anchor, release("z"));
+            let keys: Vec<ReleaseKey> = vm
+                .window_group_page(&old_key)
+                .rows
+                .iter()
+                .map(|row| row.key().clone())
+                .collect();
+            assert_eq!(keys, [release("a"), release("b"), release("c")]);
+        }
+
+        /// R86-4-17: a first load with no row of the window gives the
+        /// empty state.
+        #[test]
+        fn adr_0086_window_group_page_r17_gone_window_is_empty() {
+            let (mut vm, mut page) = view_model(r01_rows(), false);
+            let key = first_key(&vm);
+            vm.begin_recent_music_content_load(false);
+            page.load_recorded_page(batch(vec![album("rain", oct(18))], false), false);
+            vm.replace_recent_music_content(&page);
+            let page = vm.window_group_page(&key);
+            assert_eq!(page.empty_message, Some(WINDOW_GROUP_EMPTY_MESSAGE));
+            assert!(page.main_action.is_none());
+            assert!(page.rows.is_empty());
+            assert_eq!(page.title, key.artist);
+        }
+
+        /// R86-4-18: the rows of the Discover view hold each member, and
+        /// the tiles hold one row for each shown item.
+        #[test]
+        fn adr_0086_window_group_page_r18_grouped_release_rows() {
+            let (vm, _) = view_model(r01_rows(), false);
+            let rows = vm.discover_page_rows();
+            let DetailPageRows::GroupedReleases { tiles, .. } = &rows else {
+                panic!("the Discover view gives grouped rows");
+            };
+            assert_eq!(tiles.len(), 3);
+            assert_eq!(tiles[0].id, detail_key("a"));
+            assert_eq!(
+                tiles[0].members,
+                [detail_key("a"), detail_key("b"), detail_key("c")]
+            );
+            assert_eq!(tiles[1].members, [detail_key("rain")]);
+            assert_eq!(
+                rows.members(),
+                [
+                    detail_key("a"),
+                    detail_key("b"),
+                    detail_key("c"),
+                    detail_key("rain"),
+                    detail_key("d")
+                ]
+            );
+        }
+
+        /// R86-4-19: in `Selecting`, the group tile stays and shows a
+        /// checkbox (packet 002 decision D9 is replaced).
+        #[test]
+        fn adr_0086_window_group_page_r19_selecting_keeps_the_tile() {
+            let (vm, _) = view_model(r01_rows(), false);
+            let mut selection = discover_selection();
+            selection.toggle_mode();
+            let items = items(&vm, &selection);
+            assert_eq!(items.len(), 3);
+            let ContentListItemVm::WindowGroup(tile) = &items[0] else {
+                panic!("the first item is the group");
+            };
+            assert!(tile.selection.checkbox_visible);
+        }
+
+        /// R86-4-20: a toggle of the tile selects each member. One selected
+        /// member makes the tile mixed, with no selected mark.
+        #[test]
+        fn adr_0086_window_group_page_r20_tile_toggle_and_mixed() {
+            let (vm, _) = view_model(r01_rows(), false);
+            let tiles = vm.discover_page_rows().selection_rows();
+            let mut selection = discover_selection();
+            selection.toggle_selection_row(&tiles[0]);
+            assert_eq!(selection.selected_count(), 3);
+            assert_eq!(
+                tile_selection(&vm, &selection).check_state,
+                RowCheckState::Checked
+            );
+
+            let mut selection = discover_selection();
+            selection.toggle_row(&detail_key("b"));
+            let mixed = tile_selection(&vm, &selection);
+            assert_eq!(mixed.check_state, RowCheckState::Mixed);
+            assert!(!mixed.is_marked());
+        }
+
+        /// R86-4-21: a toggle of a mixed tile selects each member. A toggle
+        /// of a checked tile clears each member.
+        #[test]
+        fn adr_0086_window_group_page_r21_mixed_then_checked_then_clear() {
+            let (vm, _) = view_model(r01_rows(), false);
+            let tiles = vm.discover_page_rows().selection_rows();
+            let mut selection = discover_selection();
+            selection.toggle_row(&detail_key("c"));
+            assert!(!selection.click(&detail_key("a"), DetailRowClick::Toggle, &tiles));
+            assert_eq!(selection.selected_count(), 3);
+            assert_eq!(
+                tile_selection(&vm, &selection).check_state,
+                RowCheckState::Checked
+            );
+            selection.toggle_selection_row(&tiles[0]);
+            assert_eq!(selection.selected_count(), 0);
+            assert_eq!(
+                tile_selection(&vm, &selection).check_state,
+                RowCheckState::Clear
+            );
+        }
+
+        /// R86-4-22: Ctrl+A selects each member, and the bar counts each
+        /// member.
+        #[test]
+        fn adr_0086_window_group_page_r22_select_all_counts_each_member() {
+            let (vm, _) = view_model(r01_rows(), false);
+            let rows = vm.discover_page_rows();
+            let mut selection = discover_selection();
+            selection.select_all(&rows.selection_rows());
+            let bar = rows.action_bar(&selection).expect("Selecting shows a bar");
+            assert_eq!(bar.count_label, "5 releases selected");
+        }
+
+        /// R86-4-23: a tree that now holds an Index member changes its row
+        /// and the main action in place.
+        #[test]
+        fn adr_0086_window_group_page_r23_tree_changes_the_page_in_place() {
+            let (mut vm, _) = view_model(r01_rows(), false);
+            let key = first_key(&vm);
+            assert_eq!(main_action(&vm).label, "Download 3 singles");
+            vm.replace_tree(jsmovie_tree(vec![library_single("c", 3, oct(8), true)]));
+            let page = vm.window_group_page(&key);
+            assert!(matches!(page.rows[2], SinglesGroupPageEntryVm::Library(_)));
+            assert_eq!(
+                page.main_action.map(|action| action.label).as_deref(),
+                Some("Download 2 singles")
+            );
+        }
     }
 }

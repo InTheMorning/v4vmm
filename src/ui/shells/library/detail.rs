@@ -21,6 +21,7 @@ use crate::ui::shells::library::playlist_detail::{
 };
 use crate::ui::shells::library::singles_group::render_library_singles_group_page;
 use crate::ui::shells::library::track_detail::render_library_track_detail;
+use crate::ui::shells::library::window_group::render_library_window_group_page;
 use crate::ui::style::color;
 use crate::view_models::library::{LibraryChromeDisplay, LibraryViewModel, MbTrackStatus};
 use crate::view_models::list_selection::RowSelectionVm;
@@ -108,6 +109,21 @@ pub(crate) fn render_library_detail(
         // each render, so a download or a removal updates it in place.
         LibraryDetail::SinglesGroup(key) => render_library_singles_group_page(
             library_vm.singles_group_page(key),
+            header_art,
+            mb_status,
+            playlists,
+            album_thumbs,
+            row_slots,
+            scroll,
+            detail_focus,
+            cx,
+        ),
+
+        // ADR 0086 Decision 4: the window group page reads the cached
+        // layout at each render, so a download or a removal updates it in
+        // place.
+        LibraryDetail::WindowGroup(key) => render_library_window_group_page(
+            library_vm.window_group_page(key),
             header_art,
             mb_status,
             playlists,

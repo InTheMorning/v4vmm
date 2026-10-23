@@ -32,4 +32,5 @@ pub mod track_detail_metadata_cells;
 pub mod track_detail_metadata_grid;
 pub mod track_detail_metadata_values;
 pub mod views_list;
+pub mod window_group;
 pub mod window_groups;

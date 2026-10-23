@@ -1129,7 +1129,9 @@ impl TopApp {
             // own facts load. `render_workspace_screen_mount` overrides
             // this with the loaded frame title.
             FrameNavigationEntry::PublisherDetail(_) => "Feed".to_string(),
-            FrameNavigationEntry::SinglesGroup(_) => "Singles".to_string(),
+            FrameNavigationEntry::SinglesGroup(_) | FrameNavigationEntry::WindowGroup(_) => {
+                "Singles".to_string()
+            }
             FrameNavigationEntry::QueueNowPlaying => "Queue".to_string(),
         }
     }
@@ -1513,8 +1515,12 @@ impl TopApp {
         // frame title shows the open page's own title for a singles
         // group, for example "Singles by Haleen", not the type label
         // `content_list_frame_title` gives by default. Every other page
-        // keeps its type label.
-        if let Some(entry @ FrameNavigationEntry::SinglesGroup(_)) = &current_nav {
+        // keeps its type label. ADR 0086 Decision 4: a window group page
+        // also shows its own title.
+        if let Some(
+            entry @ (FrameNavigationEntry::SinglesGroup(_) | FrameNavigationEntry::WindowGroup(_)),
+        ) = &current_nav
+        {
             let detail_frame_id = layout
                 .frames()
                 .iter()

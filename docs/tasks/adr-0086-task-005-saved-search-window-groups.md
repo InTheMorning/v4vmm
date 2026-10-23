@@ -2,6 +2,10 @@
 
 Status: Ready - 2026-10-23.
 
+Orchestrator note - 2026-10-23: packets 002 to 004 are implemented. The run record lists their deviations.
+
+`WindowGroupPageVm::build(key, layout, rows, tree, fills, busy)` takes a layout and its rows. Guard R86-4-24 lets one `LibraryViewModel` method call it. A saved search builds its own layout from its rows. Then either add a source to `WindowGroupKey` that `window_group_page` reads, or widen guard R86-4-24 to one method for each source. Keep the rule of the guard: the view model builds the page, and the shell never does.
+
 ## Goal
 
 The Releases tab of a saved search page shows one group row for two or more singles of one artist in one window. The groups use the key, the chain and the window length of New releases (packet 002). The release date of a single comes from ADR 0086 Decision 1, not from the relevance order.

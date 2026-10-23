@@ -8,6 +8,7 @@ use super::nav::{
 };
 use crate::view_models::artist_identity::ArtistIdentity;
 use crate::view_models::singles_group::SinglesGroupKey;
+use crate::view_models::window_groups::WindowGroupKey;
 
 /// Breadcrumb path truncation policy.
 ///
@@ -132,6 +133,7 @@ fn breadcrumb_entry_id(entry: &FrameNavigationEntry) -> String {
             format!("publisher-{}", slug_id(publisher_feed_guid))
         }
         FrameNavigationEntry::SinglesGroup(key) => singles_group_id(key),
+        FrameNavigationEntry::WindowGroup(key) => window_group_id(key),
         FrameNavigationEntry::Search(query) => format!("search-{}", slug_id(query)),
         FrameNavigationEntry::Settings => "settings".to_string(),
         FrameNavigationEntry::QueueNowPlaying => "queue-now-playing".to_string(),
@@ -189,6 +191,17 @@ fn singles_group_id(key: &SinglesGroupKey) -> String {
         ArtistIdentity::Publisher(guid) => format!("singles-publisher-{}", slug_id(guid)),
         ArtistIdentity::Name(name) => format!("singles-name-{}", slug_id(name)),
     }
+}
+
+/// The breadcrumb element id of a window group entry (ADR 0086 Decision
+/// 4). The id carries the identity of the artist and the start of the
+/// window.
+fn window_group_id(key: &WindowGroupKey) -> String {
+    let identity = match &key.group.0 {
+        ArtistIdentity::Publisher(guid) => slug_id(guid),
+        ArtistIdentity::Name(name) => slug_id(name),
+    };
+    format!("window-group-{identity}-{}", key.window_start)
 }
 
 fn slug_id(value: &str) -> String {

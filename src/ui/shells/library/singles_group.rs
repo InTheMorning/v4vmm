@@ -109,7 +109,12 @@ pub(crate) fn render_library_singles_group_page(
             ActionRow::new(ActionRowDisplay {
                 a11y_label: row_a11y_label,
             })
-            .control_group(vec![render_main_action(action, playlists, cx)]),
+            .control_group(vec![render_main_action(
+                MAIN_ACTION_ID,
+                action,
+                playlists,
+                cx,
+            )]),
         );
     }
     let dispatch = library_release_page_dispatch(cx);
@@ -205,7 +210,7 @@ fn render_heading(
 /// (operator decision of 2026-10-22, packet 032), styled the same as the
 /// feed page's section of the same name: a `SectionHeader` and a
 /// `Caption` note.
-fn render_matched_by_name_heading(heading: &MatchedByNameHeadingVm) -> AnyElement {
+pub(super) fn render_matched_by_name_heading(heading: &MatchedByNameHeadingVm) -> AnyElement {
     div()
         .flex()
         .flex_col()
@@ -253,8 +258,11 @@ fn render_index_part(
 }
 
 /// The one main action of a group page: "Download n singles" or "Add to
-/// playlist". "Add to playlist" opens the shared playlist popover.
-fn render_main_action(
+/// playlist". "Add to playlist" opens the shared playlist popover. `id` is
+/// the element id of the action. The window group page uses its own id
+/// (ADR 0086 packet 004).
+pub(super) fn render_main_action(
+    id: &'static str,
     action: SinglesGroupActionVm,
     playlists: &[db::Playlist],
     cx: &mut Context<LibraryApp>,
@@ -270,20 +278,18 @@ fn render_main_action(
         row_a11y_label: _,
     } = action;
     match action {
-        SinglesGroupAction::DownloadSingles(plan) => {
-            UiButton::styled(MAIN_ACTION_ID, ControlStyle::Primary)
-                .label(label)
-                .a11y_label(a11y_label)
-                .disabled(!available)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                    this.download_release_plan(plan.clone(), cx);
-                }))
-                .into_any_element()
-        }
+        SinglesGroupAction::DownloadSingles(plan) => UiButton::styled(id, ControlStyle::Primary)
+            .label(label)
+            .a11y_label(a11y_label)
+            .disabled(!available)
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                this.download_release_plan(plan.clone(), cx);
+            }))
+            .into_any_element(),
         SinglesGroupAction::AddToPlaylist(feed_ids) => {
             let create_feed_ids = feed_ids.clone();
             AddToPlaylistPopover::new(AddToPlaylistDisplay {
-                id: SharedString::from(MAIN_ACTION_ID),
+                id: SharedString::from(id),
                 playlists: playlist_options(playlists),
                 trigger_label: SharedString::from(label),
                 trigger_a11y_label: SharedString::from(a11y_label),
@@ -312,7 +318,7 @@ fn render_main_action(
     clippy::too_many_arguments,
     reason = "the row takes each already-resolved value of the Library host"
 )]
-fn render_single_row(
+pub(super) fn render_single_row(
     row: &SinglesGroupPageRowVm,
     index: usize,
     mb_status: &BTreeMap<i64, MbTrackStatus>,
@@ -345,7 +351,7 @@ fn render_single_row(
 /// Index release page (operator decision of 2026-10-22, replacing packet
 /// 026 decision D13). A click opens the release page of the single: a
 /// `MusicIndex` single has no Library track and no track page of its own.
-fn render_index_single_row(
+pub(super) fn render_index_single_row(
     row: &SinglesGroupIndexRowVm,
     album_thumbs: &BTreeMap<String, Option<Arc<Image>>>,
     slot: DetailRowSlot,
