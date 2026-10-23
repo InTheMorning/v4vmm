@@ -11,7 +11,7 @@ phrased as a visual property with no mechanical form, so nothing evaluated it
 and it passed by omission.
 
 Canonical for all three repositories of the broadcast chain.
-`musicindex-live-publisher` and `splitkit` adopt this ADR by reference from
+`musicindex-live-publisher` and `musicindex-live-relay` adopt this ADR by reference from
 their own `AGENTS.md`.
 
 ## Context
@@ -219,7 +219,7 @@ commit. No artifact may lag.
 |---|---|
 | Now-playing drop file | `musicindex-live-publisher` ADR 0002 |
 | Show log | `musicindex-live-publisher` ADR 0003 |
-| Relay wire format and event lifecycle | `splitkit` README and ADR 0001 |
+| Relay wire format and event lifecycle | `musicindex-live-relay` README and ADR 0001 |
 | Broadcast control surface | `v4vmm` ADR 0059 |
 | Workflow surface structure | `v4vmm` ADR 0060 |
 
@@ -227,7 +227,7 @@ Another repository cites the owner. It does not restate the rule.
 
 ### The Smaller Repositories Use The Same Shape
 
-`musicindex-live-publisher` and `splitkit` have fewer decisions and less
+`musicindex-live-publisher` and `musicindex-live-relay` have fewer decisions and less
 history. They use the same structure at a smaller size: a present-tense
 `AGENTS.md` under its own budget, a current ADR index, an archive, and the
 corpus guard.

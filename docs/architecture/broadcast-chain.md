@@ -13,7 +13,7 @@ Read this before a change that crosses a repository boundary.
 | `v4vmm` | `v4vmm` | Control surface and status display. Writes MusicIndex tags into downloads. | Desktop app |
 | `mixxx-now-playing` | `musicindex-live-publisher` | Producer. Reports the track that Mixxx plays. | User service |
 | `musicindex-live-publisher` | `musicindex-live-publisher` | Publisher. Transforms drop files and sends live value payloads. | User service |
-| `musicindex-live-relay` | `splitkit` | Relay. Holds the current payload and sends it to listener apps. | Network service |
+| `musicindex-live-relay` | `musicindex-live-relay` | Relay. Holds the current payload and sends it to listener apps. | Network service |
 | `butt` | external | Stream encoder. Sends the audio to the Icecast server that listeners hear. | Desktop or user service |
 
 Liquidsoap arrives later as one more producer. It needs a producer that writes
@@ -159,4 +159,4 @@ A control API in the publisher is future work. The liquidsoap work needs it.
 - `docs/plans/adr-0059-broadcast-control-surface-phase-plan.md` (a deleted plan, in git history)
 - `musicindex-live-publisher`: `docs/adr/0002-nowplaying-drop-file-contract.md`
 - `musicindex-live-publisher`: `docs/architecture/broadcast-chain-boundaries.md`
-- `splitkit`: `README.md` and `docs/interoperability.md`
+- `musicindex-live-relay`: `README.md` and `docs/interoperability.md`

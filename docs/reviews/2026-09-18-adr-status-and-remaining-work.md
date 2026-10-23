@@ -110,7 +110,7 @@ These retain the [approved cross-repository order](../plans/broadcast-chain-deli
 |---|---|---|
 | Eight packets in the human-gate table | Implementation recorded, acceptance incomplete | Walk surviving criteria and record each result under its owner |
 | [ADR 0064 task 002](../tasks/adr-0064-task-002-repair-report-surface.md), repair history | Written, Ready | Scheduled in steady state. Task 001 is delivered. Refresh integration against current Music and Settings owners before execution. |
-| [splitkit reserved 001–005](../../../splitkit/docs/plans/adr-0001-reserved-live-items-phase-plan.md) | All five written and Ready in local records | Execute 001 → 002 → 003, deploy and adopt a reserved identity, then 004 → 005 follow-through. Operational durability requires restoration and TTL exemption, not merely the create route. |
+| [relay reserved 001–005](../../../musicindex-live-relay/docs/plans/adr-0001-reserved-live-items-phase-plan.md) | All five written and Ready in local records | Execute 001 → 002 → 003, deploy and adopt a reserved identity, then 004 → 005 follow-through. Operational durability requires restoration and TTL exemption, not merely the create route. |
 | Publisher show-log [001](../../../musicindex-live-publisher/docs/tasks/show-log-task-001-log-writer.md) → [002](../../../musicindex-live-publisher/docs/tasks/show-log-task-002-read-contract-and-docs.md) | Both written, not started | Resolve the writer timestamp source before implementation. A real scheduled show makes writer 001 the next packet, with logging enabled and verified before the show. |
 
 Publisher control-surface tasks 001/002 are already complete. Their CLI facts

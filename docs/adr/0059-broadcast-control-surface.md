@@ -71,7 +71,7 @@ becomes four. Nothing else changes.
 
 Amended 2026-09-06: the relay has a second death mode that the first draft did
 not record. It removes an event after an idle TTL, and the default is 24 hours
-(`splitkit`, `src/lib.rs`). The decisions below do not change, because the
+(`musicindex-live-relay`, `src/lib.rs`). The decisions below do not change, because the
 liveness test already treats a `404` as a dead event for both modes.
 
 Supersedes ADR 0018 and ADR 0019. This ADR carries the live decision for the
@@ -525,7 +525,7 @@ layout/log observations.
   separate follow-ups recorded in [task 017](../tasks/archive/adr-0059-task-017-compact-event-controls-and-badges.md#operator-visual-check)
   and its linked plans; they are not open acceptance gates on this amendment.
 
-- `splitkit`: add long-lived live items. Weekly shows and permanent stations
+- `musicindex-live-relay`: add long-lived live items. Weekly shows and permanent stations
   need an event that survives a relay restart.
 - `musicindex-live-publisher`: add a remote control API when liquidsoap
   control starts.

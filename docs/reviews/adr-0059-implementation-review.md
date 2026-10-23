@@ -93,7 +93,7 @@ review does not establish repository-wide closure. Scope corrected 2026-09-10.
 - ADR 0063 task 004 still owns the future log bottom-pane placement work.
 - HIG backlog A7 through A9 still tracks result-message room, stale service
   state flashes, and temporary stream-action disappearance.
-- `splitkit` still needs reserved live items. Until then, relay restart or idle
+- `musicindex-live-relay` still needs reserved live items. Until then, relay restart or idle
   expiry kills events and the runbook recovery path is required.
 - A future `v4vmm` packet still needs the seventh publisher state for installed
   but not configured.

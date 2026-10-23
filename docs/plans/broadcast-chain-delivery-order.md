@@ -101,7 +101,7 @@ lands.
 |---|---|---|
 | `v4vmm` | ADR 0059, broadcast control surface | 17 |
 | `musicindex-live-publisher` | ADR 0003 show log, plus control surface support | 4 |
-| `splitkit` | ADR 0001, reserved live items | 5 |
+| `musicindex-live-relay` | ADR 0001, reserved live items | 5 |
 
 Task 013 presentation correction — 2026-09-18: the operator rejected the inline
 repair/diagnostics layout. [ADR 0074](../adr/0074-repair-and-diagnostics-pages.md)
@@ -177,8 +177,8 @@ ADR 0039 is Implemented. Its scheduled work is complete.
 | 2, type 002, fresh session | [ADR 0039 fixed-height reserve and acceptance](../tasks/archive/adr-0039-task-002-fixed-height-reserve-and-acceptance.md) | Complete - 2026-09-18. Mechanical checks are Green. Task 002 added the reservation, guards and ShowCard correction. Task 003 updated the endpoints. The operator accepted the correction in V13. |
 | 2, type 003, fresh session | [ADR 0039 type curve ratification](../tasks/archive/adr-0039-task-003-type-curve-ratification.md) | Complete - 2026-09-18. Mechanical checks are Green. The app uses the ratified curves. R2 is resolved. V1–V13 passed. The review records inferred preservation and preference restoration. The operator confirmed fixture removal. ADR 0039 is Implemented. |
 | 2, Settings follow-through | [ADR 0069 editor, metadata and preset phases](adr-0069-settings-presets-phase-plan.md#sequence-and-stopping-points) | [Task 002](../tasks/adr-0069-task-002-shared-guarded-editor.md) is Ready with prerequisites met. Implementation is next in a fresh session. Its visual criteria are prospective. New persisted mode/resource keys and presets require full ADR 0066 acceptance. Audio remains deferred. |
-| 3 | Relay durability through adoption | splitkit reserved 001 → 002 → 003; deploy, reserve an event, configure the publisher to use it, then implement the v4vmm reservation packet |
-| 3, follow-through | splitkit reserved 004 → 005 | List/delete, final guards, and delivery reconciliation; explicitly scheduled after adoption, with interim command-line reservation allowing these before the v4vmm packet if needed |
+| 3 | Relay durability through adoption | relay reserved 001 → 002 → 003; deploy, reserve an event, configure the publisher to use it, then implement the v4vmm reservation packet |
+| 3, follow-through | relay reserved 004 → 005 | List/delete, final guards, and delivery reconciliation; explicitly scheduled after adoption, with interim command-line reservation allowing these before the v4vmm packet if needed |
 | 4 | Remaining narrow Show layout and A10 | Future decision and packet: compact cards, full-width log docking, card-title readability, and hiding transport only when every typed action is unavailable; one combined visual gate. ADR 0070 log-height priority is already in the shared-log packet |
 | 5 | Remaining UTC emitter/adapter work | Shared app log framing and following moved before recovery 007; agree the common UTC contract and correct external emitters in bounded packets after the earlier chain work |
 | 6 | Steady state | v4vmm ADR 0064 task 002; publisher show-log 001 → 002; installed-but-unconfigured publisher state |
@@ -206,7 +206,7 @@ This trigger does not combine two implementation phases into one session.
   explicit task 005 scheduling exception is recorded below.
   Later Settings phases reuse the ADR 0066 editor/transition owners. PulseAudio
   and JACK selectors wait for ADR 0068 isolation; native PipeWire is later.
-- splitkit 002 adds the reservation route; 003 adds restoration and idle-TTL
+- relay 002 adds the reservation route; 003 adds restoration and idle-TTL
   exemption. The v4vmm reservation packet consumes 002's contract and cannot
   claim operational durability without 003 deployed.
 - Ordinary events remain ephemeral. Their default expiry is after 24 hours
@@ -386,11 +386,11 @@ Update this table when a packet lands.
 | `v4vmm` | 0064 002 repair report surface | ready |
 | `v4vmm` | 0065 001 tag repair service | implemented - 2026-09-09; no visual criteria |
 | `v4vmm` | 0065 002 check-all-feeds repair and list actions | implemented - 2026-09-09; visual acceptance met; result-row readability fixed and accepted in action feedback 001 on 2026-09-10 |
-| `splitkit` | reserved 001 store boundary | complete - 2026-10-04 |
-| `splitkit` | reserved 002 reserved class | complete - 2026-10-04. The reserve response keeps the four fields of `LiveItemCreateResponse`. |
-| `splitkit` | reserved 003 restore and TTL | complete - 2026-10-04. A restart restores a reserved identity with no snapshot. The idle TTL skips a reserved item. |
-| `splitkit` | reserved 004 list and delete | complete - 2026-10-04. The list holds reserved items only. |
-| `splitkit` | reserved 005 guards and review | complete - 2026-10-04. Relay ADR 0001 is Implemented. The review is `docs/reviews/adr-0001-implementation-review.md` in the relay. |
+| `musicindex-live-relay` | reserved 001 store boundary | complete - 2026-10-04 |
+| `musicindex-live-relay` | reserved 002 reserved class | complete - 2026-10-04. The reserve response keeps the four fields of `LiveItemCreateResponse`. |
+| `musicindex-live-relay` | reserved 003 restore and TTL | complete - 2026-10-04. A restart restores a reserved identity with no snapshot. The idle TTL skips a reserved item. |
+| `musicindex-live-relay` | reserved 004 list and delete | complete - 2026-10-04. The list holds reserved items only. |
+| `musicindex-live-relay` | reserved 005 guards and review | complete - 2026-10-04. Relay ADR 0001 is Implemented. The review is `docs/reviews/adr-0001-implementation-review.md` in the relay. |
 
 ## Surface Rewrite — Complete
 
@@ -489,8 +489,7 @@ Delivery Order above determines priority; an entry here is not a second order.
 - A `v4vmm` packet for reserving a durable live item. No packet exists yet.
   Recorded 2026-10-04:
   - The reserved class exists in the relay, and relay ADR 0001 is
-    Implemented. This plan calls that repository `splitkit`. Its name is
-    `musicindex-live-relay`.
+    Implemented.
   - A reserved item ignores the 24-hour idle rule and survives a relay
     restart. An ordinary Create still makes an ephemeral item.
   - The relay is not deployed with the reserved class. Nothing in `v4vmm`
@@ -565,7 +564,7 @@ Delivery Order above determines priority; an entry here is not a second order.
   `GET /v1/feeds/{guid}` gives `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and `all`.
   A row with `confirming_relay` set to `true` needs a question to its relay. Needs a `v4vmm` ADR. The steady-state phase is the earliest place for it.
 - Post-processing tools in `v4vmm`. Gates publisher-side backup recording.
-- Broadcaster identity and quotas in `splitkit`. Options recorded, no decision.
+- Broadcaster identity and quotas in `musicindex-live-relay`. Options recorded, no decision.
 - External broadcasters on AzuraCast. Recorded 2026-10-06. The relay does not
   depend on the audio host, so a broadcaster with an own AzuraCast can use it.
   Two items are missing:
@@ -639,4 +638,4 @@ packets; current fixture acceptance does not prove upstream timestamp behavior.
 - `docs/plans/adr-0059-broadcast-control-surface-phase-plan.md` (a deleted plan, in git history)
 - `docs/research/broadcast-recording-and-feed-publishing.md`
 - `musicindex-live-publisher`: `docs/README.md`
-- `splitkit`: `docs/README.md`
+- `musicindex-live-relay`: `docs/README.md`
