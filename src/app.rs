@@ -71,6 +71,7 @@ mod queue_now_playing;
 mod resize;
 mod saved_search_dispatch;
 mod search_dispatch;
+mod search_field_list;
 mod search_selection;
 mod show;
 mod tab_bar;
@@ -78,6 +79,7 @@ mod tab_bar;
 pub use bootstrap::run_app;
 
 use search_dispatch::{RemoteCoverColorState, RemoteDetailThumbnailState};
+use search_field_list::SearchFieldListView;
 use search_selection::{SearchPageSlot, SearchRowClick};
 use settings::render_settings;
 use show::{build_live_status_strip, build_show_screen};
@@ -147,6 +149,8 @@ pub struct TopApp {
     /// shows on each section, beside the live status strip.
     download_status_view: Entity<DownloadStatusView>,
     global_search_input: Entity<InputState>,
+    /// The field list under the toolbar search field (ADR 0087 Decision 3).
+    search_field_list: Entity<SearchFieldListView>,
     /// The query that a restore of a search page writes into
     /// `global_search_input` at the next render (ADR 0084 task 030, D5).
     pending_toolbar_search: PendingToolbarSearchText,
@@ -348,6 +352,8 @@ impl TopApp {
         });
         let global_search_sub =
             cx.subscribe_in(&global_search_input, window, Self::on_global_search_event);
+        let search_field_list =
+            cx.new(|cx| SearchFieldListView::new(global_search_input.clone(), window, cx));
         let library = cx.new(|cx| {
             let mut library = LibraryApp::new_with_content_view_mode(
                 conn.clone(),
@@ -484,6 +490,7 @@ impl TopApp {
             library_detail_view,
             download_status_view,
             global_search_input,
+            search_field_list,
             pending_toolbar_search: PendingToolbarSearchText::default(),
             endpoint_input,
             music_dir_input,

@@ -50,6 +50,7 @@ When you need to look something up, consult this map first to find the right fil
 | Library search query builder: one clause for each field, bound values, ADR 0087 Decision 2, packet 002 | `src/db/library_search.rs` |
 | Library search facts that SQL does not hold: the release kind, the release date, the track date and the ready set (ADR 0087 Decision 2, packet 002) | `src/view_models/library_search_facts.rs` |
 | Music search run: the typed query of one run, the Index plan, the request and the cause of a skipped Index part (ADR 0087 Decisions 1 and 5, packet 002) | `src/view_models/search_results/search_run.rs` |
+| Music search field list: the rows, the keys and the overlay under the toolbar search field (ADR 0087 Decision 3, packet 004) | `src/view_models/search_field_list.rs`, `src/ui/composites/search_field_list.rs`, `src/app/search_field_list.rs` |
 | Music name level page and the "Matched by name" section (ADR 0084 Decision 7, packet 017) | `src/view_models/name_level_page.rs`, `src/app/name_level_dispatch.rs`, `src/ui/shells/name_level_page.rs`, `src/ui/composites/release_section_list.rs`, `NameFeedMatches` in `src/view_models/artist_identity.rs` |
 | Settings cached-file query and saved observation | `src/application/queries/library.rs`, `src/view_models/cached_files.rs`, `src/app.rs` |
 | Retained original actions, explicit checked Retry and scoped tool setup | `src/application/capability_recovery.rs`, `src/application/capability_recovery/setup.rs` (ADR 0066) |

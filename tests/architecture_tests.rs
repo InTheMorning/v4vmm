@@ -331,6 +331,7 @@ const SCREEN_FILES: &[&str] = &[
     "src/app/resize.rs",
     "src/app/saved_search_dispatch.rs",
     "src/app/search_dispatch.rs",
+    "src/app/search_field_list.rs",
     "src/app/tab_bar.rs",
     "src/library.rs",
 ];
@@ -23866,4 +23867,79 @@ fn adr_0087_library_fields_r87_2_29_typed_query_reaches_both_searches() {
         "let request = IndexSearchRequest { q: text.to_owned() };".to_owned(),
     ));
     assert!(!typed_search_path_violations(&literal).is_empty());
+}
+
+/// The violations of the field list rule of ADR 0087 Decision 3 in the
+/// composite source and in the view source.
+fn field_list_focus_violations(composite: &str, view: &str) -> Vec<String> {
+    const COMPOSITE: &str = "src/ui/composites/search_field_list.rs";
+    const VIEW: &str = "src/app/search_field_list.rs";
+    let mut violations = Vec::new();
+    let mut report = |file: &str, violation: &str| {
+        violations.push(format!(
+            "ADR 0087 Decision 3 (the field list keeps the focus in the search field): {file} \
+{violation}.\nDraw the list with deferred and anchored and no focus handle, and take each text, \
+label and id\nfrom FieldListVm. Do not use the popover primitive or truncate()."
+        ));
+    };
+    let composite_code = code_only(production_source(composite));
+    for required in ["deferred(", "anchored("] {
+        if !composite_code.contains(required) {
+            report(COMPOSITE, &format!("does not call `{required}`"));
+        }
+    }
+    for forbidden in [
+        "Popover",
+        "track_focus(",
+        ".focus(",
+        ".truncate()",
+        ".truncated()",
+    ] {
+        if composite_code.contains(forbidden) {
+            report(COMPOSITE, &format!("holds `{forbidden}`"));
+        }
+    }
+    let literals = string_literals(&composite_code);
+    if !literals.is_empty() {
+        report(
+            COMPOSITE,
+            &format!("holds the string literals {literals:?}"),
+        );
+    }
+    let view_code = code_only(production_source(view));
+    if !view_code.contains("capture_action") {
+        report(VIEW, "does not call `capture_action`");
+    }
+    if view_code.contains("Popover") {
+        report(VIEW, "holds `Popover`");
+    }
+    violations
+}
+
+/// R87-4-19, situational ADR 0087 Decision 3. The field list composite has
+/// no focus handle and no text of its own, and the view captures the list
+/// keys before the input. Delete this guard when ADR 0087 Decision 3 is
+/// superseded.
+#[test]
+fn adr_0087_field_list_r87_4_19_list_keeps_focus_and_reads_view_model() {
+    let composite = read_source(&manifest_path("src/ui/composites/search_field_list.rs"));
+    let view = read_source(&manifest_path("src/app/search_field_list.rs"));
+    let violations = field_list_focus_violations(&composite, &view);
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+
+    // A copy that calls `Popover::new`, `.truncate()` or that holds a
+    // string literal fails.
+    let marker = "        let Self { vm, scroll, on_row } = self;";
+    assert!(composite.contains(marker));
+    for bad in [
+        "        let _menu = Popover::new(0);",
+        "        let _text = div().truncate();",
+        "        let _id = \"search-field-list\";",
+    ] {
+        let copy = composite.replacen(marker, &format!("{marker}\n{bad}"), 1);
+        assert!(
+            !field_list_focus_violations(&copy, &view).is_empty(),
+            "the copy with `{bad}` must fail"
+        );
+    }
 }

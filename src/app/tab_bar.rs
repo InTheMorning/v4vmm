@@ -19,6 +19,7 @@ use crate::view_models::app_toolbar::{
     AppToolbarTabDisplay, AppToolbarTabKey, AppToolbarVm, GlobalSearchDisplay,
 };
 
+use super::search_field_list::install_field_list_keys;
 use super::{AppTab, TopApp};
 
 fn app_logo() -> Arc<Image> {
@@ -110,18 +111,23 @@ fn render_global_search(
     // InputState::set_placeholder requires &mut Window, which is not available in render context.
     // Consider updating placeholder outside render, e.g., on focus_changed event.
 
-    let search_input = div()
-        .id(display.input_id)
-        .flex_1()
-        .min_w_0()
-        .max_w(TokenSize::ColumnTall.scaled(cx))
-        .child(
-            Input::new(&app.global_search_input)
-                .prefix(InputIconName::Search)
-                .cleanable(true)
-                .scaled(Size::Small, cx)
-                .with_primary_selection(&app.global_search_input),
-        );
+    let search_input = install_field_list_keys(
+        div()
+            .id(display.input_id)
+            .relative()
+            .flex_1()
+            .min_w_0()
+            .max_w(TokenSize::ColumnTall.scaled(cx)),
+        &app.search_field_list,
+    )
+    .child(
+        Input::new(&app.global_search_input)
+            .prefix(InputIconName::Search)
+            .cleanable(true)
+            .scaled(Size::Small, cx)
+            .with_primary_selection(&app.global_search_input),
+    )
+    .child(app.search_field_list.clone());
 
     let mut toolbar_search = div()
         .id(center_id)

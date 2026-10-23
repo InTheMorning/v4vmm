@@ -4,6 +4,8 @@ Status: Ready - 2026-10-23.
 
 Orchestrator note - 2026-10-23: packets 001 and 002 are implemented. The run record lists their deviations. `LibrarySearchFacts::track` and `SearchResultsInspectorPageVm::index_skip` are `#[cfg(test)]`. Remove the attribute of each name that this packet calls. `search_local_library_tracks` is `pub(crate)`. `UnsupportedIndexTerms` is in `search_results::search_run`.
 
+Packet 004 is implemented before this packet. Enter on a selected row of the field list does not emit `PressEnter`, and the test R87-4-17 proves it. After Enter, the field list view ignores one `Change` with the submitted text. The field `submitted_text` in `src/app/search_field_list.rs` holds that text. Keep this rule when you add the pause.
+
 ## Goal
 
 The toolbar search runs while the curator types. After the curator stops typing for a pause, the

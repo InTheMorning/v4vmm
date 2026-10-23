@@ -53,6 +53,14 @@ Each entry names the step, the decision and the reason.
   - `LibrarySearchFacts::track` and `SearchResultsInspectorPageVm::index_skip` are `#[cfg(test)]` until a production caller exists.
   - The five guards of D24 name the new functions and keep their rules. The guard `adr_0060_search_uses_music_section_navigation` changes only its range end marker to `search_results_detail_for_run`.
   - The guard R87-2-29 also requires that only `src/app/search_dispatch.rs` calls `FetchIndexSearchResults::new(`, with `request.clone()`. Without this rule, a copy in the saved search code does not fail.
+- ADR 0087 packet 004 runs before packet 003, as the operator decision of the run permits. The orchestrator accepted these deviations:
+  - A propagated Enter gives the input a `Change` with the same text after `PressEnter`, and that change opened the list again. The view now ignores the one `Change` after Enter that has the submitted text (`submitted_text`). A walk on X11 or Wayland confirms the real event order.
+  - `FieldListEdit::apply` is `#[cfg(test)]`, because the view edits the text through the input.
+  - New names: `FieldListRowAvailability::is_available()` and the private `SearchFieldListView::send(event)`.
+  - The notices are above the scroll container of the rows, so `scroll_to_item` gets row indexes.
+  - The `in:index` conflict of a row comes from `SearchQuery`, so no field syntax is outside the parser.
+  - `src/app/search_field_list.rs` is in `SCREEN_FILES`, as the guard of top level GPUI modules requires. The rule of the guard does not change.
+- Commit `d410e9f`, "docs: research request on shared search code", came from a different session during the run. It adds `docs/plans/research-search-request.md`. It changes no file of the run, and the run did not change it.
 
 ## Steps
 
@@ -65,8 +73,8 @@ Each entry names the step, the decision and the reason.
 | ADR 0086 packet 004: the window group page | Implemented. V1 to V10 open | `fcee74d` |
 | ADR 0086 packet 005: saved search window groups | Implemented. V1 to V7 open | `3e28b24` |
 | ADR 0087 packet 001: the query parser | Complete. No visual check | `93b2c79` |
-| ADR 0087 packet 002: Library fields and Index words | Implemented. V1 to V9 open | (this commit) |
-| ADR 0087 packet 004: the field list | Ready | |
+| ADR 0087 packet 002: Library fields and Index words | Implemented. V1 to V9 open | `ca8411a` |
+| ADR 0087 packet 004: the field list | Implemented. V1 to V9 open | (this commit) |
 | ADR 0087 packet 003: live results | Ready | |
 | ADR 0087 packet 005: the values of the field list | Ready | |
 

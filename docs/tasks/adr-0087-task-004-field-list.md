@@ -1,6 +1,6 @@
 # ADR 0087 Task 004: The Field List Under The Toolbar Search Field
 
-Status: Ready - 2026-10-23.
+Status: Implemented - 2026-10-23. Cases R87-4-01 to R87-4-20 pass. Mechanical checks are Green. V1 to V9 are open, in the final walk of the run of 2026-10-23.
 
 ## Goal
 
