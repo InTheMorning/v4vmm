@@ -32,7 +32,7 @@ the restored toolbar text start no live run.
 - [ADR 0083](../adr/0083-design-language.md) Decision 6 and
   [ADR 0083 task 008](adr-0083-task-008-drag-track-to-playlist.md): the `Motion` token of the
   named interface times, and the timer `present_after`.
-- [Packet 001](adr-0087-task-001-query-parser.md): `SearchQuery::has_runnable_content`.
+- [Packet 001](archive/adr-0087-task-001-query-parser.md): `SearchQuery::has_runnable_content`.
 - [Packet 002](adr-0087-task-002-library-fields-and-index-words.md): `SearchRun`,
   `search_results_detail_for_run` and `start_index_search_for_run`. Packet 002 says "003 adds
   `generation`".

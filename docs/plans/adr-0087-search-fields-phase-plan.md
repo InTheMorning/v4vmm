@@ -24,7 +24,7 @@ Each packet is one session. The operator walks the visual check of each packet b
 
 | Packet | Scope | Depends on | State |
 |---|---|---|---|
-| [001](../tasks/adr-0087-task-001-query-parser.md) | The query parser (Decision 1). It gives the typed query with its words, phrases, fields, exclusions and errors. It changes no interface | ADR 0086 packet 005 | Ready 2026-10-23 |
+| [001](../tasks/archive/adr-0087-task-001-query-parser.md) | The query parser (Decision 1). It gives the typed query with its words, phrases, fields, exclusions and errors. It changes no interface | ADR 0086 packet 005 | Complete 2026-10-23 |
 | [002](../tasks/adr-0087-task-002-library-fields-and-index-words.md) | The Library search reads the typed query, with one query builder for each field of Decision 2. The Index search sends the words and phrases only. A query with an Index field shows no Index rows and the note of Decision 5. A saved search parses its text (Decision 6) | 001 | Ready 2026-10-23 |
 | [003](../tasks/adr-0087-task-003-live-results.md) | The results update while the curator types: the pause token, the run generation and the update in place (Decision 4) | 002 | Ready 2026-10-23 |
 | [004](../tasks/adr-0087-task-004-field-list.md) | The field list composite with the fields, the matching fields and the errors (Decision 3). It adds the keys, and the focus stays in the search field | 001 | Ready 2026-10-23 |

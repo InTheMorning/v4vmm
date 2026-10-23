@@ -26,7 +26,7 @@ only". This packet shows no artist names, release titles or playlist names. Pack
   field.
 - [ADR 0087](../adr/0087-search-fields-and-live-results.md) invariant "One parser reads the query
   text. No other code reads field syntax."
-- [Packet 001](adr-0087-task-001-query-parser.md): `QUERY_FIELDS`, `QueryFieldInfo`,
+- [Packet 001](archive/adr-0087-task-001-query-parser.md): `QUERY_FIELDS`, `QueryFieldInfo`,
   `fields_with_prefix`, `cursor_term`, `CursorTerm`, `CursorPartial`, `QueryFieldName`,
   `fixed_values`, `values_with_prefix`, `FixedValueInfo`, `SearchQuery`, `QueryScope` and
   `FieldValueError::message`. Packet 001 is not implemented. Each name of packet 001 in this
@@ -572,7 +572,7 @@ These are for the operator. No test proves them.
 - [AGENTS.md](../../AGENTS.md) and the [source map](../architecture/source-map.md).
 - [ADR 0087](../adr/0087-search-fields-and-live-results.md), the
   [ADR 0087 phase plan](../plans/adr-0087-search-fields-phase-plan.md) and
-  [packet 001](adr-0087-task-001-query-parser.md).
+  [packet 001](archive/adr-0087-task-001-query-parser.md).
 - `src/view_models/search_query.rs` (packet 001) and `src/view_models/app_toolbar.rs`.
 - `src/app.rs` (`global_search_input`, `on_global_search_event`, `focus_global_search`) and
   `src/app/tab_bar.rs` (`render_global_search`).
@@ -613,7 +613,7 @@ Read:
 - `AGENTS.md` and `docs/architecture/source-map.md`
 - This packet: `docs/tasks/adr-0087-task-004-field-list.md`
 - ADR 0087 Decisions 2 and 3, and its invariants
-- Packet 001: `docs/tasks/adr-0087-task-001-query-parser.md`
+- Packet 001: `docs/tasks/archive/adr-0087-task-001-query-parser.md`
 - Each file in "Files To Inspect"
 
 Goal:

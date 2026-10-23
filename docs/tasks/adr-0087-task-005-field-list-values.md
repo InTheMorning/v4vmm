@@ -42,7 +42,7 @@ the value into the text. A value with whitespace gets double quotes.
 - [ADR 0063](../adr/0063-show-dashboard-layout.md): column text does not call `truncate()`.
 - The [ADR 0087 phase plan](../plans/adr-0087-search-fields-phase-plan.md), packet 005. It depends
   on packets 003 and 004.
-- [Packet 001](adr-0087-task-001-query-parser.md), [packet 002](adr-0087-task-002-library-fields-and-index-words.md)
+- [Packet 001](archive/adr-0087-task-001-query-parser.md), [packet 002](adr-0087-task-002-library-fields-and-index-words.md)
   and [packet 004](adr-0087-task-004-field-list.md). Packet 003 gives the pause and the run
   generation. These four packets are not implemented.
 - [AGENTS.md](../../AGENTS.md): renderer portability, token discipline, typed action state,

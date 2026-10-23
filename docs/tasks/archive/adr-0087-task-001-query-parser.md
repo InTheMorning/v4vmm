@@ -1,6 +1,6 @@
 # ADR 0087 Task 001: One Parser Reads The Search Query Text
 
-Status: Ready - 2026-10-23.
+Status: Complete - 2026-10-23. Cases R87-1-01 to R87-1-30 pass. Mechanical checks are Green. The packet changes no interface, so it has no visual check.
 
 ## Goal
 
@@ -17,24 +17,24 @@ situational guard. No production caller reads the parser until packet 002.
 
 ## Authority
 
-- [ADR 0087](../adr/0087-search-fields-and-live-results.md) Decision 1: one query text with
+- [ADR 0087](../../adr/0087-search-fields-and-live-results.md) Decision 1: one query text with
   words, phrases and fields. One parser in the view model layer reads the text. A field name has
   no case. A colon with an unknown name stays one word. A field value that is not correct applies
   nothing.
-- [ADR 0087](../adr/0087-search-fields-and-live-results.md) Decision 2: the field set, the value
+- [ADR 0087](../../adr/0087-search-fields-and-live-results.md) Decision 2: the field set, the value
   kinds, the inclusive dates, the month rule, the Library-only fields and the scope conflict.
-- [ADR 0087](../adr/0087-search-fields-and-live-results.md) Decision 3: the field list reads the
+- [ADR 0087](../../adr/0087-search-fields-and-live-results.md) Decision 3: the field list reads the
   fields, the fixed values and the error text of each field.
-- [ADR 0087](../adr/0087-search-fields-and-live-results.md) Decision 4: a text with no word,
+- [ADR 0087](../../adr/0087-search-fields-and-live-results.md) Decision 4: a text with no word,
   phrase or correct field runs nothing.
-- [ADR 0087](../adr/0087-search-fields-and-live-results.md) Decision 5: `q` holds the words and
+- [ADR 0087](../../adr/0087-search-fields-and-live-results.md) Decision 5: `q` holds the words and
   the phrases only.
-- [ADR 0087](../adr/0087-search-fields-and-live-results.md) invariant "One parser reads the query
+- [ADR 0087](../../adr/0087-search-fields-and-live-results.md) invariant "One parser reads the query
   text. No other code reads field syntax."
-- [ADR 0084](../adr/0084-music-column-browser.md) Decision 5: the release kinds Album, EP and
+- [ADR 0084](../../adr/0084-music-column-browser.md) Decision 5: the release kinds Album, EP and
   Single.
-- The [ADR 0087 phase plan](../plans/adr-0087-search-fields-phase-plan.md), packet 001.
-- [AGENTS.md](../../AGENTS.md): renderer portability, typed action state, "A guard names its
+- The [ADR 0087 phase plan](../../plans/adr-0087-search-fields-phase-plan.md), packet 001.
+- [AGENTS.md](../../../AGENTS.md): renderer portability, typed action state, "A guard names its
   class and its ADR" and "An acceptance criterion states how it is checked".
 
 ## Recorded Facts - 2026-10-23
@@ -461,9 +461,9 @@ visual checks of ADR 0087 belong to packets 002 to 005.
 
 ## Files To Inspect
 
-- [AGENTS.md](../../AGENTS.md) and the [source map](../architecture/source-map.md).
-- [ADR 0087](../adr/0087-search-fields-and-live-results.md) and the
-  [ADR 0087 phase plan](../plans/adr-0087-search-fields-phase-plan.md).
+- [AGENTS.md](../../../AGENTS.md) and the [source map](../../architecture/source-map.md).
+- [ADR 0087](../../adr/0087-search-fields-and-live-results.md) and the
+  [ADR 0087 phase plan](../../plans/adr-0087-search-fields-phase-plan.md).
 - `src/view_models/mod.rs`, `src/view_models/text_filter.rs`, `src/view_models/release_kind.rs`
   and `src/view_models/format.rs` (`fmt_date`).
 - `src/application/queries/search.rs` (`normalized_global_search_query`) and

@@ -43,7 +43,7 @@ still runs only on Enter. Packet 003 adds the live runs.
   release.
 - ADR 0059: the show readiness. ADR 0076: the "Removed from feed" mark and the stored payment
   route.
-- [Packet 001](adr-0087-task-001-query-parser.md) and its "Names For Later Packets", decisions D3,
+- [Packet 001](archive/adr-0087-task-001-query-parser.md) and its "Names For Later Packets", decisions D3,
   D8 and D9.
 - [ADR 0086 packet 005](adr-0086-task-005-saved-search-window-groups.md): it changes the same
   search functions before this packet (operator answer 3 of ADR 0087).

@@ -23636,3 +23636,95 @@ fn adr_0086_saved_search_groups_load_no_extra_page() {
     ));
     assert!(!saved_search_groups_violations(&search, &groups, &shell).is_empty());
 }
+
+/// The 11 field tokens of ADR 0087 Decision 2. The owner holds each one as
+/// a literal, so this list and `QUERY_FIELDS` stay equal.
+const ADR_0087_FIELD_TOKENS: [&str; 11] = [
+    "artist:",
+    "title:",
+    "release:",
+    "kind:",
+    "in:",
+    "after:",
+    "before:",
+    "duration:",
+    "is:",
+    "playlist:",
+    "has:",
+];
+
+/// The owner of the field syntax of the Music search query text.
+const ADR_0087_QUERY_PARSER_OWNER: &str = "src/view_models/search_query.rs";
+
+/// Gives one violation for each production string literal in `files` that
+/// starts with a field token, and one for each token that `owner` does not
+/// hold as a literal.
+fn query_field_syntax_violations(owner: &str, files: &[(String, String)]) -> Vec<String> {
+    let mut violations = Vec::new();
+    for (path, source) in files {
+        let code = code_only(source);
+        for literal in string_literals(production_source(&code)) {
+            if let Some(token) = ADR_0087_FIELD_TOKENS
+                .iter()
+                .find(|token| literal.starts_with(**token))
+            {
+                violations.push(format!(
+                    "ADR 0087 Decision 1 (one parser reads the query text): {path} holds the field \
+syntax literal \"{token}\". Only {ADR_0087_QUERY_PARSER_OWNER} reads field syntax. Call \
+SearchQuery::parse and read its typed terms, or read the token from QUERY_FIELDS."
+                ));
+            }
+        }
+    }
+    let owner_code = code_only(owner);
+    let owner_literals = string_literals(production_source(&owner_code));
+    for token in ADR_0087_FIELD_TOKENS {
+        if !owner_literals.iter().any(|literal| literal == token) {
+            violations.push(format!(
+                "ADR 0087 Decision 1 (one parser reads the query text): \
+{ADR_0087_QUERY_PARSER_OWNER} does not hold the field token \"{token}\" as a literal. Keep \
+each token in QUERY_FIELDS, and keep this guard list equal to that table."
+            ));
+        }
+    }
+    violations
+}
+
+/// R87-1-30, situational ADR 0087 Decision 1 and the invariant "One parser
+/// reads the query text. No other code reads field syntax." A production
+/// string literal that starts with a field token is the shortest sign of a
+/// second parser. Delete this guard when ADR 0087 Decision 1 is superseded.
+#[test]
+fn adr_0087_query_parser_r87_1_30_one_parser_reads_field_syntax() {
+    let owner_path = manifest_path(ADR_0087_QUERY_PARSER_OWNER);
+    let owner = read_source(&owner_path);
+    let mut paths = Vec::new();
+    collect_rust_files(&manifest_path("src"), &mut paths);
+    let files: Vec<(String, String)> = paths
+        .into_iter()
+        .filter(|path| *path != owner_path)
+        .map(|path| (rel_path(&path), read_source(&path)))
+        .collect();
+    let violations = query_field_syntax_violations(&owner, &files);
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+
+    // A copy of a production file that holds the literal "kind:" fails.
+    let (path, source) = files
+        .iter()
+        .find(|(path, _)| path.ends_with("src/app/search_dispatch.rs"))
+        .expect("src/app/search_dispatch.rs exists");
+    let mut copy = files.clone();
+    copy.push((
+        path.clone(),
+        format!("fn second_parser() -> &'static str {{ \"kind:\" }}\n{source}"),
+    ));
+    let copy_violations = query_field_syntax_violations(&owner, &copy);
+    assert!(copy_violations
+        .iter()
+        .any(|violation| violation.contains("\"kind:\"")));
+
+    // An owner with no "has:" literal fails.
+    let without_has = owner.replace("\"has:\"", "\"has\"");
+    assert_ne!(without_has, owner);
+    assert!(!query_field_syntax_violations(&without_has, &files).is_empty());
+}
