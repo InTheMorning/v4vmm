@@ -30,7 +30,7 @@ const fn icon_role_turning(state: ReleaseDownloadState) -> (IconName, SemanticCo
         ReleaseDownloadState::Queued => (IconName::Queued, SemanticColor::SecondaryLabel, false),
         ReleaseDownloadState::Downloading => (IconName::InProgress, SemanticColor::Accent, true),
         ReleaseDownloadState::Downloaded => {
-            (IconName::CloudCheck, SemanticColor::TertiaryLabel, false)
+            (IconName::CloudCheck, SemanticColor::SuccessLabel, false)
         }
     }
 }
@@ -98,7 +98,7 @@ mod tests {
         );
         assert_eq!(
             icon_role_turning(ReleaseDownloadState::Downloaded),
-            (IconName::CloudCheck, SemanticColor::TertiaryLabel, false)
+            (IconName::CloudCheck, SemanticColor::SuccessLabel, false)
         );
     }
 }

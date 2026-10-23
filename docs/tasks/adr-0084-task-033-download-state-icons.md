@@ -614,6 +614,10 @@ Stop and report the problem, and do not guess, when:
 
 Pass, after the corrections of "Review Corrections - 2026-10-22". A MusicIndex release row and a disclosed MusicIndex single now show "Queued" and "Downloading" while their own job runs. Four new tests prove the states during a job. The orchestrator accepted decisions D1 to D6. D2 replaces packet 016 D13. D1 is an open finding of the phase plan.
 
+## Amendment - 2026-10-23
+
+The operator found the gray downloaded icon too weak. The downloaded icon `CloudCheck` now uses the status color `SuccessLabel`, on track rows and release rows (ADR 0083 Decision 6). The tests R33-01 and the release state mapping test assert the new color.
+
 ## Operator Visual Check
 
 This check needs a Linux desktop session. It also needs a Library with at least one release that

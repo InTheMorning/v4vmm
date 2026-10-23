@@ -102,7 +102,7 @@ Until a page can play a track ([ADR 0068](0068-show-cue-and-audition-isolation.m
 ### 6. Rows Show Information And Hide Most Actions
 
 - A row shows its information and its state at all times.
-- A track row and a release row show their download state as an icon in one column. Not downloaded: `CloudDownload` in the accent color, the one state that is a button. Queued: `Clock`. Downloading: `LoaderCircle`, which turns. Downloaded: `CloudCheck`, quiet. Each icon has a tooltip and an accessibility label, so color is never the only signal. A partly downloaded release also shows a short count beside its icon, for example "3 of 9". The operator decided this on 2026-10-22.
+- A track row and a release row show their download state as an icon in one column. Not downloaded: `CloudDownload` in the accent color, the one state that is a button. Queued: `Clock`. Downloading: `LoaderCircle`, which turns. Downloaded: `CloudCheck` in the status color Success (operator decision of 2026-10-23). Each icon has a tooltip and an accessibility label, so color is never the only signal. A partly downloaded release also shows a short count beside its icon, for example "3 of 9". The operator decided this on 2026-10-22.
 - A row shows its actions on hover and on keyboard focus.
 - The right-click menu of a row holds the same items as its "⋯" menu.
 - A track can be dragged onto a playlist in the sidebar. Since ADR 0084, the sidebar holds the "Playlists" destination. While a track is held over it, the list column opens Playlists, and the track drops on a playlist row there. The operator decided this on 2026-10-20.

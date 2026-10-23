@@ -323,7 +323,7 @@ const fn download_status_icon(state: DownloadSlotState) -> Option<(IconName, Sem
         DownloadSlotState::Queued => Some((IconName::Queued, SemanticColor::SecondaryLabel, false)),
         DownloadSlotState::Downloading => Some((IconName::InProgress, SemanticColor::Accent, true)),
         DownloadSlotState::Downloaded => {
-            Some((IconName::CloudCheck, SemanticColor::TertiaryLabel, false))
+            Some((IconName::CloudCheck, SemanticColor::SuccessLabel, false))
         }
         DownloadSlotState::Download | DownloadSlotState::Empty => None,
     }
@@ -627,8 +627,8 @@ mod tests {
     use super::*;
 
     /// R33-01 (ADR 0083 Decision 6, amended 2026-10-22): `Queued` is
-    /// gray, `Downloading` is accent and turns, `Downloaded` is quiet
-    /// gray. `Download` and `Empty` show no icon of their own: `Download`
+    /// gray, `Downloading` is accent and turns, `Downloaded` is the success
+    /// color (operator decision of 2026-10-23). `Download` and `Empty` show no icon of their own: `Download`
     /// renders as the button, and `Empty` keeps the column bare.
     #[test]
     fn download_status_icon_maps_each_non_button_state() {
@@ -642,7 +642,7 @@ mod tests {
         );
         assert_eq!(
             download_status_icon(DownloadSlotState::Downloaded),
-            Some((IconName::CloudCheck, SemanticColor::TertiaryLabel, false))
+            Some((IconName::CloudCheck, SemanticColor::SuccessLabel, false))
         );
         assert_eq!(download_status_icon(DownloadSlotState::Download), None);
         assert_eq!(download_status_icon(DownloadSlotState::Empty), None);
