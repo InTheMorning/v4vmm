@@ -104,6 +104,9 @@ pub struct ListRow {
     has_menu_cell: bool,
     /// The owner of the click, which sets the hover fill.
     click_owner: RowClickOwner,
+    /// The last column of the row, after the menu cell: the download
+    /// state icon of a release row (operator decision of 2026-10-23).
+    trailing: Option<gpui::AnyElement>,
     /// The menu of the menu cell.
     menu: Option<RowMenu>,
     /// The drag of one track to a playlist (ADR 0083 task 008). `None`
@@ -126,6 +129,7 @@ impl ListRow {
             scroll_probe: None,
             has_menu_cell: false,
             click_owner: RowClickOwner::Row,
+            trailing: None,
             menu: None,
             drag: None,
             children: Vec::new(),
@@ -185,6 +189,15 @@ impl ListRow {
     /// column thus show the same hover fill (operator walk of 2026-10-22).
     pub(crate) const fn child_click(mut self) -> Self {
         self.click_owner = RowClickOwner::Child;
+        self
+    }
+
+    /// Puts `element` in the last column, after the menu cell. A release
+    /// row puts its download state icon here, so the icon is at the right
+    /// edge and the hover "⋯" shows to its left (operator decision of
+    /// 2026-10-23).
+    pub(crate) fn trailing(mut self, element: impl IntoElement) -> Self {
+        self.trailing = Some(element.into_any_element());
         self
     }
 
@@ -280,7 +293,8 @@ impl RenderOnce for ListRow {
                         .into_iter()
                         .chain(self.children)
                         .chain(self.audition)
-                        .chain(menu_cell),
+                        .chain(menu_cell)
+                        .chain(self.trailing),
                 ),
             )
             .when(has_menu_cell, |el| el.group(TRACK_ROW_GROUP))

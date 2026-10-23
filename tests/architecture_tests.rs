@@ -3095,6 +3095,27 @@ fn adr_0083_track_row_shows_the_hover_fill_of_a_list_row() {
     );
 }
 
+/// ADR 0083 Decision 6 and ADR 0084 task 033 (operator decision of
+/// 2026-10-23): a release row with a menu cell puts its download state icon
+/// in the trailing slot of `ListRow`, after the menu cell. The icon is then
+/// at the right edge, aligned with the group rows, and the hover "⋯" shows
+/// to its left.
+#[test]
+fn adr_0084_release_row_state_icon_is_the_last_column() {
+    for path in [
+        "src/ui/shells/library/destination_lists.rs",
+        "src/ui/composites/release_section_list.rs",
+    ] {
+        let source = compact_source(&read_source(&manifest_path(path)));
+        assert!(
+            source.contains(".trailing(render_release_download_state("),
+            "ADR 0084 task 033: {path} must put the release download state icon in \
+             `ListRow::trailing`, after the menu cell, so the icon is the last column. Do not \
+             add it with `.child(...)` before the menu cell."
+        );
+    }
+}
+
 /// ADR 0084 Decision 8 (operator decision of 2026-10-16): the Music
 /// content-list tri-state filter control is deleted. This replaces
 /// `adr_0047_task_010a_content_list_page_vm_owns_filter_projection` and

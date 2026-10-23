@@ -237,7 +237,7 @@ fn render_release_row(
             label: Some(SharedString::from(PublisherPageAlbumVm::NOT_LISTED_LABEL)),
         }));
     }
-    list_row = list_row.child(render_release_download_state(
+    list_row = list_row.trailing(render_release_download_state(
         &row.download_state,
         format!("{row_id}-download-state"),
         cx,

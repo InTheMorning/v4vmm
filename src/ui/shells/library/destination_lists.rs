@@ -404,7 +404,7 @@ fn render_destination_list_row(
         // download-state icon of a release row. An Artists row carries
         // none.
         .when_some(row.download_state, |el, state| {
-            el.child(render_release_download_state(&state, download_state_id, cx))
+            el.trailing(render_release_download_state(&state, download_state_id, cx))
         })
         .into_any_element()
 }

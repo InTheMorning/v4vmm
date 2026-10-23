@@ -618,6 +618,8 @@ Pass, after the corrections of "Review Corrections - 2026-10-22". A MusicIndex r
 
 The operator found the gray downloaded icon too weak. The downloaded icon `CloudCheck` now uses the status color `SuccessLabel`, on track rows and release rows (ADR 0083 Decision 6). The tests R33-01 and the release state mapping test assert the new color.
 
+The operator also asked on 2026-10-23 for the state icon at the right edge of each release row. A release row with a menu cell now puts its icon in `ListRow::trailing`, after the menu cell, so the hover "⋯" shows to its left. The guard `adr_0084_release_row_state_icon_is_the_last_column` pins this.
+
 ## Operator Visual Check
 
 This check needs a Linux desktop session. It also needs a Library with at least one release that
