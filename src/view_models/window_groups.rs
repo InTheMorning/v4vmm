@@ -42,6 +42,41 @@ const SECONDS_PER_DAY: i64 = 86_400;
 /// row id of the anchor follows it.
 pub(crate) const WINDOW_GROUP_ELEMENT_PREFIX: &str = "music-window-group-";
 
+/// The text after the count of a group whose window is open (ADR 0086
+/// Decision 5), for example "13+ Singles".
+pub(crate) const OPEN_COUNT_SUFFIX: &str = "+";
+
+/// The kind badge of a group of `count` singles (ADR 0086 Decision 5). A
+/// closed window gives "13 Singles". An open window gives "13+ Singles",
+/// because an older page can add singles to the group.
+#[must_use]
+pub(crate) fn window_group_count_badge(count: usize, window_closed: bool) -> String {
+    let suffix = if window_closed { "" } else { OPEN_COUNT_SUFFIX };
+    format!("{count}{suffix} Singles")
+}
+
+/// The accessibility label of a group tile. An open window says "or more",
+/// because a screen reader can read "+" as "plus" (packet 003 decision
+/// D10).
+fn window_group_a11y_label(
+    title: &str,
+    count: usize,
+    date_span: &str,
+    state: WindowGroupStateVm,
+    window_closed: bool,
+) -> String {
+    let count_words = if window_closed { "" } else { " or more" };
+    let mut label = format!(
+        "{title}: {count}{count_words} singles, {date_span}, {}",
+        state.word()
+    );
+    if let Some(count_text) = state.count_text() {
+        label.push_str(", ");
+        label.push_str(&count_text);
+    }
+    label
+}
+
 /// The window length of the groups, in days (ADR 0086 Decision 7). The
 /// value is 1 to 60. The default is 14.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -282,7 +317,8 @@ pub(crate) struct WindowGroupTileVm {
     pub(crate) title: String,
     /// The date span, for example "Oct 8 to Oct 20".
     pub(crate) date_span: String,
-    /// The kind badge, for example "3 Singles".
+    /// The kind badge, for example "3 Singles", or "3+ Singles" for an
+    /// open window. The renderer shows this text and adds nothing.
     pub(crate) kind_badge: String,
     /// The number of singles.
     pub(crate) count: usize,
@@ -325,26 +361,31 @@ impl WindowGroupTileVm {
         let count = group.members.len();
         let state = WindowGroupStateVm::for_counts(count, group.in_library_count);
         let date_span = window_span_text(group.oldest_date, group.anchor_date);
-        let mut a11y_label = format!("{title}: {count} singles, {date_span}, {}", state.word());
-        if let Some(count_text) = state.count_text() {
-            a11y_label.push_str(", ");
-            a11y_label.push_str(&count_text);
-        }
+        let window_closed = group.closed_by_rows;
         Self {
             element_id: format!("{WINDOW_GROUP_ELEMENT_PREFIX}{anchor_row_id}"),
             open_row_id: anchor_row_id.to_owned(),
             key: group.key.clone(),
             member_keys,
             title: title.to_owned(),
-            date_span,
-            kind_badge: format!("{count} Singles"),
+            kind_badge: window_group_count_badge(count, window_closed),
             count,
             state,
-            a11y_label,
+            a11y_label: window_group_a11y_label(title, count, &date_span, state, window_closed),
+            date_span,
             art: CollectionArtVm::resolve(None, anchor_cover, CollectionKind::SinglesGroup),
-            window_closed: group.closed_by_rows,
+            window_closed,
             selection: RowSelectionVm::none(),
         }
+    }
+
+    /// Sets the window state, and the kind badge and the accessibility
+    /// label that show it (ADR 0086 Decisions 5 and 6).
+    pub(crate) fn set_window_closed(&mut self, closed: bool) {
+        self.window_closed = closed;
+        self.kind_badge = window_group_count_badge(self.count, closed);
+        self.a11y_label =
+            window_group_a11y_label(&self.title, self.count, &self.date_span, self.state, closed);
     }
 }
 
@@ -426,13 +467,24 @@ impl NewReleasesLayout {
 
     /// One or more groups have a window that the loaded rows do not close
     /// (ADR 0086 Decision 5).
+    /// A single tile is not a group, so it never counts (packet 003
+    /// decision D9).
     #[must_use]
-    #[cfg(test)]
     pub(crate) fn any_window_open(&self) -> bool {
         self.items.iter().any(|item| match item {
             NewReleasesLayoutItem::WindowGroup(tile) => !tile.window_closed,
             NewReleasesLayoutItem::Release { .. } => false,
         })
+    }
+
+    /// Closes the window of each group (ADR 0086 Decision 5). The list has
+    /// no more pages, so no older single exists.
+    pub(crate) fn mark_list_end(&mut self) {
+        for item in &mut self.items {
+            if let NewReleasesLayoutItem::WindowGroup(tile) = item {
+                tile.set_window_closed(true);
+            }
+        }
     }
 }
 
@@ -1081,13 +1133,15 @@ mod tests {
         assert_eq!(none.state.count_text(), None);
     }
 
-    /// R86-2-20: the accessibility label and the element id.
+    /// R86-2-20: the accessibility label and the element id. The album of
+    /// Oct 1 closes the window (R86-3-29).
     #[test]
     fn adr_0086_window_groups_r20_a11y_label_and_element_id() {
         let rows = [
             in_library(jsmovie_single("a", oct(20))),
             jsmovie_single("b", oct(15)),
             jsmovie_single("c", oct(8)),
+            index_row("old", "Rain", "album", Some(oct(1)), None),
         ];
         let layout = layout(&rows, &LibraryTree::default());
         let tile = tiles(&layout)[0];
@@ -1097,6 +1151,66 @@ mod tests {
         );
         assert!(tile.element_id.starts_with(WINDOW_GROUP_ELEMENT_PREFIX));
         assert_eq!(tile.element_id, "music-window-group-index-feed:a");
+    }
+
+    /// R86-3-13: the count badge of an open window and of a closed window.
+    #[test]
+    fn adr_0086_pager_windows_r13_count_badge() {
+        assert_eq!(window_group_count_badge(13, false), "13+ Singles");
+        assert_eq!(window_group_count_badge(13, true), "13 Singles");
+        assert_eq!(OPEN_COUNT_SUFFIX, "+");
+    }
+
+    /// The rows of 13 jSmovie singles from Oct 20 to Oct 8, the first in
+    /// the Library.
+    fn thirteen_singles() -> Vec<ContentListRowDisplay> {
+        let mut rows: Vec<ContentListRowDisplay> = (0..13)
+            .map(|n| jsmovie_single(&format!("s{n}"), oct(20 - n)))
+            .collect();
+        rows[0] = in_library(rows[0].clone());
+        rows
+    }
+
+    /// R86-3-14: an open group says "or more" in its accessibility label.
+    /// A closed group keeps the label of R86-2-20.
+    #[test]
+    fn adr_0086_pager_windows_r14_open_a11y_label() {
+        let mut rows = thirteen_singles();
+        let open = layout(&rows, &LibraryTree::default());
+        let tile = tiles(&open)[0];
+        assert!(!tile.window_closed);
+        assert_eq!(
+            tile.a11y_label,
+            "jSmovie: 13 or more singles, Oct 8 to Oct 20, New, 1 in library"
+        );
+
+        rows.push(index_row("old", "Rain", "album", Some(oct(1)), None));
+        let closed = layout(&rows, &LibraryTree::default());
+        assert_eq!(
+            tiles(&closed)[0].a11y_label,
+            "jSmovie: 13 singles, Oct 8 to Oct 20, New, 1 in library"
+        );
+    }
+
+    /// R86-3-20: `set_window_closed` sets the badge and the label
+    /// together.
+    #[test]
+    fn adr_0086_pager_windows_r20_set_window_closed() {
+        let mut rows = thirteen_singles();
+        rows.push(index_row("old", "Rain", "album", Some(oct(1)), None));
+        let layout = layout(&rows, &LibraryTree::default());
+        let mut tile = tiles(&layout)[0].clone();
+        assert!(tile.window_closed);
+
+        tile.set_window_closed(false);
+        assert!(!tile.window_closed);
+        assert_eq!(tile.kind_badge, "13+ Singles");
+        assert!(tile.a11y_label.contains("13 or more singles"));
+
+        tile.set_window_closed(true);
+        assert!(tile.window_closed);
+        assert_eq!(tile.kind_badge, "13 Singles");
+        assert!(!tile.a11y_label.contains("or more"));
     }
 
     /// R86-2-21: the art is the anchor cover as a square, or the entity

@@ -99,7 +99,9 @@ use crate::view_models::library_removal::{
 use crate::view_models::list_selection::{FocusStep, ListSelection, SelectionMode, SelectionRow};
 use crate::view_models::name_level_page::NameLevelLibraryRelease;
 use crate::view_models::playlist_option_displays;
-use crate::view_models::recent_feeds::RecentFeedsPageVm;
+use crate::view_models::recent_feeds::{
+    RecentFeedsLoadIntent, RecentFeedsPageStep, RecentFeedsPageVm,
+};
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::release_page::TrackRowMenuAction;
 use crate::view_models::release_row_actions::{
@@ -472,8 +474,10 @@ impl LibraryApp {
         cx.emit(super::LibraryAppEvent::SetContentViewMode(view_mode));
     }
 
+    /// Starts one page request of New releases: the fresh load, one "Load
+    /// more" click or one scroll probe (ADR 0086 Decision 5, packet 003
+    /// decision D2).
     pub(crate) fn start_recent_music_load(&mut self, append: bool, cx: &mut Context<Self>) {
-        let loaded_row_count = self.recent_music_page.row_count();
         let Some(intent) = self.recent_music_page.begin_load(append) else {
             return;
         };
@@ -481,33 +485,52 @@ impl LibraryApp {
         self.vm.begin_recent_music_content_load(append);
         self.vm
             .replace_recent_music_content(&self.recent_music_page);
-        let cursor = intent.into_cursor();
+        cx.notify();
+        self.dispatch_recent_music_page(intent, cx);
+    }
+
+    /// Sends one page of the current page request. After the page arrives,
+    /// the pager decides if an extra page loads (ADR 0086 Decision 5). The
+    /// result reaches the content list only when the chain stops.
+    fn dispatch_recent_music_page(
+        &mut self,
+        intent: RecentFeedsLoadIntent,
+        cx: &mut Context<Self>,
+    ) {
+        let generation = intent.generation();
+        let resume_after = intent.resume_after();
         let command = FetchRecentFeedsPage::new(
             self.musicindex_endpoint.clone(),
-            cursor,
-            if append { loaded_row_count } else { 0 },
+            intent.into_cursor(),
+            resume_after,
         );
-        cx.notify();
         present_command(
             &self.command_runner,
             command,
             CommandContext::next(),
             cx,
             move |this, batch, cx| {
-                this.recent_music_page.finish_load(batch, append);
-                this.vm
-                    .replace_recent_music_content(&this.recent_music_page);
-                cx.notify();
+                if !this.recent_music_page.receive_page(generation, batch) {
+                    return;
+                }
+                let windows_open = this.vm.recent_music_windows_open(&this.recent_music_page);
+                match this.recent_music_page.next_step(windows_open) {
+                    RecentFeedsPageStep::LoadExtra(intent) => {
+                        this.dispatch_recent_music_page(intent, cx);
+                    }
+                    RecentFeedsPageStep::Finished => {
+                        this.vm.apply_recent_music_page(&this.recent_music_page);
+                    }
+                }
             },
-            move |this, error, cx| {
-                this.recent_music_page.fail_load(
+            move |this, error, _cx| {
+                if this.recent_music_page.fail_page(
+                    generation,
                     "Recent music unavailable",
                     command_error_detail(error),
-                    append,
-                );
-                this.vm
-                    .replace_recent_music_content(&this.recent_music_page);
-                cx.notify();
+                ) {
+                    this.vm.apply_recent_music_page(&this.recent_music_page);
+                }
             },
         );
     }

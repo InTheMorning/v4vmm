@@ -1791,7 +1791,7 @@ pub(crate) enum ContentListPageStateDisplay {
 }
 
 /// Load-more control display for the content-list frame.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ContentListLoadMoreDisplay {
     /// Stable button id.
     pub(crate) button_id: &'static str,
@@ -1801,6 +1801,9 @@ pub(crate) struct ContentListLoadMoreDisplay {
     pub(crate) a11y_label: &'static str,
     /// Whether the action is currently unavailable.
     pub(crate) disabled: bool,
+    /// The notice of a failed older page (ADR 0086 Decision 5). It shows
+    /// above the button.
+    pub(crate) failure: Option<ContentListFailedStateDisplay>,
 }
 
 /// Index feed activation selected from the Music content list.
@@ -2374,9 +2377,15 @@ pub(crate) struct ContentListPageVm {
     load_state: ContentListPageLoadState,
     loading: bool,
     has_more: bool,
+    /// The detail of a failed older page of the recent music pager.
+    older_pages_failure: Option<String>,
 }
 
 impl ContentListPageVm {
+    /// The title of the notice of a failed older page (ADR 0086 Decision
+    /// 5).
+    pub(crate) const OLDER_PAGES_FAILED_TITLE: &'static str =
+        "Older releases did not load from MusicIndex";
     const PAGE_ID: &'static str = "music-content-list-page";
     const ROWS_ID: &'static str = "music-content-list-rows";
     const TILES_ID: &'static str = "music-content-list-tiles";
@@ -2404,6 +2413,7 @@ impl ContentListPageVm {
             load_state,
             loading: false,
             has_more: false,
+            older_pages_failure: None,
         }
     }
 
@@ -2435,6 +2445,7 @@ impl ContentListPageVm {
         self.source = ContentListPageSource::RecentMusic;
         self.loading = page.is_loading();
         self.has_more = page.has_more();
+        self.older_pages_failure = page.older_pages_failure().map(str::to_owned);
         match page.state() {
             RecentFeedsPageState::Loading => {
                 if self.cached_rows.is_empty() {
@@ -2651,6 +2662,12 @@ impl ContentListPageVm {
                 label: Self::LOAD_MORE_LABEL,
                 a11y_label: Self::LOAD_MORE_A11Y_LABEL,
                 disabled: self.loading,
+                failure: self.older_pages_failure.as_ref().map(|detail| {
+                    ContentListFailedStateDisplay {
+                        title: Self::OLDER_PAGES_FAILED_TITLE.to_owned(),
+                        detail: detail.clone(),
+                    }
+                }),
             })
         } else {
             None
@@ -3050,17 +3067,52 @@ impl LibraryViewModel {
     /// and 2, packet 002 decision D11). Each method that changes the New
     /// releases rows, the tree or the window length calls it last. When the
     /// content list shows no New releases rows, the layout is empty.
+    ///
+    /// When the content list has no more pages, each window is closed
+    /// (ADR 0086 Decision 5).
     fn refresh_new_releases_layout(&mut self) {
         self.new_releases_layout =
             if self.content_list_page.source == ContentListPageSource::RecentMusic {
-                NewReleasesLayout::build(
-                    &self.content_list_page.visible_rows(),
-                    &self.snapshot.tree,
-                    self.window_length,
-                )
+                let mut layout = self.layout_of_rows(&self.content_list_page.visible_rows());
+                if !self.content_list_page.has_more() {
+                    layout.mark_list_end();
+                }
+                layout
             } else {
                 NewReleasesLayout::default()
             };
+    }
+
+    /// The window groups of `rows` with the tree and the window length of
+    /// this view model. This is the one build site of the layout (packet
+    /// 003 decision D12).
+    fn layout_of_rows(&self, rows: &[&ContentListRowDisplay]) -> NewReleasesLayout {
+        NewReleasesLayout::build(rows, &self.snapshot.tree, self.window_length)
+    }
+
+    /// True when a group of the loaded rows and the staged rows of `page`
+    /// has an open window (ADR 0086 Decision 5). It reads the pager rows,
+    /// not the content list, so it gives the same answer in each view.
+    #[must_use]
+    pub(crate) fn recent_music_windows_open(&self, page: &RecentFeedsPageVm) -> bool {
+        let rows: Vec<ContentListRowDisplay> = page
+            .chain_rows()
+            .map(content_list_row_from_recent_feed)
+            .collect();
+        let rows: Vec<&ContentListRowDisplay> = rows.iter().collect();
+        self.layout_of_rows(&rows).any_window_open()
+    }
+
+    /// Shows the rows of `page` in the content list when the content list
+    /// shows New releases (packet 003 decision D5). Else it gives `false`
+    /// and changes nothing. The pager keeps the rows, and
+    /// `show_discover_view` shows them later.
+    pub(crate) fn apply_recent_music_page(&mut self, page: &RecentFeedsPageVm) -> bool {
+        if self.content_list_page.source != ContentListPageSource::RecentMusic {
+            return false;
+        }
+        self.replace_recent_music_content(page);
+        true
     }
 
     /// The window groups of New releases (ADR 0086 Decision 2). The render
@@ -5216,9 +5268,11 @@ fn content_list_rows_from_tree(tree: &LibraryTree) -> Vec<ContentListRowDisplay>
 }
 
 fn content_list_rows_from_recent_feeds(rows: &[RecentFeedResultRow]) -> Vec<ContentListRowDisplay> {
-    rows.iter()
-        .map(|(_id, row)| ContentListRowDisplay::from_release_result(row.clone()))
-        .collect()
+    rows.iter().map(content_list_row_from_recent_feed).collect()
+}
+
+fn content_list_row_from_recent_feed((_id, row): &RecentFeedResultRow) -> ContentListRowDisplay {
+    ContentListRowDisplay::from_release_result(row.clone())
 }
 
 /// A stable element-id fragment for a release key (ADR 0084 Decision 2).
@@ -6883,7 +6937,7 @@ mod tests {
     #[test]
     fn adr_0084_discover_new_release_in_library_shows_its_state() {
         let mut recent = RecentFeedsPageVm::loading();
-        recent.finish_load(
+        recent.load_recorded_page(
             recent_feed_batch(
                 vec![
                     ("index-feed:held", "Held Release"),
@@ -6927,7 +6981,7 @@ mod tests {
     #[test]
     fn content_list_page_vm_projects_first_recent_music_page() {
         let mut recent = RecentFeedsPageVm::loading();
-        recent.finish_load(
+        recent.load_recorded_page(
             recent_feed_batch(
                 vec![
                     ("index-feed:newest", "Newest Release"),
@@ -6980,6 +7034,7 @@ mod tests {
                 label: "Load more",
                 a11y_label: "Load more recent music",
                 disabled: false,
+                failure: None,
             }),
             "has_more should expose a VM-owned load-more display without a cursor"
         );
@@ -6989,7 +7044,7 @@ mod tests {
     #[test]
     fn content_list_page_vm_appends_recent_music_pages() {
         let mut recent = RecentFeedsPageVm::loading();
-        recent.finish_load(
+        recent.load_recorded_page(
             recent_feed_batch(
                 vec![("index-feed:first", "First Release")],
                 Some("next"),
@@ -6997,7 +7052,7 @@ mod tests {
             ),
             false,
         );
-        recent.finish_load(
+        recent.load_recorded_page(
             recent_feed_batch(vec![("index-feed:second", "Second Release")], None, false),
             true,
         );
@@ -7016,7 +7071,7 @@ mod tests {
     #[test]
     fn content_list_page_vm_hides_load_more_when_recent_music_has_no_more_pages() {
         let mut recent = RecentFeedsPageVm::loading();
-        recent.finish_load(
+        recent.load_recorded_page(
             recent_feed_batch(vec![("index-feed:only", "Only Release")], None, false),
             false,
         );
@@ -7031,7 +7086,7 @@ mod tests {
     #[test]
     fn content_list_page_vm_projects_empty_recent_music_result() {
         let mut recent = RecentFeedsPageVm::loading();
-        recent.finish_load(recent_feed_batch(Vec::new(), None, false), false);
+        recent.load_recorded_page(recent_feed_batch(Vec::new(), None, false), false);
         let mut page = ContentListPageVm::new(Vec::new());
 
         page.replace_recent_feeds_page(&recent);
@@ -7051,7 +7106,11 @@ mod tests {
     #[test]
     fn content_list_page_vm_projects_failed_recent_music_load() {
         let mut recent = RecentFeedsPageVm::loading();
-        recent.fail_load("Recent music unavailable", "network failed", false);
+        let generation = recent
+            .begin_load(false)
+            .expect("a fresh load starts")
+            .generation();
+        assert!(recent.fail_page(generation, "Recent music unavailable", "network failed"));
         let mut page = ContentListPageVm::new(Vec::new());
 
         page.replace_recent_feeds_page(&recent);
@@ -12576,8 +12635,10 @@ mod adr_0086_window_groups_tests {
     };
     use crate::view_models::list_selection::FocusStep;
     use crate::view_models::named_feeds::NamedFeed;
-    use crate::view_models::recent_feeds::RecentFeedsPageBatch;
-    use crate::view_models::window_groups::{ContentListItemVm, NewReleasesLayoutItem};
+    use crate::view_models::recent_feeds::{RecentFeedsPageBatch, RecentFeedsPageStep};
+    use crate::view_models::window_groups::{
+        ContentListItemVm, NewReleasesLayoutItem, WindowGroupTileVm,
+    };
     use crate::view_models::workspace::{DiscoverView, FrameNavigationEntry};
     use crate::views::FeedView;
 
@@ -12660,9 +12721,8 @@ mod adr_0086_window_groups_tests {
     ) -> (LibraryViewModel, RecentFeedsPageVm) {
         let mut vm = LibraryViewModel::new();
         let mut page = RecentFeedsPageVm::loading();
-        let _ = page.begin_load(false);
         vm.begin_recent_music_content_load(false);
-        page.finish_load(batch(rows, has_more), false);
+        page.load_recorded_page(batch(rows, has_more), false);
         vm.replace_recent_music_content(&page);
         (vm, page)
     }
@@ -12738,9 +12798,8 @@ mod adr_0086_window_groups_tests {
         let (mut vm, mut page) = view_model(vec![single("a", oct(20))], true);
         assert!(group_counts(&vm).is_empty());
 
-        let _ = page.begin_load(true);
         vm.begin_recent_music_content_load(true);
-        page.finish_load(batch(vec![single("b", oct(15))], false), true);
+        page.load_recorded_page(batch(vec![single("b", oct(15))], false), true);
         vm.replace_recent_music_content(&page);
         assert_eq!(group_counts(&vm), [2]);
     }
@@ -12896,5 +12955,317 @@ mod adr_0086_window_groups_tests {
         let (mut vm, _) = view_model(r01_rows(), false);
         vm.show_tracks_destination();
         assert!(vm.new_releases_layout().items().is_empty());
+    }
+
+    /// Runs one page request as the app does (packet 003 decision D1).
+    /// Each page of `pages` arrives in turn until the pager gives
+    /// `Finished`. Gives the number of pages that the request read.
+    fn run_request(
+        vm: &mut LibraryViewModel,
+        page: &mut RecentFeedsPageVm,
+        append: bool,
+        pages: Vec<RecentFeedsPageBatch>,
+    ) -> usize {
+        let generation = page
+            .begin_load(append)
+            .expect("the page request starts")
+            .generation();
+        vm.begin_recent_music_content_load(append);
+        vm.replace_recent_music_content(page);
+        for (read, batch) in pages.into_iter().enumerate() {
+            assert!(page.receive_page(generation, batch));
+            let windows_open = vm.recent_music_windows_open(page);
+            if page.next_step(windows_open) == RecentFeedsPageStep::Finished {
+                vm.apply_recent_music_page(page);
+                return read + 1;
+            }
+        }
+        panic!("the page request needs more recorded pages");
+    }
+
+    /// The group tiles of the layout of `vm`.
+    fn group_tiles(vm: &LibraryViewModel) -> Vec<&WindowGroupTileVm> {
+        vm.new_releases_layout()
+            .items()
+            .iter()
+            .filter_map(|item| match item {
+                NewReleasesLayoutItem::WindowGroup(tile) => Some(tile.as_ref()),
+                NewReleasesLayoutItem::Release { .. } => None,
+            })
+            .collect()
+    }
+
+    /// The singles of jSmovie on each day of `days`, newest first.
+    fn singles_on(days: std::ops::RangeInclusive<u32>) -> Vec<RecentFeedResultRow> {
+        days.rev()
+            .map(|day| single(&format!("s{day}"), oct(day)))
+            .collect()
+    }
+
+    /// A view model and a pager after the request of R86-3-15: 13 singles
+    /// from Oct 20 to Oct 8 in six pages, and the cap stops the chain.
+    fn capped_thirteen_singles() -> (LibraryViewModel, RecentFeedsPageVm) {
+        let mut vm = LibraryViewModel::new();
+        let mut page = RecentFeedsPageVm::loading();
+        let mut pages = vec![batch(singles_on(18..=20), true)];
+        for start in [16, 14, 12, 10, 8] {
+            pages.push(batch(singles_on(start..=start + 1), true));
+        }
+        assert_eq!(run_request(&mut vm, &mut page, false, pages), 6);
+        (vm, page)
+    }
+
+    /// R86-3-08: a projection during the chain shows only the earlier rows,
+    /// with the loading display and a disabled "Load more".
+    #[test]
+    fn adr_0086_pager_windows_r08_projection_during_the_chain() {
+        let (mut vm, mut page) = view_model(vec![album("first", oct(20))], true);
+        let generation = page
+            .begin_load(true)
+            .expect("an append starts")
+            .generation();
+        vm.begin_recent_music_content_load(true);
+        assert!(page.receive_page(
+            generation,
+            batch(vec![single("a", oct(19)), single("b", oct(18))], true)
+        ));
+        assert!(matches!(
+            page.next_step(vm.recent_music_windows_open(&page)),
+            RecentFeedsPageStep::LoadExtra(_)
+        ));
+
+        vm.replace_recent_music_content(&page);
+        let list = vm.content_list_page();
+        assert_eq!(list.visible_row_ids(), ["index-feed:first"]);
+        assert!(list.loading_display().is_some());
+        assert!(list
+            .load_more_display()
+            .is_some_and(|display| display.disabled));
+    }
+
+    /// R86-3-10: two singles with no closing row give an open window. A
+    /// later row closes it.
+    #[test]
+    fn adr_0086_pager_windows_r10_group_window_opens_and_closes() {
+        let vm = LibraryViewModel::new();
+        let mut page = RecentFeedsPageVm::loading();
+        page.load_recorded_page(
+            batch(vec![single("a", oct(20)), single("b", oct(19))], true),
+            false,
+        );
+        assert!(vm.recent_music_windows_open(&page));
+
+        page.load_recorded_page(batch(vec![album("old", oct(1))], true), true);
+        assert!(!vm.recent_music_windows_open(&page));
+    }
+
+    /// R86-3-11: the window of one single asks for no extra page.
+    #[test]
+    fn adr_0086_pager_windows_r11_one_single_is_not_a_group() {
+        let vm = LibraryViewModel::new();
+        let mut page = RecentFeedsPageVm::loading();
+        page.load_recorded_page(batch(vec![single("a", oct(20))], true), false);
+        assert!(!vm.recent_music_windows_open(&page));
+    }
+
+    /// R86-3-12: the answer reads the pager rows, also while Tracks shows.
+    #[test]
+    fn adr_0086_pager_windows_r12_windows_read_the_pager_rows() {
+        let (mut vm, page) = view_model(vec![single("a", oct(20)), single("b", oct(19))], true);
+        assert!(vm.recent_music_windows_open(&page));
+        vm.show_tracks_destination();
+        assert!(vm.recent_music_windows_open(&page));
+    }
+
+    /// R86-3-15: the cap stops the chain with an open group of 13 singles.
+    #[test]
+    fn adr_0086_pager_windows_r15_cap_leaves_the_plus() {
+        let (vm, page) = capped_thirteen_singles();
+        assert!(!page.is_loading());
+        let tiles = group_tiles(&vm);
+        assert_eq!(tiles.len(), 1);
+        assert_eq!(tiles[0].count, 13);
+        assert_eq!(tiles[0].kind_badge, "13+ Singles");
+        assert!(!tiles[0].window_closed);
+    }
+
+    /// R86-3-16: the next request adds two singles of the window and a row
+    /// before the window start. The count grows in place, and the "+"
+    /// goes.
+    #[test]
+    fn adr_0086_pager_windows_r16_next_request_closes_the_window() {
+        let (mut vm, mut page) = capped_thirteen_singles();
+        let element_id = group_tiles(&vm)[0].element_id.clone();
+        let mut rows = singles_on(6..=7);
+        rows.push(album("old", oct(1)));
+        assert_eq!(
+            run_request(&mut vm, &mut page, true, vec![batch(rows, true)]),
+            1
+        );
+
+        let tiles = group_tiles(&vm);
+        assert_eq!(tiles[0].element_id, element_id);
+        assert_eq!(tiles[0].count, 15);
+        assert_eq!(tiles[0].kind_badge, "15 Singles");
+        assert!(tiles[0].window_closed);
+    }
+
+    /// R86-3-17: a next request that the cap stops again keeps the "+".
+    #[test]
+    fn adr_0086_pager_windows_r17_cap_again_keeps_the_plus() {
+        let (mut vm, mut page) = capped_thirteen_singles();
+        let mut pages = vec![batch(singles_on(6..=7), true)];
+        for extra in 0..5 {
+            pages.push(batch(vec![album(&format!("x{extra}"), oct(6))], true));
+        }
+        assert_eq!(run_request(&mut vm, &mut page, true, pages), 6);
+        let tiles = group_tiles(&vm);
+        assert_eq!(tiles[0].count, 15);
+        assert_eq!(tiles[0].kind_badge, "15+ Singles");
+    }
+
+    /// R86-3-18: a later page that adds a single to the window of a single
+    /// tile gives a group at the place of that single.
+    #[test]
+    fn adr_0086_pager_windows_r18_single_becomes_a_group_in_place() {
+        let mut vm = LibraryViewModel::new();
+        let mut page = RecentFeedsPageVm::loading();
+        let first = vec![album("rain", oct(21)), single("a", oct(20))];
+        assert_eq!(
+            run_request(&mut vm, &mut page, false, vec![batch(first, true)]),
+            1
+        );
+        assert!(matches!(
+            &vm.new_releases_layout().items()[1],
+            NewReleasesLayoutItem::Release { row_id } if row_id == "index-feed:a"
+        ));
+
+        let next = vec![single("b", oct(15))];
+        assert_eq!(
+            run_request(&mut vm, &mut page, true, vec![batch(next, false)]),
+            1
+        );
+        let NewReleasesLayoutItem::WindowGroup(tile) = &vm.new_releases_layout().items()[1] else {
+            panic!("the group takes the place of the single");
+        };
+        assert_eq!(tile.open_row_id, "index-feed:a");
+        assert_eq!(tile.count, 2);
+    }
+
+    /// R86-3-19: at the end of the list, each window is closed.
+    #[test]
+    fn adr_0086_pager_windows_r19_list_end_closes_each_window() {
+        let mut vm = LibraryViewModel::new();
+        let mut page = RecentFeedsPageVm::loading();
+        let rows = vec![
+            single("a", oct(20)),
+            single("b", oct(19)),
+            album("rain", oct(18)),
+        ];
+        run_request(&mut vm, &mut page, false, vec![batch(rows, false)]);
+        let tiles = group_tiles(&vm);
+        assert_eq!(tiles.len(), 1);
+        assert!(tiles.iter().all(|tile| tile.window_closed));
+        assert_eq!(tiles[0].kind_badge, "2 Singles");
+        assert!(!vm.new_releases_layout().any_window_open());
+    }
+
+    /// R86-3-22: a result that arrives while Tracks or Needs attention
+    /// shows changes nothing. A later projection shows the rows.
+    #[test]
+    fn adr_0086_pager_windows_r22_result_waits_for_new_releases() {
+        let (mut vm, mut page) = view_model(vec![album("first", oct(20))], true);
+        page.load_recorded_page(batch(vec![album("second", oct(19))], false), true);
+
+        vm.show_tracks_destination();
+        let tracks = ids(&vm.content_list_page().visible_rows());
+        assert!(!vm.apply_recent_music_page(&page));
+        assert_eq!(vm.content_list_page().source(), ContentListPageSource::Tree);
+        assert_eq!(ids(&vm.content_list_page().visible_rows()), tracks);
+
+        vm.content_list_page
+            .replace_broadcast_readiness_rows(Vec::new());
+        assert!(!vm.apply_recent_music_page(&page));
+        assert_eq!(
+            vm.content_list_page().source(),
+            ContentListPageSource::BroadcastReadiness
+        );
+        assert!(vm.content_list_page().cached_rows().is_empty());
+
+        vm.replace_recent_music_content(&page);
+        assert_eq!(
+            vm.content_list_page().visible_row_ids(),
+            ["index-feed:first", "index-feed:second"]
+        );
+    }
+
+    /// R86-3-24: a failed extra page gives the notice above an enabled
+    /// "Load more". The next page request clears it.
+    #[test]
+    fn adr_0086_pager_windows_r24_failed_extra_page_notice() {
+        let mut vm = LibraryViewModel::new();
+        let mut page = RecentFeedsPageVm::loading();
+        let generation = page
+            .begin_load(false)
+            .expect("a fresh load starts")
+            .generation();
+        vm.begin_recent_music_content_load(false);
+        assert!(page.receive_page(
+            generation,
+            batch(vec![single("a", oct(20)), single("b", oct(19))], true)
+        ));
+        assert!(matches!(
+            page.next_step(vm.recent_music_windows_open(&page)),
+            RecentFeedsPageStep::LoadExtra(_)
+        ));
+        assert!(page.fail_page(generation, "Recent music unavailable", "timeout"));
+        assert!(vm.apply_recent_music_page(&page));
+
+        let display = vm
+            .content_list_page()
+            .load_more_display()
+            .expect("the list has more pages");
+        assert!(!display.disabled);
+        assert_eq!(
+            display.failure,
+            Some(ContentListFailedStateDisplay {
+                title: "Older releases did not load from MusicIndex".to_owned(),
+                detail: "timeout".to_owned(),
+            })
+        );
+        assert_eq!(group_tiles(&vm)[0].kind_badge, "2+ Singles");
+
+        let _ = page.begin_load(true);
+        vm.replace_recent_music_content(&page);
+        let display = vm
+            .content_list_page()
+            .load_more_display()
+            .expect("the list has more pages");
+        assert_eq!(display.failure, None);
+    }
+
+    /// R86-3-28: a failed first page of a fresh load keeps the error of
+    /// today, with no notice of older pages.
+    #[test]
+    fn adr_0086_pager_windows_r28_failed_first_page_keeps_the_error() {
+        let mut vm = LibraryViewModel::new();
+        let mut page = RecentFeedsPageVm::loading();
+        let generation = page
+            .begin_load(false)
+            .expect("a fresh load starts")
+            .generation();
+        vm.begin_recent_music_content_load(false);
+        assert!(page.fail_page(generation, "Recent music unavailable", "network failed"));
+        assert!(vm.apply_recent_music_page(&page));
+        assert_eq!(
+            vm.content_list_page().page_state_display(),
+            Some(ContentListPageStateDisplay::Failed(
+                ContentListFailedStateDisplay {
+                    title: "Recent music unavailable".to_owned(),
+                    detail: "network failed".to_owned(),
+                }
+            ))
+        );
+        assert_eq!(vm.content_list_page().load_more_display(), None);
     }
 }

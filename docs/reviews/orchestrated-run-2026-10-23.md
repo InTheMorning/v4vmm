@@ -25,6 +25,11 @@ Each entry names the step, the decision and the reason.
   - The content list renderers take one tuple `ContentListImages`, because a guard needs the parameter name `thumbnails`.
   - `ContentListItemVm` has `#[expect(clippy::large_enum_variant)]`.
   - The layout keeps no `WindowGroup`. Thus the tile has no `anchor_date` and no `window_start`. Packet 004 adds them to the tile, because its `WindowGroupKey` needs them.
+- ADR 0086 packet 003. The orchestrator accepted these deviations:
+  - The ADR 0062 guard and the guard R86-2-27 now name the new pager functions. Both guards keep their rule: Music recency uses the pager of `RecentFeedsPageVm`, and one function builds the groups.
+  - `extra_pages()` and the test helper `RecentFeedsPageVm::load_recorded_page` are `#[cfg(test)]`. No production code calls them.
+  - `content_list_row_from_recent_feed` is new, because a guard requires the signature of `content_list_rows_from_recent_feeds`.
+  - The packet also corrects the defect of 2026-10-23: a late New releases page no longer replaces the rows of a different list.
 
 ## Steps
 
@@ -32,8 +37,8 @@ Each entry names the step, the decision and the reason.
 |---|---|---|
 | Planning documents of 2026-10-23 | Done | `e38b6e3`, Stophammer `97aa28e` |
 | ADR 0086 packet 001: parallel detail reads | Implemented. V1 to V4 open | `cdbabc4` |
-| ADR 0086 packet 002: New releases window groups | Implemented. V1 to V8 open | (this commit) |
-| ADR 0086 packet 003: the pager closes each window | Ready | |
+| ADR 0086 packet 002: New releases window groups | Implemented. V1 to V8 open | `fffac06` |
+| ADR 0086 packet 003: the pager closes each window | Implemented. V1 to V10 open | (this commit) |
 | ADR 0086 packet 004: the window group page | Ready | |
 | ADR 0086 packet 005: saved search window groups | Ready | |
 | ADR 0087 packet 001: the query parser | Ready | |

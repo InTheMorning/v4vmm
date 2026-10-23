@@ -1,6 +1,6 @@
 # ADR 0086 Task 003: The Pager Loads Until Each Window Closes
 
-Status: Ready - 2026-10-23.
+Status: Implemented - 2026-10-23. Cases R86-3-01 to R86-3-29 pass. Mechanical checks are Green. V1 to V10 are open, in the final walk of the run of 2026-10-23.
 
 Orchestrator note - 2026-10-23: packet 002 is implemented. These names are `#[cfg(test)]` until a packet calls them: `WindowLength::{MIN_DAYS, MAX_DAYS, from_days, days}`, `LibraryViewModel::{window_length, set_window_length}` and `NewReleasesLayout::any_window_open`. Remove the `#[cfg(test)]` of each name that this packet calls. The group renderers are in `src/ui/shells/library/window_groups.rs`.
 

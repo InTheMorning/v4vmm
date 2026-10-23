@@ -200,3 +200,4 @@ Open - the run adds each packet when its mechanical checks are Green.
 - The packets of the run. Each item names its packet and its open checks:
   - [ADR 0086 packet 001](tasks/adr-0086-task-001-parallel-new-releases-detail-reads.md) V1 to V4
   - [ADR 0086 packet 002](tasks/adr-0086-task-002-new-releases-window-groups.md) V1 to V8
+  - [ADR 0086 packet 003](tasks/adr-0086-task-003-pager-closes-windows.md) V1 to V10

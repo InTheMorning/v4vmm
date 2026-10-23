@@ -15297,7 +15297,8 @@ fn adr_0062_music_default_content_reuses_recent_feeds_pager() {
 
     for required in [
         "pub(crate) fn begin_load(&mut self, append: bool)",
-        "pub(crate) fn finish_load(&mut self, batch: RecentFeedsPageBatch, append: bool)",
+        "pub(crate) fn receive_page(&mut self, generation: u64, batch: RecentFeedsPageBatch) -> bool",
+        "pub(crate) fn next_step(&mut self, windows_open: bool) -> RecentFeedsPageStep",
         "pub(crate) const fn has_more(&self) -> bool",
     ] {
         if !recent_vm_source.contains(required) {
@@ -15310,15 +15311,16 @@ fn adr_0062_music_default_content_reuses_recent_feeds_pager() {
     for required in [
         "recent_music_page: RecentFeedsPageVm",
         "self.recent_music_page.begin_load(append)",
-        "this.recent_music_page.finish_load(batch, append)",
-        "this.recent_music_page.fail_load(",
-        "if append { loaded_row_count } else { 0 }",
+        "this.recent_music_page.receive_page(generation, batch)",
+        "this.recent_music_page.next_step(windows_open)",
+        "this.recent_music_page.fail_page(",
+        "intent.resume_after()",
         "replace_recent_music_content(&self.recent_music_page)",
-        "replace_recent_music_content(&this.recent_music_page)",
+        "apply_recent_music_page(&this.recent_music_page)",
     ] {
         if !library_source.contains(required) && !library_app_source.contains(required) {
             violations.push(format!(
-                "src/library.rs or src/library/app_impl.rs: Situational ADR 0062 Music recency must reuse RecentFeedsPageVm pagination; missing `{required}`. Fix: call the existing begin_load/finish_load/fail_load path."
+                "src/library.rs or src/library/app_impl.rs: Situational ADR 0062 Music recency must reuse RecentFeedsPageVm pagination; missing `{required}`. Fix: call the existing begin_load/receive_page/next_step/fail_page path."
             ));
         }
     }
@@ -23292,11 +23294,24 @@ fn adr_0086_parallel_reads_r86_1_06_feed_detail_reads_use_the_shared_limit() {
 /// `src/`, by its relative path.
 fn window_groups_built_once_violations(library: &str, files: &[(String, String)]) -> Vec<String> {
     const BUILD: &str = "NewReleasesLayout::build(";
+    const LAYOUT_OF_ROWS: &str = "layout_of_rows(";
     let mut violations = Vec::new();
-    let refresh = music_open_defects_fn_body(library, "refresh_new_releases_layout");
-    if library.matches(BUILD).count() != 1 || !refresh.is_some_and(|body| body.contains(BUILD)) {
+    let layout_of_rows = music_open_defects_fn_body(library, "layout_of_rows");
+    if library.matches(BUILD).count() != 1
+        || !layout_of_rows.is_some_and(|body| body.contains(BUILD))
+    {
         violations.push(format!(
-            "src/view_models/library.rs: call `{BUILD}` one time, in `fn refresh_new_releases_layout`"
+            "src/view_models/library.rs: call `{BUILD}` one time, in `fn layout_of_rows`"
+        ));
+    }
+    // ADR 0086 packet 003 decision D12: one definition and two callers.
+    let callers = ["refresh_new_releases_layout", "recent_music_windows_open"];
+    let callers_call = callers.iter().all(|name| {
+        music_open_defects_fn_body(library, name).is_some_and(|body| body.contains(LAYOUT_OF_ROWS))
+    });
+    if library.matches(LAYOUT_OF_ROWS).count() != 1 + callers.len() || !callers_call {
+        violations.push(format!(
+            "src/view_models/library.rs: only `fn refresh_new_releases_layout` and `fn recent_music_windows_open` call `{LAYOUT_OF_ROWS}`"
         ));
     }
     for (file, source) in files {
@@ -23324,7 +23339,7 @@ fn window_groups_built_once_violations(library: &str, files: &[(String, String)]
 /// guard when ADR 0086 Decision 2 is superseded.
 #[test]
 fn adr_0086_window_groups_built_once_in_the_view_model() {
-    const FIX: &str = "ADR 0086 §2 A Group Tile Takes The Place Of Its Newest Single: the New releases window groups are built only in `LibraryViewModel::refresh_new_releases_layout`.\nRead `LibraryViewModel::new_releases_layout()` in the render and in each handler. Do not build the groups again.";
+    const FIX: &str = "ADR 0086 §2 A Group Tile Takes The Place Of Its Newest Single: the New releases window groups are built only in `LibraryViewModel::layout_of_rows`, which only `refresh_new_releases_layout` and `recent_music_windows_open` call.\nRead `LibraryViewModel::new_releases_layout()` in the render and in each handler. Do not build the groups again.";
     let library = read_source(&manifest_path("src/view_models/library.rs"));
     let files: Vec<(String, String)> = rust_files_under("src")
         .into_iter()
@@ -23339,6 +23354,17 @@ fn adr_0086_window_groups_built_once_in_the_view_model() {
         "{library}\nfn build_again(rows: &[&Row], tree: &LibraryTree) {{ let _ = NewReleasesLayout::build(rows, tree, WindowLength::DEFAULT); }}\n"
     );
     assert!(!window_groups_built_once_violations(&twice, &files).is_empty());
+    // A copy of library.rs that builds the groups outside `fn layout_of_rows` fails (R86-3-27).
+    let outside = library.replacen(
+        "NewReleasesLayout::build(rows,",
+        "NewReleasesLayout::default(); let _ = (rows,",
+        1,
+    ) + "\nfn refresh_elsewhere(rows: &[&Row], tree: &LibraryTree) { let _ = NewReleasesLayout::build(rows, tree, WindowLength::DEFAULT); }\n";
+    assert_ne!(outside, library);
+    assert!(!window_groups_built_once_violations(&outside, &files).is_empty());
+    // A third caller of `layout_of_rows` fails.
+    let third = format!("{library}\nfn third(&self) {{ let _ = self.layout_of_rows(&[]); }}\n");
+    assert!(!window_groups_built_once_violations(&third, &files).is_empty());
     // A shell that makes the groups fails.
     let mut shell = files.clone();
     shell.push((
@@ -23346,4 +23372,92 @@ fn adr_0086_window_groups_built_once_in_the_view_model() {
         "let layout = NewReleasesLayout::build(&rows, tree, length);".to_owned(),
     ));
     assert!(!window_groups_built_once_violations(&library, &shell).is_empty());
+}
+
+/// The violations of the rule that the pager decides each extra page of
+/// New releases (ADR 0086 packet 003 R86-3-25). `app` is the source of
+/// `src/library/app_impl.rs`. `files` holds each Rust file under `src/`,
+/// by its relative path.
+fn pager_extra_loads_violations(app: &str, files: &[(String, String)]) -> Vec<String> {
+    let mut violations = Vec::new();
+    for (file, source) in files {
+        if file != "src/view_models/recent_feeds.rs" && source.contains("const EXTRA_PAGE_CAP") {
+            violations.push(format!("{file}: defines `EXTRA_PAGE_CAP`"));
+        }
+        let app_or_shell = file == "src/library.rs"
+            || ["src/library/", "src/app/", "src/ui/"]
+                .iter()
+                .any(|prefix| file.starts_with(prefix));
+        if app_or_shell {
+            for name in ["EXTRA_PAGE_CAP", "extra_pages("] {
+                if source.contains(name) {
+                    violations.push(format!("{file}: names `{name}`"));
+                }
+            }
+        }
+    }
+    if app.contains("extra_pages(") {
+        violations.push("src/library/app_impl.rs: names `extra_pages(`".to_owned());
+    }
+    if app.contains("replace_recent_music_content(&this.") {
+        violations.push(
+            "src/library/app_impl.rs: calls `replace_recent_music_content` in a result callback"
+                .to_owned(),
+        );
+    }
+    match music_open_defects_fn_body(app, "dispatch_recent_music_page") {
+        Some(body) => {
+            for call in [
+                "receive_page(",
+                "next_step(",
+                "fail_page(",
+                "apply_recent_music_page(",
+            ] {
+                if !body.contains(call) {
+                    violations.push(format!(
+                        "src/library/app_impl.rs: `fn dispatch_recent_music_page` must call `{call}`"
+                    ));
+                }
+            }
+            if body.contains("replace_recent_music_content(") {
+                violations.push(
+                    "src/library/app_impl.rs: `fn dispatch_recent_music_page` calls `replace_recent_music_content(`"
+                        .to_owned(),
+                );
+            }
+        }
+        None => violations
+            .push("src/library/app_impl.rs: `fn dispatch_recent_music_page` is missing".to_owned()),
+    }
+    violations
+}
+
+/// R86-3-25 (ADR 0086 Task 003) situational guard: the pager view model
+/// decides each extra page of New releases, and a page result reaches the
+/// content list only through `apply_recent_music_page`. Delete this guard
+/// when ADR 0086 Decision 5 is superseded.
+#[test]
+fn adr_0086_pager_extra_loads_in_the_view_model() {
+    const FIX: &str = "ADR 0086 §5 The Pager Loads Until Each Window Closes, Up To A Cap: `RecentFeedsPageVm::next_step` decides each extra page, and a page result reaches the content list only through `LibraryViewModel::apply_recent_music_page`.\nCall `receive_page`, `next_step` and `apply_recent_music_page` in `dispatch_recent_music_page`. Do not count pages in the app, and do not call `replace_recent_music_content` in a result callback.";
+    let app = read_source(&manifest_path("src/library/app_impl.rs"));
+    let files: Vec<(String, String)> = rust_files_under("src")
+        .into_iter()
+        .map(|path| (rel_path(&path), read_source(&path)))
+        .collect();
+    let violations = pager_extra_loads_violations(&app, &files);
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+
+    // A copy of app_impl.rs that counts the extra pages fails.
+    let counts = format!(
+        "{app}\nfn counts(page: &RecentFeedsPageVm) -> bool {{ page.extra_pages() < 5 }}\n"
+    );
+    assert!(!pager_extra_loads_violations(&counts, &files).is_empty());
+    // A copy of app_impl.rs that projects a result in a callback fails.
+    let projects = app.replacen(
+        "this.vm.apply_recent_music_page(&this.recent_music_page);",
+        "this.vm.replace_recent_music_content(&this.recent_music_page);",
+        1,
+    );
+    assert_ne!(projects, app);
+    assert!(!pager_extra_loads_violations(&projects, &files).is_empty());
 }

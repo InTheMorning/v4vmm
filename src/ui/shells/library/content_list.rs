@@ -552,12 +552,17 @@ fn render_content_list_row_text(
     text.child(status).into_any_element()
 }
 
+/// The "Load more" button. A failed older page shows its notice above
+/// the button, in the style of the failed state (ADR 0086 Decision 5).
 fn render_content_list_load_more(
     display: ContentListLoadMoreDisplay,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     div()
         .pt(Spacing::SM.scaled(cx))
+        .children(display.failure.map(|failure| {
+            render_content_list_state(ContentListPageStateDisplay::Failed(failure), cx)
+        }))
         .child(
             UiButton::styled(display.button_id, ControlStyle::Ghost)
                 .label(display.label)
