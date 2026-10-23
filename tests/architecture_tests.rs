@@ -2947,7 +2947,7 @@ fn adr_0084_search_open_defects_r28_03_focus_move_scrolls_to_the_focused_row() {
         "pub(super)fntoggle_focused_search_row(",
     );
     for required in [
-        "detail.focused_row_index()",
+        "detail.focused_row_index(&lookup)",
         "self.search_page_scroll(slot).scroll_to_item(index);",
     ] {
         assert!(
@@ -23542,4 +23542,97 @@ fn adr_0086_window_group_page_built_in_the_view_model() {
         "let page = WindowGroupPageVm::build(&key, layout, &rows, tree, fills, busy);".to_owned(),
     ));
     assert!(!window_group_page_violations(&library, &handler).is_empty());
+}
+
+/// The violations of the rule that a saved search groups only its loaded
+/// rows, and that a relevance order never closes a window (ADR 0086 packet
+/// 005 R86-5-24). `search` is the source of
+/// `src/application/queries/search.rs`, and `groups` the source of
+/// `src/view_models/search_results/saved_search_groups.rs`. `files` holds
+/// each Rust file under `src/`, by its relative path.
+fn saved_search_groups_violations(
+    search: &str,
+    groups: &str,
+    files: &[(String, String)],
+) -> Vec<String> {
+    let mut violations = Vec::new();
+    let feed_rows = music_open_defects_fn_body(search, "fetch_index_feed_result_rows");
+    if feed_rows.is_none_or(|body| body.matches("client.search(").count() != 1) {
+        violations.push(
+            "src/application/queries/search.rs: `fn fetch_index_feed_result_rows` must send one `client.search(` call"
+                .to_owned(),
+        );
+    }
+    if feed_rows.is_some_and(|body| body.contains(".cursor")) {
+        violations.push(
+            "src/application/queries/search.rs: `fn fetch_index_feed_result_rows` must not read `.cursor`"
+                .to_owned(),
+        );
+    }
+    let groups = code_only(production_source(groups));
+    for required in ["window_groups(", "set_window_closed("] {
+        if !groups.contains(required) {
+            violations.push(format!(
+                "src/view_models/search_results/saved_search_groups.rs: must call `{required}`"
+            ));
+        }
+    }
+    if groups.contains("closed_by_rows") {
+        violations.push(
+            "src/view_models/search_results/saved_search_groups.rs: must not read `closed_by_rows`"
+                .to_owned(),
+        );
+    }
+    for (file, source) in files {
+        let shell_or_app = ["src/ui/", "src/library/", "src/app/"]
+            .iter()
+            .any(|prefix| file.starts_with(prefix));
+        if shell_or_app && source.contains("saved_search_window_entries(") {
+            violations.push(format!("{file}: calls `saved_search_window_entries(`"));
+        }
+    }
+    violations
+}
+
+/// R86-5-24 (ADR 0086 Task 005) situational guard: a saved search groups
+/// only its loaded rows and sends no extra page for a window. A relevance
+/// order never closes a window, so the open state comes from the page.
+/// Delete this guard when ADR 0086 Decision 6 is superseded.
+#[test]
+fn adr_0086_saved_search_groups_load_no_extra_page() {
+    const FIX: &str = "ADR 0086 §6 Saved Searches Group By The Same Window: a saved search groups only its loaded rows, and a relevance order never closes a window.\nKeep one `client.search(` call with no cursor in `fetch_index_feed_result_rows`. Take the open state from `SearchResultsInspectorPageVm::release_rows_complete`, not from `WindowGroup::closed_by_rows`.";
+    let search = read_source(&manifest_path("src/application/queries/search.rs"));
+    let groups = read_source(&manifest_path(
+        "src/view_models/search_results/saved_search_groups.rs",
+    ));
+    let files: Vec<(String, String)> = rust_files_under("src")
+        .into_iter()
+        .map(|path| (rel_path(&path), read_source(&path)))
+        .collect();
+    let violations = saved_search_groups_violations(&search, &groups, &files);
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+
+    // A copy of `fetch_index_feed_result_rows` with a second search fails.
+    let second = search.replacen(
+        "    let mut rows = Vec::new();\n    let mut artists = Vec::new();\n\n    for (index, hit) in unique_hits(&response.data).enumerate() {\n        if let Some(candidate)",
+        "    let _ = client.search(query, Some(\"feed\"), None, response.pagination.cursor.as_deref(), None);\n    let mut rows = Vec::new();\n    let mut artists = Vec::new();\n\n    for (index, hit) in unique_hits(&response.data).enumerate() {\n        if let Some(candidate)",
+        1,
+    );
+    assert_ne!(second, search);
+    assert!(!saved_search_groups_violations(&second, &groups, &files).is_empty());
+    // A copy of the module that reads `closed_by_rows` fails.
+    let closed = groups.replacen(
+        "tile.set_window_closed(window_closed);",
+        "tile.set_window_closed(group.closed_by_rows);",
+        1,
+    );
+    assert_ne!(closed, groups);
+    assert!(!saved_search_groups_violations(&search, &closed, &files).is_empty());
+    // A shell that makes the entries fails.
+    let mut shell = files.clone();
+    shell.push((
+        "src/ui/shells/search_result_rows.rs".to_owned(),
+        "let entries = saved_search_window_entries(&rows, lookup);".to_owned(),
+    ));
+    assert!(!saved_search_groups_violations(&search, &groups, &shell).is_empty());
 }

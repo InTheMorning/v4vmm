@@ -129,6 +129,11 @@ pub(crate) struct FeedResultDisplay {
     /// the order date of each row (ADR 0086 Decision 1). `None` when the
     /// feed gives no value.
     pub(crate) newest_item_at: Option<i64>,
+    /// The artist text of a `MusicIndex` search hit: its `release_artist`.
+    /// A saved search reads the group key of an Index single from it (ADR
+    /// 0086 packet 005). `None` for a Library row and for a hit with no
+    /// artist text.
+    pub(crate) artist_text: Option<String>,
 }
 
 impl SearchRowMergeKey for FeedResultDisplay {
@@ -169,6 +174,7 @@ impl FeedResultDisplay {
             key: None,
             kind: ReleaseKind::Album,
             newest_item_at: None,
+            artist_text: None,
         }
     }
 
@@ -220,6 +226,14 @@ impl FeedResultDisplay {
     #[must_use]
     pub(crate) fn with_newest_item_at(mut self, value: Option<i64>) -> Self {
         self.newest_item_at = value;
+        self
+    }
+
+    /// Returns this display with the artist text of its `MusicIndex` hit
+    /// (ADR 0086 packet 005).
+    #[must_use]
+    pub(crate) fn with_artist_text(mut self, value: impl Into<String>) -> Self {
+        self.artist_text = Some(value.into());
         self
     }
 }

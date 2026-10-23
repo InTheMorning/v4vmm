@@ -1335,15 +1335,21 @@ impl TopApp {
     }
 
     /// The loaded logo frame art of each search row with art, by row id
-    /// (packet 028 D3). It starts each load that is not known, through
-    /// the same path as the Artists list.
+    /// (packet 028 D3), and of each group row of a saved search, by its
+    /// element id (ADR 0086 packet 005). It starts each load that is not
+    /// known, through the same path as the Artists list.
     fn resolve_search_result_arts(
         &mut self,
-        rows: &[crate::view_models::search_results::SearchResultRowVm],
+        items: &[crate::view_models::search_results::SearchResultItemVm],
         cx: &mut Context<Self>,
     ) -> BTreeMap<String, crate::ui::composites::CollectionArtImage> {
-        rows.iter()
-            .filter_map(|row| Some((row.id.clone(), &row.art.as_ref()?.art)))
+        use crate::view_models::search_results::SearchResultItemVm;
+        items
+            .iter()
+            .filter_map(|item| match item {
+                SearchResultItemVm::Row(row) => Some((row.id.clone(), &row.art.as_ref()?.art)),
+                SearchResultItemVm::WindowGroup(tile) => Some((tile.element_id.clone(), &tile.art)),
+            })
             .map(|(id, art)| {
                 let image =
                     collection_art_image(self, art, crate::ui::composites::ThumbnailSize::Sm, cx);
@@ -1393,12 +1399,12 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) -> WorkspaceSlots {
         let entity = cx.entity();
-        let (rows, header_action, bar, thumbnail_hrefs, save_action) = {
+        let (items, header_action, bar, thumbnail_hrefs, save_action) = {
             let library = self.library.read(cx);
             let lookup = library.search_lookup();
             let search_results = self.search_results_detail.as_ref().unwrap();
             (
-                search_results.visible_rows(&lookup),
+                search_results.visible_items(&lookup),
                 search_results.header_action(&lookup),
                 search_results
                     .action_bar(&lookup)
@@ -1408,7 +1414,7 @@ impl TopApp {
             )
         };
         let thumbnails = self.resolve_search_result_thumbnails(thumbnail_hrefs, cx);
-        let arts = self.resolve_search_result_arts(&rows, cx);
+        let arts = self.resolve_search_result_arts(&items, cx);
         let tab_entity = entity.clone();
         let select_entity = entity.clone();
         let toggle_entity = entity.clone();
@@ -1452,7 +1458,7 @@ impl TopApp {
             })
             .with_thumbnails(thumbnails)
             .with_arts(arts)
-            .with_rows(rows)
+            .with_items(items)
             .with_scroll(self.search_page_scroll(SearchPageSlot::ToolbarSearch));
         let inspector_content = render_search_results_inspector(
             self.search_results_detail.as_ref().unwrap(),

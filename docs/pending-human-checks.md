@@ -202,3 +202,4 @@ Open - the run adds each packet when its mechanical checks are Green.
   - [ADR 0086 packet 002](tasks/adr-0086-task-002-new-releases-window-groups.md) V1 to V4, V6 and V8. Packet 004 replaced V5 and V7
   - [ADR 0086 packet 003](tasks/adr-0086-task-003-pager-closes-windows.md) V1 to V10
   - [ADR 0086 packet 004](tasks/adr-0086-task-004-window-group-page.md) V1 to V10
+  - [ADR 0086 packet 005](tasks/adr-0086-task-005-saved-search-window-groups.md) V1 to V7

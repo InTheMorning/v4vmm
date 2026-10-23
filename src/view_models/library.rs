@@ -17,6 +17,7 @@
 
 #![warn(clippy::pedantic)]
 
+use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
@@ -80,9 +81,9 @@ use crate::view_models::releases_everything::{
     self, loaded_index_release_title, LibraryReleaseEntry, ReleaseOrderKey, ReleasesDownloadPlan,
 };
 use crate::view_models::search_results::{
-    saved_search_label, saved_search_row_a11y_label, FeedResultDisplay, IndexDetailDisplay,
-    SavedSearch, SavedSearchId, SearchLibraryLookup, SearchLibraryRelease, SearchLibraryTrack,
-    SearchResultOrigin, TrackResultDisplay,
+    saved_search_label, saved_search_row_a11y_label, saved_search_window_page, FeedResultDisplay,
+    IndexDetailDisplay, SavedSearch, SavedSearchId, SearchLibraryLookup, SearchLibraryRelease,
+    SearchLibraryTrack, SearchReleaseWindowFacts, SearchResultOrigin, TrackResultDisplay,
 };
 use crate::view_models::selection_action_bar::{
     SelectionActionBarInput, SelectionActionBarVm, SelectionActionCounts,
@@ -96,7 +97,10 @@ use crate::view_models::text_filter::contains_normalized;
 #[cfg(test)]
 use crate::view_models::text_filter::normalize;
 use crate::view_models::window_group_page::WindowGroupPageVm;
-use crate::view_models::window_groups::{NewReleasesLayout, WindowGroupKey, WindowLength};
+use crate::view_models::window_groups::{
+    group_key as window_group_key, NewReleasesLayout, WindowGroupKey, WindowGroupSource,
+    WindowLength,
+};
 use crate::view_models::workspace::{
     ContentViewMode, ContentViewModeControlDisplay, DiscoverView, FrameHeaderActionDisplay,
     FrameNavigationEntry, MusicDestination, MusicSidebarPreference, MusicSidebarState,
@@ -3126,8 +3130,8 @@ impl LibraryViewModel {
     }
 
     /// The window length of the New releases groups (ADR 0086 Decision 7).
+    /// A saved search groups by the same length (packet 005 decision D13).
     #[must_use]
-    #[cfg(test)]
     pub(crate) const fn window_length(&self) -> WindowLength {
         self.window_length
     }
@@ -3158,11 +3162,26 @@ impl LibraryViewModel {
     /// busy items at each call, so a download or a removal changes the
     /// page in place (packet 004 decision D13).
     #[must_use]
+    ///
+    /// A key from a saved search carries the rows of its members. The page
+    /// makes their layout from these rows and the Library facts of this
+    /// call (ADR 0086 packet 005).
     pub(crate) fn window_group_page(&self, key: &WindowGroupKey) -> WindowGroupPageVm {
+        let saved_search_page;
+        let (layout, rows): (&NewReleasesLayout, Vec<&ContentListRowDisplay>) = match &key.source {
+            WindowGroupSource::NewReleases => (
+                &self.new_releases_layout,
+                self.content_list_page.visible_rows(),
+            ),
+            WindowGroupSource::SavedSearch(rows) => {
+                saved_search_page = saved_search_window_page(rows, &self.search_lookup());
+                (&saved_search_page.0, saved_search_page.1.iter().collect())
+            }
+        };
         WindowGroupPageVm::build(
             key,
-            &self.new_releases_layout,
-            &self.content_list_page.visible_rows(),
+            layout,
+            &rows,
             &self.snapshot.tree,
             &self.index_feed_singles,
             &self.busy,
@@ -4331,6 +4350,8 @@ impl LibraryViewModel {
             vm: self,
             artist_feeds,
             named_feeds,
+            window_facts: OnceCell::new(),
+            name_matches: OnceCell::new(),
         }
     }
 
@@ -5690,6 +5711,50 @@ pub(crate) struct LibrarySearchLookup<'a> {
     vm: &'a LibraryViewModel,
     artist_feeds: BTreeSet<String>,
     named_feeds: BTreeSet<String>,
+    /// The window facts of each Library release (ADR 0086 packet 005). The
+    /// first call makes them, so the toolbar search does not pay for them.
+    window_facts: OnceCell<BTreeMap<ReleaseKey, SearchReleaseWindowFacts>>,
+    /// The name matches of the tree, made at the first call.
+    name_matches: OnceCell<NameFeedMatches>,
+}
+
+impl LibrarySearchLookup<'_> {
+    fn name_matches(&self) -> &NameFeedMatches {
+        self.name_matches
+            .get_or_init(|| tree_name_feed_matches(&self.vm.snapshot.tree))
+    }
+
+    /// The window facts of each album of the tree, by its release key
+    /// (ADR 0086 Decision 1, packet 002 decisions D3 and D4).
+    fn window_facts(&self) -> &BTreeMap<ReleaseKey, SearchReleaseWindowFacts> {
+        self.window_facts.get_or_init(|| {
+            let matches = self.name_matches();
+            let mut facts = BTreeMap::new();
+            for artist in &self.vm.snapshot.tree.artists {
+                for album in &artist.albums {
+                    let Some(key) = album.release_key() else {
+                        continue;
+                    };
+                    let (group_key, joined_by_name) =
+                        window_group_key(album.artist_identity(&artist.name), matches);
+                    facts
+                        .entry(key)
+                        .or_insert_with(|| SearchReleaseWindowFacts {
+                            kind: album.release_kind(),
+                            group_key,
+                            joined_by_name,
+                            release_date: album
+                                .tracks
+                                .iter()
+                                .filter_map(|track| track.pub_date)
+                                .max(),
+                            artist_title: artist.name.clone(),
+                        });
+                }
+            }
+            facts
+        })
+    }
 }
 
 impl LibrarySearchLookup<'_> {
@@ -5753,6 +5818,26 @@ impl SearchLibraryLookup for LibrarySearchLookup<'_> {
 
     fn is_artist_feed(&self, feed_guid: &str) -> bool {
         self.artist_feeds.contains(feed_guid)
+    }
+
+    fn release_window_facts(&self, key: &ReleaseKey) -> Option<SearchReleaseWindowFacts> {
+        self.window_facts().get(key).cloned()
+    }
+
+    fn window_key_for_name(&self, artist_text: &str) -> Option<SinglesGroupKey> {
+        window_group_key(
+            ArtistIdentity::Name(name_sort_key(artist_text)),
+            self.name_matches(),
+        )
+        .0
+    }
+
+    fn window_feed_title(&self, feed_guid: &str) -> String {
+        self.name_matches().feed_title(feed_guid)
+    }
+
+    fn window_length(&self) -> WindowLength {
+        self.vm.window_length()
     }
 }
 
@@ -13703,5 +13788,132 @@ mod adr_0086_window_groups_tests {
                 Some("Download 2 singles")
             );
         }
+    }
+}
+
+/// ADR 0086 packet 005: the Library facts of a saved search and the window
+/// group page that a saved search group opens.
+#[cfg(test)]
+mod adr_0086_saved_search_groups_tests {
+    use super::*;
+    use crate::view_models::search_results::{
+        IndexSearchResultRows, SearchResultsInspectorPageVm, SearchResultsTab,
+    };
+    use crate::view_models::window_groups::WindowGroupSource;
+
+    /// The UTC midnight of `date` in October 2026.
+    fn oct(date: u32) -> i64 {
+        chrono::NaiveDate::from_ymd_opt(2026, 10, date)
+            .and_then(|day| day.and_hms_opt(0, 0, 0))
+            .expect("a valid date")
+            .and_utc()
+            .timestamp()
+    }
+
+    fn track(id: i64, feed_id: i64, guid: &str, date: i64) -> TrackRow {
+        TrackRow {
+            id,
+            feed_id,
+            feed_guid: Some(guid.to_owned()),
+            item_guid: format!("item-{id}"),
+            pub_date: Some(date),
+            ..TrackRow::default()
+        }
+    }
+
+    fn album(name: &str, feed_id: i64, guid: &str, tracks: Vec<TrackRow>) -> AlbumNode {
+        AlbumNode {
+            name: name.to_owned(),
+            feed_id: Some(feed_id),
+            feed_guid: Some(guid.to_owned()),
+            feed_url: None,
+            language: None,
+            description: None,
+            image_href: None,
+            named_feeds: Vec::new(),
+            identity_facts: LocalIdentityFacts::default(),
+            metadata_facts: Box::new(FeedMetadataFacts::default()),
+            stored_values: None,
+            tracks,
+        }
+    }
+
+    /// jSmovie with an album dated Oct 1 and Oct 19, and singles on Oct 8
+    /// and Oct 20.
+    fn view_model() -> LibraryViewModel {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(LibraryTree {
+            artists: vec![ArtistNode {
+                name: "jSmovie".to_owned(),
+                albums: vec![
+                    album(
+                        "Long Player",
+                        1,
+                        "lp",
+                        vec![track(1, 1, "lp", oct(1)), track(2, 1, "lp", oct(19))],
+                    ),
+                    album("Eight", 2, "s8", vec![track(3, 2, "s8", oct(8))]),
+                    album("Twenty", 3, "s20", vec![track(4, 3, "s20", oct(20))]),
+                ],
+            }],
+        });
+        vm
+    }
+
+    fn release(guid: &str, kind: ReleaseKind) -> FeedResultDisplay {
+        FeedResultDisplay::new(
+            format!("index-feed:{guid}"),
+            format!("Release {guid}"),
+            SearchResultOrigin::Index,
+        )
+        .with_release_key(ReleaseKey::FeedGuid(guid.to_owned()), kind)
+    }
+
+    /// R86-5-04: an album with tracks on Oct 1 and Oct 19 has the release
+    /// date Oct 19 and the name of its artist node.
+    #[test]
+    fn adr_0086_saved_search_groups_r04_library_window_facts() {
+        let vm = view_model();
+        let facts = vm
+            .search_lookup()
+            .release_window_facts(&ReleaseKey::FeedGuid("lp".to_owned()))
+            .expect("the Library holds the album");
+        assert_eq!(facts.release_date, Some(oct(19)));
+        assert_eq!(facts.artist_title, "jSmovie");
+        assert_eq!(facts.kind, ReleaseKind::Album);
+    }
+
+    /// Packet 005 decision D11: the group of a saved search opens a window
+    /// group page with the members of the group, built in the view model.
+    #[test]
+    fn adr_0086_saved_search_groups_r20_window_group_page_of_a_saved_search() {
+        let vm = view_model();
+        let search = SavedSearch {
+            id: SavedSearchId(1),
+            query: "jsmovie".to_owned(),
+            start_tab: SearchResultsTab::Releases,
+        };
+        let mut page = SearchResultsInspectorPageVm::new("jsmovie").into_saved_search(&search);
+        page.replace_index_results(IndexSearchResultRows {
+            feeds: vec![
+                (2_000_000_000, release("lp", ReleaseKind::Album)),
+                (2_000_000_001, release("s8", ReleaseKind::Single)),
+                (2_000_000_002, release("s20", ReleaseKind::Single)),
+            ],
+            ..IndexSearchResultRows::default()
+        });
+        let lookup = vm.search_lookup();
+        let tile = page
+            .window_group_for_row("index-feed:s20", &lookup)
+            .expect("the newest single anchors a group");
+        assert!(matches!(
+            tile.page_key.source,
+            WindowGroupSource::SavedSearch(_)
+        ));
+
+        let window = vm.window_group_page(&tile.page_key);
+        assert_eq!(window.title, "jSmovie · 2 singles");
+        assert_eq!(window.rows.len(), 2);
+        assert_eq!(window.date_span.as_deref(), Some("Oct 8 to Oct 20"));
     }
 }

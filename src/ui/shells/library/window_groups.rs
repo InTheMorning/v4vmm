@@ -140,22 +140,25 @@ pub(crate) fn render_window_group_row(
     if let Some(checkbox) = render_window_group_checkbox(tile, cx) {
         row = row.checkbox(checkbox);
     }
-    row.child(CollectionArt::new(
-        art,
-        CollectionKind::SinglesGroup,
-        ThumbnailSize::Sm,
-    ))
-    .child(text)
-    .on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
-        this.click_window_group_tile(&open_row_id, event.modifiers(), cx);
-    }))
-    .into_any_element()
+    row.child(render_window_group_row_art(art))
+        .child(text)
+        .on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
+            this.click_window_group_tile(&open_row_id, event.modifiers(), cx);
+        }))
+        .into_any_element()
+}
+
+/// The art of a group row: the logo frame of a singles group in the
+/// size of a release row thumbnail. The group row of New releases and the
+/// group row of a saved search show it (ADR 0086 packet 005).
+pub(crate) fn render_window_group_row_art(art: CollectionArtImage) -> AnyElement {
+    CollectionArt::new(art, CollectionKind::SinglesGroup, ThumbnailSize::Sm).into_any_element()
 }
 
 /// The place of the kind badge on the status line of a group. A release
 /// tile shows its kind badge first, and a release row shows it last.
 #[derive(Clone, Copy, Eq, PartialEq)]
-enum BadgePlace {
+pub(crate) enum BadgePlace {
     First,
     Last,
 }
@@ -164,7 +167,11 @@ enum BadgePlace {
 /// "n Singles" badge (ADR 0086 Decision 3). "New" has the color of the
 /// "New" mark of a release. "In library" and the count have the color of
 /// the Library word of a release.
-fn render_window_group_badges(tile: &WindowGroupTileVm, place: BadgePlace, cx: &App) -> AnyElement {
+pub(crate) fn render_window_group_badges(
+    tile: &WindowGroupTileVm,
+    place: BadgePlace,
+    cx: &App,
+) -> AnyElement {
     let word_color = match tile.state {
         WindowGroupStateVm::New { .. } => SemanticColor::Accent,
         WindowGroupStateVm::InLibrary => SemanticColor::TertiaryLabel,

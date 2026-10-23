@@ -12,6 +12,7 @@ use crate::application::commands::playlist::CreatePlaylist;
 use crate::application::queries::images::{FetchCoverColor, FetchThumbnail};
 use crate::application::queries::search::{
     FetchIndexFeedDetail, FetchIndexSearchResults, FetchIndexTrackDetail,
+    DEFAULT_LOCAL_LIBRARY_SEARCH_LIMIT,
 };
 use crate::application::{ApplicationCommand, CommandContext};
 use crate::db;
@@ -282,7 +283,10 @@ impl TopApp {
                 .unwrap_or_default()
         };
 
+        // ADR 0086 packet 005 decision D3: a Library search that reached its
+        // limit can leave out a single of a window.
         SearchResultsInspectorPageVm::from_local_library_tracks(query, &local_tracks, &artist_facts)
+            .with_library_rows_partial(local_tracks.len() >= DEFAULT_LOCAL_LIBRARY_SEARCH_LIMIT)
     }
 
     pub(super) fn start_index_search_for_query(&mut self, query: &str, cx: &mut Context<Self>) {

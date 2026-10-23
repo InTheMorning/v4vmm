@@ -28,15 +28,16 @@ use crate::ui::control_styles::ControlStyle;
 use crate::ui::layouts::OVERLAY_SCROLLBAR_WIDTH;
 use crate::ui::primitives::{Button as UiButton, Label, LabelVariant, MultilineText};
 use crate::ui::shells::search_result_rows::{
-    origin_label, render_pending_result_row, render_result_row, tab_id, SearchResultRowHandlers,
-    SearchResultSelectHandler, SearchResultToggleHandler, SearchRowLeading,
+    origin_label, render_pending_result_row, render_result_row, render_window_group_result_row,
+    tab_id, SearchResultRowHandlers, SearchResultSelectHandler, SearchResultToggleHandler,
+    SearchRowLeading,
 };
 use crate::ui::tokens::{FontSize, SemanticColor, Size, Spacing};
 use crate::view_models::detail_selection::DetailRowKey;
 use crate::view_models::search_results::{
     EmptyStateDisplay, IndexDetailDisplay, IndexDetailKind, SearchFailureAction,
-    SearchFailureAvailability, SearchPageActionDisplay, SearchPageActionStyle, SearchResultOrigin,
-    SearchResultRowVm, SearchResultsInspectorPageVm, SearchResultsTab,
+    SearchFailureAvailability, SearchPageActionDisplay, SearchPageActionStyle, SearchResultItemVm,
+    SearchResultOrigin, SearchResultsInspectorPageVm, SearchResultsTab,
 };
 
 type TabSelectHandler = Rc<dyn Fn(SearchResultsTab, &mut Window, &mut App) + 'static>;
@@ -63,7 +64,7 @@ pub(crate) struct SearchResultsInspectorSlots {
     failure_action: Option<FailureHandler>,
     header_action: Option<(SearchPageActionDisplay, HeaderActionHandler)>,
     thumbnails: BTreeMap<String, Option<Arc<Image>>>,
-    rows: Vec<SearchResultRowVm>,
+    items: Vec<SearchResultItemVm>,
     arts: BTreeMap<String, CollectionArtImage>,
     scroll: ScrollHandle,
 }
@@ -138,14 +139,16 @@ impl SearchResultsInspectorSlots {
         self
     }
 
-    /// Supplies the visible rows of the active tab.
-    pub(crate) fn with_rows(mut self, rows: Vec<SearchResultRowVm>) -> Self {
-        self.rows = rows;
+    /// Supplies the visible items of the active tab: the rows, and the
+    /// group rows of a saved search (ADR 0086 packet 005).
+    pub(crate) fn with_items(mut self, items: Vec<SearchResultItemVm>) -> Self {
+        self.items = items;
         self
     }
 
     /// Supplies the loaded logo frame art of each row with art, by row id
-    /// (packet 028 D3). A row with art and no entry shows the entity color.
+    /// (packet 028 D3), and of each group row, by its element id. An item
+    /// with art and no entry shows the entity color.
     pub(crate) fn with_arts(mut self, arts: BTreeMap<String, CollectionArtImage>) -> Self {
         self.arts = arts;
         self
@@ -429,15 +432,26 @@ fn render_active_result_list(
         select: slots.result_select.as_ref(),
         toggle: slots.row_toggle.as_ref(),
     };
-    let children: Vec<AnyElement> = if index_loading && slots.rows.is_empty() {
+    let children: Vec<AnyElement> = if index_loading && slots.items.is_empty() {
         (0..3)
             .map(|index| render_pending_result_row(tab, index))
             .collect()
     } else {
         slots
-            .rows
+            .items
             .iter()
-            .map(|row| {
+            .map(|item| {
+                let row = match item {
+                    SearchResultItemVm::Row(row) => row,
+                    SearchResultItemVm::WindowGroup(tile) => {
+                        let art = slots
+                            .arts
+                            .get(&tile.element_id)
+                            .cloned()
+                            .unwrap_or(CollectionArtImage::EntityColor);
+                        return render_window_group_result_row(tab, tile, art, handlers, cx);
+                    }
+                };
                 let leading = if let Some(art) = &row.art {
                     SearchRowLeading::Collection {
                         image: slots

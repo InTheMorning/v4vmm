@@ -15,6 +15,10 @@ pub(crate) struct IndexSearchResultRows {
     pub(crate) feeds: Vec<(super::SearchResultItemId, FeedResultDisplay)>,
     /// Remote track matches.
     pub(crate) tracks: Vec<(super::SearchResultItemId, TrackResultDisplay)>,
+    /// The feed rows are not all the rows of the query: the feed response
+    /// gave `has_more`, or the feed request failed and another request
+    /// passed (ADR 0086 packet 005 decision D3).
+    pub(crate) feed_rows_partial: bool,
 }
 
 /// Remote Index detail kind rendered from a search-result drill-down.

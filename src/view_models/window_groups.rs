@@ -32,6 +32,7 @@ use crate::view_models::library::{
 };
 use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::release_kind::ReleaseKind;
+use crate::view_models::search_results::FeedResultDisplay;
 use crate::view_models::singles_group::SinglesGroupKey;
 use crate::view_models::workspace::ReleaseKey;
 
@@ -191,6 +192,9 @@ pub(crate) struct WindowGroupKey {
     pub(crate) window_start: i64,
     /// The tile title when the page opened. Equality does not compare it.
     pub(crate) artist: String,
+    /// The list that gives the members of the page. Equality compares the
+    /// kind of the list, not its rows.
+    pub(crate) source: WindowGroupSource,
 }
 
 impl PartialEq for WindowGroupKey {
@@ -199,7 +203,21 @@ impl PartialEq for WindowGroupKey {
             && self.anchor == other.anchor
             && self.anchor_date == other.anchor_date
             && self.window_start == other.window_start
+            && std::mem::discriminant(&self.source) == std::mem::discriminant(&other.source)
     }
+}
+
+/// The list that gives the members of a window group page (ADR 0086
+/// Decisions 4 and 6).
+#[derive(Clone, Debug)]
+pub(crate) enum WindowGroupSource {
+    /// The loaded New releases rows, through the cached layout.
+    NewReleases,
+    /// A group row of a saved search page (ADR 0086 packet 005). The rows
+    /// are the release rows of each member when the curator clicked the
+    /// group row. The page reads the Library facts of these rows at each
+    /// render.
+    SavedSearch(Vec<FeedResultDisplay>),
 }
 
 impl Eq for WindowGroupKey {}
@@ -432,6 +450,7 @@ impl WindowGroupTileVm {
             anchor_date: group.anchor_date,
             window_start: group.window_start,
             artist: title.to_owned(),
+            source: WindowGroupSource::NewReleases,
         };
         Self {
             element_id: format!("{WINDOW_GROUP_ELEMENT_PREFIX}{anchor_row_id}"),
@@ -533,6 +552,25 @@ impl NewReleasesLayout {
         }
         layout.entries = entries;
         layout
+    }
+
+    /// The layout of the window group page of a saved search (ADR 0086
+    /// packet 005). `entries` holds the entry of each row, and `row_ids`
+    /// the row id of each position. `joined_by_name` holds the positions
+    /// of the singles that a name match joins to an artist feed. The
+    /// layout has no item, because the page reads only the members.
+    #[must_use]
+    pub(crate) fn from_entries(
+        entries: Vec<WindowEntry>,
+        row_ids: Vec<String>,
+        joined_by_name: BTreeSet<usize>,
+    ) -> Self {
+        Self {
+            items: Vec::new(),
+            entries,
+            row_ids,
+            joined_by_name,
+        }
     }
 
     /// The row id of each member of the window `key`, newest first (packet
@@ -749,8 +787,9 @@ fn row_window_facts(
 
 /// The group key of an identity (packet 002 decision D4), and `true` when
 /// a name match gives the key. An empty name and the name "Unknown
-/// Artist" give no key, because they name no artist.
-fn group_key(
+/// Artist" give no key, because they name no artist. A saved search uses
+/// the same rule (ADR 0086 packet 005).
+pub(crate) fn group_key(
     identity: ArtistIdentity,
     matches: &NameFeedMatches,
 ) -> (Option<SinglesGroupKey>, bool) {
@@ -1422,6 +1461,7 @@ mod tests {
             anchor_date: oct(20),
             window_start: oct(20) - WindowLength::DEFAULT.seconds(),
             artist: artist.to_owned(),
+            source: WindowGroupSource::NewReleases,
         }
     }
 

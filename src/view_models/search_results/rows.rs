@@ -15,6 +15,8 @@ use crate::view_models::list_selection::RowSelectionVm;
 use crate::view_models::release_download_state::ReleaseDownloadStateVm;
 use crate::view_models::release_kind::ReleaseKind;
 use crate::view_models::role_words::{capitalize_first, role_list_text};
+use crate::view_models::singles_group::SinglesGroupKey;
+use crate::view_models::window_groups::WindowLength;
 use crate::view_models::workspace::{ReleaseKey, TrackKey};
 
 use super::{
@@ -61,6 +63,42 @@ pub(crate) trait SearchLibraryLookup {
     /// Tells if the Artists list of the Library has a feed level row of
     /// the feed `feed_guid` (packet 010 decision D5).
     fn is_artist_feed(&self, feed_guid: &str) -> bool;
+
+    /// The window facts of the Library release `key` (ADR 0086 packet
+    /// 005). `None` when the Library holds no such release.
+    fn release_window_facts(&self, key: &ReleaseKey) -> Option<SearchReleaseWindowFacts>;
+
+    /// The group key of the artist text of an Index row (ADR 0086 packet
+    /// 005). A name that matches one Library artist feed gives the key of
+    /// that feed. Each other name gives its name key. An empty name and
+    /// "Unknown Artist" give `None`.
+    fn window_key_for_name(&self, artist_text: &str) -> Option<SinglesGroupKey>;
+
+    /// The title of the Library artist feed `feed_guid`, from the name
+    /// matches. A group row whose Index anchor has the key of that feed
+    /// shows this title (ADR 0086 packet 005).
+    fn window_feed_title(&self, feed_guid: &str) -> String;
+
+    /// The window length of New releases (ADR 0086 Decision 7).
+    fn window_length(&self) -> WindowLength;
+}
+
+/// The window facts of one Library release for a saved search (ADR 0086
+/// Decisions 1 and 6, packet 005).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SearchReleaseWindowFacts {
+    /// The kind of the album, from all its tracks.
+    pub(crate) kind: ReleaseKind,
+    /// The group key of the artist of the album, by the rule of packet 002
+    /// decision D4. `None` for an empty name and for "Unknown Artist".
+    pub(crate) group_key: Option<SinglesGroupKey>,
+    /// The key comes from a name that the tree matches to one artist feed.
+    /// The window group page shows such a single under "Matched by name".
+    pub(crate) joined_by_name: bool,
+    /// The release date: the latest `pub_date` of the album tracks.
+    pub(crate) release_date: Option<i64>,
+    /// The name of the artist node that holds the album.
+    pub(crate) artist_title: String,
 }
 
 /// The badge at the end of a search row (packet 010 decisions D5 and D11,

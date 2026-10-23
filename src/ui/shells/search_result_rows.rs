@@ -22,6 +22,9 @@ use crate::ui::composites::{
     TagBadgeDisplay, Thumbnail, ThumbnailSize,
 };
 use crate::ui::primitives::{Checkbox, CheckboxState, Label};
+use crate::ui::shells::library::window_groups::{
+    render_window_group_badges, render_window_group_row_art, BadgePlace,
+};
 use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::collection_art::CollectionKind;
 use crate::view_models::detail_selection::DetailRowKey;
@@ -29,6 +32,7 @@ use crate::view_models::list_selection::RowCheckState;
 use crate::view_models::search_results::{
     SearchResultOrigin, SearchResultRowVm, SearchResultsTab, SearchRowBadge,
 };
+use crate::view_models::window_groups::WindowGroupTileVm;
 
 /// A click on the body of a search row: the tab, the row id, the selection
 /// key of the row and the modifier keys. The app layer opens the page, or
@@ -146,6 +150,79 @@ pub(crate) fn render_result_row(
     list_row.into_any_element()
 }
 
+/// Renders one group row of a saved search (ADR 0086 Decision 6, packet
+/// 005 decision D10). The row has the layout of a release row of the page:
+/// the checkbox in selection mode, the group art, the title and the date
+/// span, then the state word, the Library count and the kind badge. The
+/// view model gives each text and the checkbox state. A click selects the
+/// members in selection mode, or opens the window group page.
+pub(crate) fn render_window_group_result_row(
+    tab: SearchResultsTab,
+    tile: &WindowGroupTileVm,
+    art: CollectionArtImage,
+    handlers: SearchResultRowHandlers<'_>,
+    cx: &App,
+) -> AnyElement {
+    let key = DetailRowKey::Release(tile.page_key.anchor.clone());
+    let selection = &tile.selection;
+    let mut list_row = ListRow::new(SharedString::from(tile.element_id.clone()))
+        .a11y_label(ListRowA11yLabel {
+            label: SharedString::from(tile.a11y_label.clone()),
+        })
+        .selected(selection.is_marked())
+        .focused(selection.focused);
+    if let (true, Some(toggle)) = (selection.checkbox_visible, handlers.toggle) {
+        let toggle = Rc::clone(toggle);
+        let checkbox_key = key.clone();
+        list_row = list_row.checkbox(
+            Checkbox::new(
+                SharedString::from(format!("{}-checkbox", tile.element_id)),
+                checkbox_state_for(selection.check_state),
+            )
+            .a11y_label(selection.checkbox_a11y_label.clone())
+            .on_click(move |_event: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                toggle(checkbox_key.clone(), window, cx);
+            })
+            .into_any_element(),
+        );
+    }
+    let text = div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w_0()
+        .overflow_hidden()
+        .child(
+            Label::new(tile.title.clone())
+                .size(FontSize::Micro)
+                .weight(FontWeight::MEDIUM),
+        )
+        .child(
+            Label::new(tile.date_span.clone())
+                .size(FontSize::Micro)
+                .color(SemanticColor::TertiaryLabel),
+        );
+    list_row = list_row
+        .child(render_window_group_row_art(art))
+        .child(text)
+        .child(render_window_group_badges(tile, BadgePlace::Last, cx));
+    if let Some(handler) = handlers.select.cloned() {
+        let row_id = tile.open_row_id.clone();
+        list_row = list_row.on_click(move |event: &ClickEvent, window, cx| {
+            handler(
+                tab,
+                row_id.clone(),
+                Some(key.clone()),
+                event.modifiers(),
+                window,
+                cx,
+            );
+        });
+    }
+    list_row.into_any_element()
+}
+
 /// Renders one row that waits for the `MusicIndex` results.
 pub(crate) fn render_pending_result_row(tab: SearchResultsTab, index: usize) -> AnyElement {
     let kind = entity_kind_for_tab(tab);
@@ -232,7 +309,7 @@ const fn entity_kind_for_badge(badge: &SearchRowBadge) -> EntityKind {
 
 /// Maps the typed check state of the view model to the state of the
 /// checkbox primitive. A search row has one member, so it never reads
-/// mixed.
+/// mixed. A group row can read mixed.
 fn checkbox_state_for(check_state: RowCheckState) -> CheckboxState {
     match check_state {
         RowCheckState::Checked => CheckboxState::Checked,

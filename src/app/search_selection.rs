@@ -24,6 +24,7 @@ use crate::view_models::search_results::{
     SavedSearchPage, SearchResultsInspectorPageVm, SearchResultsTab,
 };
 use crate::view_models::selection_action_bar::{SelectionActionBarVm, SelectionActionKind};
+use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
 
 /// The search page that a click or a key acts on.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -157,9 +158,36 @@ impl TopApp {
             }
         };
         if open {
-            self.handle_search_result_selected(slot, tab, &result_id, cx);
+            self.open_search_item(slot, tab, &result_id, cx);
         }
         cx.notify();
+    }
+
+    /// Opens the page of the search item with the row id `result_id`. The
+    /// anchor row of a group of a saved search opens the window group page
+    /// of the group in the current path (ADR 0086 packet 005). Each other
+    /// row opens its own page.
+    fn open_search_item(
+        &mut self,
+        slot: SearchPageSlot,
+        tab: SearchResultsTab,
+        result_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let group = {
+            let library = self.library.read(cx);
+            let lookup = library.search_lookup();
+            self.search_page(slot)
+                .and_then(|detail| detail.window_group_for_row(result_id, &lookup))
+        };
+        match group {
+            Some(tile) => self.open_music_page(
+                &FrameNavigationEntry::WindowGroup(tile.page_key),
+                NavigationPathStart::CurrentPath,
+                cx,
+            ),
+            None => self.handle_search_result_selected(slot, tab, result_id, cx),
+        }
     }
 
     /// A click on the checkbox of a search row.
@@ -171,8 +199,14 @@ impl TopApp {
         cx: &mut Context<Self>,
     ) {
         window.focus(&self.search_page_focus(slot).clone(), cx);
-        if let Some(detail) = self.search_page_mut(slot) {
-            detail.toggle_row(key);
+        let library = self.library.read(cx);
+        let lookup = library.search_lookup();
+        if let Some(detail) = page_mut(
+            slot,
+            &mut self.search_results_detail,
+            &mut self.saved_search_page,
+        ) {
+            detail.toggle_row(key, &lookup);
         }
         cx.notify();
     }
@@ -343,7 +377,7 @@ impl TopApp {
         )
         .and_then(|detail| {
             detail.move_focus(step, &lookup);
-            detail.focused_row_index()
+            detail.focused_row_index(&lookup)
         });
         if let Some(index) = focused_index {
             self.search_page_scroll(slot).scroll_to_item(index);
@@ -398,7 +432,7 @@ impl TopApp {
         let Some((tab, id)) = self.focused_search_row_id(slot, cx) else {
             return false;
         };
-        self.handle_search_result_selected(slot, tab, &id, cx);
+        self.open_search_item(slot, tab, &id, cx);
         true
     }
 
@@ -413,10 +447,10 @@ impl TopApp {
         let library = self.library.read(cx);
         let lookup = library.search_lookup();
         detail
-            .visible_rows(&lookup)
+            .visible_items(&lookup)
             .into_iter()
-            .find(|row| row.key.as_ref() == Some(&focused))
-            .map(|row| (detail.tab(), row.id))
+            .find(|item| item.key().as_ref() == Some(&focused))
+            .map(|item| (detail.tab(), item.row_id().to_owned()))
     }
 
     /// Escape, for the search list. Gives `false` outside selection mode,

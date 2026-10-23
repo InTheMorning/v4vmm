@@ -36,6 +36,11 @@ Each entry names the step, the decision and the reason.
   - `singles_group_link(group)` is new, and `render_main_action` takes an element id. The singles group page keeps its labels and output.
   - `shown_row_ids` is `#[cfg(test)]`, because no production code calls it now.
   - The packet replaces packet 002 D8, D9, V5 and V7. The test R86-2-23 reads `discover_page_rows`, and the two R86-2-24 tests are deleted.
+- ADR 0086 packet 005. The orchestrator accepted these deviations:
+  - `WindowGroupKey` has a source, `WindowGroupSource::{NewReleases, SavedSearch(rows)}`. `LibraryViewModel::window_group_page` reads it and calls `WindowGroupPageVm::build` one time. Guard R86-4-24 does not change. This is smaller than a second build method, because no caller of the page in `LibraryApp` can reach the saved search page of `TopApp`.
+  - A saved search page key holds a copy of the member rows at the click. After a removal, a Library member can leave the page.
+  - Guard R28-03 now requires `detail.focused_row_index(&lookup)`, because the focused index is an item index. Its rule does not change.
+  - A row with no feed GUID gets no group key, as the `WindowEntry` rule of packet 002 says.
 
 ## Steps
 
@@ -45,8 +50,8 @@ Each entry names the step, the decision and the reason.
 | ADR 0086 packet 001: parallel detail reads | Implemented. V1 to V4 open | `cdbabc4` |
 | ADR 0086 packet 002: New releases window groups | Implemented. V1 to V4, V6 and V8 open | `fffac06` |
 | ADR 0086 packet 003: the pager closes each window | Implemented. V1 to V10 open | `fbeec62` |
-| ADR 0086 packet 004: the window group page | Implemented. V1 to V10 open | (this commit) |
-| ADR 0086 packet 005: saved search window groups | Ready | |
+| ADR 0086 packet 004: the window group page | Implemented. V1 to V10 open | `fcee74d` |
+| ADR 0086 packet 005: saved search window groups | Implemented. V1 to V7 open | (this commit) |
 | ADR 0087 packet 001: the query parser | Ready | |
 | ADR 0087 packet 002: Library fields and Index words | Ready | |
 | ADR 0087 packet 004: the field list | Ready | |

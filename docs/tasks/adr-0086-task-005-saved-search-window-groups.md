@@ -1,6 +1,6 @@
 # ADR 0086 Task 005: Saved Search Window Groups
 
-Status: Ready - 2026-10-23.
+Status: Implemented - 2026-10-23. Cases R86-5-01 to R86-5-25 pass. Mechanical checks are Green. V1 to V7 are open, in the final walk of the run of 2026-10-23.
 
 Orchestrator note - 2026-10-23: packets 002 to 004 are implemented. The run record lists their deviations.
 

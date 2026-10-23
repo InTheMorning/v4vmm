@@ -234,14 +234,14 @@ impl TopApp {
         let Some(delete_action) = page.delete_action() else {
             return render_search_empty_state(&SavedSearchPage::deleted_empty_state(), cx);
         };
-        let (rows, bar, thumbnail_hrefs) = {
+        let (items, bar, thumbnail_hrefs) = {
             let library = self.library.read(cx);
             let lookup = library.search_lookup();
             let Some(results) = page.results() else {
                 return render_search_empty_state(&SavedSearchPage::deleted_empty_state(), cx);
             };
             (
-                results.visible_rows(&lookup),
+                results.visible_items(&lookup),
                 results
                     .action_bar(&lookup)
                     .zip(results.selection_rows(&lookup)),
@@ -249,7 +249,7 @@ impl TopApp {
             )
         };
         let thumbnails = self.resolve_search_result_thumbnails(thumbnail_hrefs, cx);
-        let arts = self.resolve_search_result_arts(&rows, cx);
+        let arts = self.resolve_search_result_arts(&items, cx);
         let entity = cx.entity();
         let tab_entity = entity.clone();
         let select_entity = entity.clone();
@@ -292,7 +292,7 @@ impl TopApp {
             })
             .with_thumbnails(thumbnails)
             .with_arts(arts)
-            .with_rows(rows)
+            .with_items(items)
             .with_scroll(self.search_page_scroll(SearchPageSlot::SavedSearch));
         let Some(results) = self.search_page(SearchPageSlot::SavedSearch) else {
             return render_search_empty_state(&SavedSearchPage::deleted_empty_state(), cx);

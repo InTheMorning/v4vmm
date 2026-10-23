@@ -14,8 +14,9 @@ use crate::view_models::detail_selection::{
     detail_header_action, search_header_action, search_release_rows, search_track_rows,
     DetailPageRows, DetailRowClick, DetailRowKey, DetailSelection,
 };
-use crate::view_models::list_selection::FocusStep;
+use crate::view_models::list_selection::{FocusStep, SelectionRow};
 use crate::view_models::selection_action_bar::SelectionActionBarVm;
+use crate::view_models::window_groups::WindowGroupTileVm;
 use crate::view_models::workspace::{FrameHeaderActionDisplay, FrameNavigationEntry};
 
 mod empty_state;
@@ -25,6 +26,7 @@ mod paged_tab;
 mod results;
 mod rows;
 mod saved_search;
+mod saved_search_groups;
 mod tabs;
 #[cfg(test)]
 mod tests;
@@ -39,7 +41,7 @@ pub(crate) use results::{
 };
 pub(crate) use rows::{
     ReleaseKindPlacement, SearchLibraryLookup, SearchLibraryRelease, SearchLibraryTrack,
-    SearchResultRowVm, SearchRowBadge,
+    SearchReleaseWindowFacts, SearchResultRowVm, SearchRowBadge,
 };
 pub(crate) use saved_search::{
     delete_saved_search_confirmation, location_after_saved_search_delete, save_search_action,
@@ -47,14 +49,22 @@ pub(crate) use saved_search::{
     saved_search_row_a11y_label, SavedSearch, SavedSearchDeleteConfirmation, SavedSearchId,
     SavedSearchPage, SavedSearchRestore, SearchPageActionDisplay, SearchPageActionStyle,
 };
+pub(crate) use saved_search_groups::{saved_search_window_page, SearchResultItemVm};
 pub(crate) use tabs::{SearchResultItemId, SearchResultOrigin, SearchResultsTab};
 
 use self::empty_state::empty_state_for;
 use self::paged_tab::SearchRowMergeKey;
 use self::results::local_library_result_rows;
+use self::saved_search_groups::{
+    saved_search_window_items, window_group_selection_row, SavedSearchWindowItem,
+};
 
 /// GPUI-free page contract for the search results in the list column.
 #[derive(Debug)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is one independent fact of the page; ADR 0086 packet 005 names the two partial flags"
+)]
 pub(crate) struct SearchResultsInspectorPageVm {
     query: String,
     tab: SearchResultsTab,
@@ -75,6 +85,13 @@ pub(crate) struct SearchResultsInspectorPageVm {
     /// The status text of the view, for example a save failure (packet
     /// 012). `None` when the view has no status to tell.
     status_text: Option<String>,
+    /// The Index feed rows are not all the feed rows of the query (ADR 0086
+    /// packet 005 decision D3).
+    feed_rows_partial: bool,
+    /// The Library track search reached its limit, so the Library rows are
+    /// not all the Library rows of the query (ADR 0086 packet 005 decision
+    /// D3).
+    library_rows_partial: bool,
 }
 
 impl SearchResultsInspectorPageVm {
@@ -98,6 +115,8 @@ impl SearchResultsInspectorPageVm {
             entry,
             selection,
             status_text: None,
+            feed_rows_partial: false,
+            library_rows_partial: false,
         };
         page.refresh_empty_state();
         page
@@ -128,6 +147,28 @@ impl SearchResultsInspectorPageVm {
         self.tracks = SearchResultsPagedTab::ready_library(local_rows.tracks);
         self.refresh_empty_state();
         self
+    }
+
+    /// Returns this page with the state of its Library rows: `partial` is
+    /// true when the Library track search reached its limit (ADR 0086
+    /// packet 005 decision D3).
+    #[must_use]
+    pub(crate) fn with_library_rows_partial(mut self, partial: bool) -> Self {
+        self.library_rows_partial = partial;
+        self
+    }
+
+    /// Tells if the page holds each release row of the query (ADR 0086
+    /// packet 005 "The open state"). The Index request is complete with no
+    /// error, the feed response gave no later page, and the Library track
+    /// search did not reach its limit. Then no later page can change a
+    /// window group, so each group is closed.
+    #[must_use]
+    pub(crate) fn release_rows_complete(&self) -> bool {
+        !self.index_loading
+            && self.index_error.is_none()
+            && !self.feed_rows_partial
+            && !self.library_rows_partial
     }
 
     /// Returns this page as the page of the saved search `search` (packet
@@ -201,6 +242,7 @@ impl SearchResultsInspectorPageVm {
         self.artists.replace_index_rows(rows.artists);
         self.releases.replace_index_rows(rows.feeds);
         self.tracks.replace_index_rows(rows.tracks);
+        self.feed_rows_partial = rows.feed_rows_partial;
         self.select_first_populated_tab_if_automatic();
         let members = self.visible_members();
         self.selection.retain_visible(&members);
@@ -391,6 +433,110 @@ impl SearchResultsInspectorPageVm {
         }
     }
 
+    /// The visible items of the active tab (ADR 0086 Decision 6). The
+    /// Releases tab of a saved search page gives one group item for two or
+    /// more singles of one artist in one window, at the place of its
+    /// anchor. Each other tab and the toolbar search give one row item for
+    /// each row. `lookup` gives the Library facts at this render.
+    #[must_use]
+    pub(crate) fn visible_items(
+        &self,
+        lookup: &dyn SearchLibraryLookup,
+    ) -> Vec<SearchResultItemVm> {
+        if !self.groups_release_rows() {
+            return self
+                .visible_rows(lookup)
+                .into_iter()
+                .map(SearchResultItemVm::Row)
+                .collect();
+        }
+        let rows = self.releases.rows();
+        let placement = self.release_kind_placement();
+        saved_search_window_items(&rows, lookup, self.release_rows_complete())
+            .into_iter()
+            .map(|item| match item {
+                SavedSearchWindowItem::Plain(position) => SearchResultItemVm::Row(
+                    rows::release_row_vm(&rows[position], lookup, &self.selection, placement),
+                ),
+                SavedSearchWindowItem::Group { mut tile, .. } => {
+                    tile.selection = self
+                        .selection
+                        .tile_selection(&window_group_selection_row(&tile), &tile.title);
+                    SearchResultItemVm::WindowGroup(tile)
+                }
+            })
+            .collect()
+    }
+
+    /// The group tile whose anchor row is `row_id` (ADR 0086 packet 005).
+    /// A click and Enter on that row open the window group page of the
+    /// tile. `None` for each other row.
+    #[must_use]
+    pub(crate) fn window_group_for_row(
+        &self,
+        row_id: &str,
+        lookup: &dyn SearchLibraryLookup,
+    ) -> Option<WindowGroupTileVm> {
+        if !self.groups_release_rows() {
+            return None;
+        }
+        saved_search_window_items(&self.releases.rows(), lookup, self.release_rows_complete())
+            .into_iter()
+            .find_map(|item| match item {
+                SavedSearchWindowItem::Group { tile, .. } if tile.open_row_id == row_id => {
+                    Some(*tile)
+                }
+                SavedSearchWindowItem::Group { .. } | SavedSearchWindowItem::Plain(_) => None,
+            })
+    }
+
+    /// Tells if the active tab groups its rows: only the Releases tab of a
+    /// saved search page (ADR 0086 packet 005 decision D1).
+    fn groups_release_rows(&self) -> bool {
+        self.tab == SearchResultsTab::Releases
+            && matches!(self.entry, FrameNavigationEntry::SavedSearch { .. })
+    }
+
+    /// The selectable rows of the Releases tab of a saved search page with
+    /// one group or more (ADR 0086 packet 004 decision D11). `rows` holds
+    /// each shown release and each member of each group, in item order.
+    /// `tiles` holds one selection row for each item with a key. `None`
+    /// when no group shows.
+    fn grouped_release_rows(&self, lookup: &dyn SearchLibraryLookup) -> Option<DetailPageRows> {
+        if !self.groups_release_rows() {
+            return None;
+        }
+        let rows = self.releases.rows();
+        let items = saved_search_window_items(&rows, lookup, true);
+        if !items
+            .iter()
+            .any(|item| matches!(item, SavedSearchWindowItem::Group { .. }))
+        {
+            return None;
+        }
+        let mut ordered = Vec::new();
+        let mut tiles = Vec::new();
+        for item in items {
+            match item {
+                SavedSearchWindowItem::Plain(position) => {
+                    let row = &rows[position];
+                    if let Some(key) = row.merge_key() {
+                        tiles.push(SelectionRow::of_one(DetailRowKey::Release(key)));
+                    }
+                    ordered.push(row.clone());
+                }
+                SavedSearchWindowItem::Group { tile, members } => {
+                    tiles.push(window_group_selection_row(&tile));
+                    ordered.extend(members.into_iter().map(|position| rows[position].clone()));
+                }
+            }
+        }
+        Some(DetailPageRows::GroupedReleases {
+            rows: search_release_rows(&ordered, lookup),
+            tiles,
+        })
+    }
+
     /// The place of the kind of a release row (walk of 2026-10-21). The
     /// toolbar search in the list column puts the kind in the second line.
     /// The saved-search page in the detail column keeps the kind badge.
@@ -410,6 +556,9 @@ impl SearchResultsInspectorPageVm {
         &self,
         lookup: &dyn SearchLibraryLookup,
     ) -> Option<DetailPageRows> {
+        if let Some(grouped) = self.grouped_release_rows(lookup) {
+            return Some(grouped);
+        }
         match self.tab {
             SearchResultsTab::Releases => Some(DetailPageRows::Releases(search_release_rows(
                 &self.releases.rows(),
@@ -473,9 +622,19 @@ impl SearchResultsInspectorPageVm {
         self.selection.click(key, click, &visible)
     }
 
-    /// A click on the checkbox of the row `key`.
-    pub(crate) fn toggle_row(&mut self, key: &DetailRowKey) {
-        self.selection.toggle_row(key);
+    /// A click on the checkbox of the row `key`. The checkbox of a group
+    /// row changes the selection of each member of the group (ADR 0086
+    /// packet 004 decision D12).
+    pub(crate) fn toggle_row(&mut self, key: &DetailRowKey, lookup: &dyn SearchLibraryLookup) {
+        let group = self.grouped_release_rows(lookup).and_then(|rows| {
+            rows.selection_rows()
+                .into_iter()
+                .find(|row| &row.id == key && row.members.len() > 1)
+        });
+        match group {
+            Some(row) => self.selection.toggle_selection_row(&row),
+            None => self.selection.toggle_row(key),
+        }
     }
 
     /// The "Select" and "Done" button.
@@ -512,13 +671,20 @@ impl SearchResultsInspectorPageVm {
         self.selection.move_focus(step, &rows.selection_rows())
     }
 
-    /// The index of the row with the keyboard focus among all the rows of
-    /// the active tab, or `None` when no row has the focus (packet 028
-    /// D2). The rows are the children of the scroll container in this
-    /// order, thus the app layer scrolls to this index after a focus move.
+    /// The index of the item with the keyboard focus among all the items
+    /// of the active tab, or `None` when no item has the focus (packet 028
+    /// D2, ADR 0086 packet 005). The items are the children of the scroll
+    /// container in this order, thus the app layer scrolls to this index
+    /// after a focus move.
     #[must_use]
-    pub(crate) fn focused_row_index(&self) -> Option<usize> {
+    pub(crate) fn focused_row_index(&self, lookup: &dyn SearchLibraryLookup) -> Option<usize> {
         let focused = self.selection.focused()?;
+        if self.groups_release_rows() {
+            return self
+                .visible_items(lookup)
+                .iter()
+                .position(|item| item.key().as_ref() == Some(focused));
+        }
         match self.tab {
             SearchResultsTab::Releases => self.releases.rows().iter().position(|row| {
                 row.merge_key()

@@ -2,6 +2,13 @@
 
 Status: Ready - 2026-10-23.
 
+Orchestrator note - 2026-10-23: ADR 0086 packet 005 is implemented. It changed the saved search rows before this packet. Keep these names and their callers:
+
+- `SearchResultsInspectorPageVm::{with_library_rows_partial, release_rows_complete, visible_items, window_group_for_row}`, `IndexSearchResultRows::feed_rows_partial` and `IndexFeedSearchRows::has_more`.
+- `FeedResultDisplay::{artist_text, with_artist_text}`, and the `SearchLibraryLookup` methods `release_window_facts`, `window_key_for_name`, `window_feed_title` and `window_length`.
+- `search_results_detail_for_query` sets `with_library_rows_partial(len >= DEFAULT_LOCAL_LIBRARY_SEARCH_LIMIT)`. `search_results_detail_for_run` must keep this call.
+- Guard R86-5-24 requires one `client.search(` call and no `.cursor` in `fetch_index_feed_result_rows`.
+
 ## Goal
 
 The Library search and the Index search read the typed query of packet 001, never the text.

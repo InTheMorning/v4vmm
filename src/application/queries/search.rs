@@ -256,9 +256,15 @@ fn fetch_index_search_result_rows(
             query_error(&anyhow!(message))
         });
     }
-    if let Ok(feeds) = feed_rows {
-        rows.feeds = feeds.rows;
-        merge_index_artist_candidates(&mut artists, feeds.artists);
+    // ADR 0086 packet 005 decision D3: a later feed page, or a failed
+    // feed request, can change a window group of a saved search.
+    match feed_rows {
+        Ok(feeds) => {
+            rows.feeds = feeds.rows;
+            rows.feed_rows_partial = feeds.has_more;
+            merge_index_artist_candidates(&mut artists, feeds.artists);
+        }
+        Err(_) => rows.feed_rows_partial = true,
     }
     if let Ok(tracks) = track_rows {
         rows.tracks = tracks.rows;
@@ -365,6 +371,9 @@ fn index_artist_rows(
 struct IndexFeedSearchRows {
     rows: Vec<(SearchResultItemId, FeedResultDisplay)>,
     artists: Vec<IndexArtistCandidate>,
+    /// The `has_more` of the response: a later page holds more feed rows
+    /// (ADR 0086 packet 005). The search reads no later page.
+    has_more: bool,
 }
 
 struct IndexTrackSearchRows {
@@ -528,7 +537,11 @@ fn fetch_index_feed_result_rows(
         ));
     }
 
-    Ok(IndexFeedSearchRows { rows, artists })
+    Ok(IndexFeedSearchRows {
+        rows,
+        artists,
+        has_more: response.pagination.has_more,
+    })
 }
 
 /// Packet 047 Required Change 2: this search sends no per-hit detail
@@ -595,6 +608,11 @@ fn index_feed_result_display(hit: &SearchResult) -> FeedResultDisplay {
     }
     if let Some(image_url) = non_empty_string(hit.feed_image_url.clone()) {
         display = display.with_thumbnail_href(image_url);
+    }
+    // ADR 0086 packet 005: a saved search reads the group key of an Index
+    // single from this text. The hit gives no `newest_item_at`.
+    if let Some(artist) = non_empty_str(hit.release_artist.as_deref()) {
+        display = display.with_artist_text(artist);
     }
     display
 }
@@ -2021,5 +2039,92 @@ mod adr_0084_name_level_query_tests {
             &NameFeedMatches::default()
         )
         .is_err());
+    }
+
+    /// The responder of ADR 0086 packet 005: `feed` answers the feed
+    /// search, and each other search gives no row.
+    fn feed_search_responder(feed: (u16, String)) -> Responder {
+        Arc::new(move |path: &str| {
+            if path.contains("type=feed") {
+                feed.clone()
+            } else {
+                (
+                    200,
+                    serde_json::json!({
+                        "data": [],
+                        "pagination": {"has_more": false, "cursor": null}
+                    })
+                    .to_string(),
+                )
+            }
+        })
+    }
+
+    /// R86-5-14: the search sends one `type=feed` request with no cursor.
+    /// A response with `has_more` true sets `feed_rows_partial`.
+    #[test]
+    fn adr_0086_saved_search_groups_r14_has_more_marks_the_feed_rows_partial() {
+        let feed = serde_json::json!({
+            "data": [{"entity_type": "feed", "entity_id": "g1", "feed_guid": "g1",
+                      "title": "One", "episode_count": 1}],
+            "pagination": {"has_more": true, "cursor": "next"}
+        })
+        .to_string();
+        let (endpoint, requests) = serve(3, feed_search_responder((200, feed)));
+
+        let rows = fetch_index_search_result_rows(
+            &endpoint.as_str().into(),
+            "zz",
+            &NameFeedMatches::default(),
+        )
+        .expect("the feed request passes");
+
+        assert!(rows.feed_rows_partial);
+        assert_eq!(rows.feeds.len(), 1);
+        let requests = requests.lock().unwrap().clone();
+        let feed_requests: Vec<&String> = requests
+            .iter()
+            .filter(|path| path.contains("type=feed"))
+            .collect();
+        assert_eq!(feed_requests.len(), 1, "{requests:?}");
+        assert!(!feed_requests[0].contains("cursor"), "{requests:?}");
+    }
+
+    /// R86-5-15: a failed feed request with a passed track request sets
+    /// `feed_rows_partial`.
+    #[test]
+    fn adr_0086_saved_search_groups_r15_failed_feed_request_is_partial() {
+        let (endpoint, _) = serve(
+            3,
+            feed_search_responder((500, "{\"error\":\"down\"}".to_owned())),
+        );
+
+        let rows = fetch_index_search_result_rows(
+            &endpoint.as_str().into(),
+            "zz",
+            &NameFeedMatches::default(),
+        )
+        .expect("the track request passes");
+
+        assert!(rows.feed_rows_partial);
+        assert!(rows.feeds.is_empty());
+    }
+
+    /// R86-5-16: the row takes its artist text from `release_artist`. An
+    /// empty `release_artist` gives none. `newest_item_at` stays `None`.
+    #[test]
+    fn adr_0086_saved_search_groups_r16_artist_text_from_release_artist() {
+        let hit = |artist: &str| -> SearchResult {
+            serde_json::from_value(serde_json::json!({
+                "entity_type": "feed", "entity_id": "g1", "feed_guid": "g1",
+                "title": "One", "release_artist": artist
+            }))
+            .expect("a recorded hit")
+        };
+        let row = index_feed_result_display(&hit("jSmovie"));
+        assert_eq!(row.artist_text.as_deref(), Some("jSmovie"));
+        assert_eq!(row.newest_item_at, None);
+        let row = index_feed_result_display(&hit("  "));
+        assert_eq!(row.artist_text, None);
     }
 }

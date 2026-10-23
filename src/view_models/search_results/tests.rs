@@ -11,11 +11,16 @@ use crate::view_models::selection_action_bar::SelectionActionKind;
 use crate::view_models::workspace::{ReleaseKey, TrackKey};
 use crate::views::{FeedView, TrackView};
 
+use crate::view_models::artist_identity::{ArtistIdentity, UNKNOWN_ARTIST_TEXT};
+use crate::view_models::index_name_list::name_sort_key;
+use crate::view_models::singles_group::SinglesGroupKey;
+use crate::view_models::window_groups::WindowLength;
+
 use super::{
     ArtistResultDisplay, FeedResultDisplay, IndexDetailKind, IndexSearchResultRows,
-    SearchLibraryLookup, SearchLibraryRelease, SearchLibraryTrack, SearchResultItemId,
-    SearchResultOrigin, SearchResultTarget, SearchResultsInspectorPageVm, SearchResultsTab,
-    SearchRowBadge, TrackResultDisplay,
+    SearchLibraryLookup, SearchLibraryRelease, SearchLibraryTrack, SearchReleaseWindowFacts,
+    SearchResultItemId, SearchResultOrigin, SearchResultTarget, SearchResultsInspectorPageVm,
+    SearchResultsTab, SearchRowBadge, TrackResultDisplay,
 };
 
 /// Recorded Library facts for the search rows.
@@ -24,6 +29,14 @@ pub(super) struct RecordedLibrary {
     releases: BTreeMap<ReleaseKey, SearchLibraryRelease>,
     tracks: BTreeMap<TrackKey, SearchLibraryTrack>,
     artist_feeds: BTreeSet<String>,
+    /// The window facts of each Library release (ADR 0086 packet 005).
+    pub(super) window_facts: BTreeMap<ReleaseKey, SearchReleaseWindowFacts>,
+    /// The artist feed GUID that each name key matches.
+    pub(super) name_feeds: BTreeMap<String, String>,
+    /// The title of each artist feed of the name matches.
+    pub(super) feed_titles: BTreeMap<String, String>,
+    /// The window length of New releases.
+    pub(super) window_length: WindowLength,
 }
 
 impl SearchLibraryLookup for RecordedLibrary {
@@ -38,10 +51,36 @@ impl SearchLibraryLookup for RecordedLibrary {
     fn is_artist_feed(&self, feed_guid: &str) -> bool {
         self.artist_feeds.contains(feed_guid)
     }
+
+    fn release_window_facts(&self, key: &ReleaseKey) -> Option<SearchReleaseWindowFacts> {
+        self.window_facts.get(key).cloned()
+    }
+
+    fn window_key_for_name(&self, artist_text: &str) -> Option<SinglesGroupKey> {
+        let key = name_sort_key(artist_text);
+        if key.is_empty() || key == name_sort_key(UNKNOWN_ARTIST_TEXT) {
+            return None;
+        }
+        Some(match self.name_feeds.get(&key) {
+            Some(feed_guid) => SinglesGroupKey(ArtistIdentity::Publisher(feed_guid.clone())),
+            None => SinglesGroupKey(ArtistIdentity::Name(key)),
+        })
+    }
+
+    fn window_feed_title(&self, feed_guid: &str) -> String {
+        self.feed_titles
+            .get(feed_guid)
+            .cloned()
+            .unwrap_or_else(|| feed_guid.to_owned())
+    }
+
+    fn window_length(&self) -> WindowLength {
+        self.window_length
+    }
 }
 
 impl RecordedLibrary {
-    fn with_release(mut self, guid: &str, feed_id: i64, fully: bool) -> Self {
+    pub(super) fn with_release(mut self, guid: &str, feed_id: i64, fully: bool) -> Self {
         self.releases.insert(
             ReleaseKey::FeedGuid(guid.to_owned()),
             SearchLibraryRelease {
@@ -169,7 +208,7 @@ fn local_track(id: i64, feed_id: i64, feed_title: &str, title: &str, artist: &st
 }
 
 /// A Library track of the feed `feed_guid`, with the item GUID `item_guid`.
-fn local_guid_track(
+pub(super) fn local_guid_track(
     id: i64,
     feed_id: i64,
     feed_guid: &str,
@@ -571,6 +610,7 @@ fn selectable_page() -> (SearchResultsInspectorPageVm, RecordedLibrary) {
             index_track(3_000_000_000, Some("g-index"), "t1", "Index Track"),
             index_track(3_000_000_001, None, "t2", "No Feed"),
         ],
+        feed_rows_partial: false,
     });
     let lookup = RecordedLibrary::default()
         .with_release("g-library", 7, true)
@@ -634,7 +674,7 @@ fn adr_0084_search_list_r10_10_tab_change_clears_and_index_arrival_keeps() {
     vm.mark_index_loading();
     let lookup = RecordedLibrary::default().with_release("g-library", 7, true);
     let library_key = DetailRowKey::Release(ReleaseKey::FeedGuid("g-library".to_owned()));
-    vm.toggle_row(&library_key);
+    vm.toggle_row(&library_key, &lookup);
     assert_eq!(vm.selection().selected_count(), 1);
 
     vm.replace_index_results(IndexSearchResultRows {
@@ -704,7 +744,7 @@ fn adr_0084_search_list_r10_13_stale_result_changes_nothing() {
     );
     let lookup = RecordedLibrary::default();
     let key = DetailRowKey::Release(ReleaseKey::FeedGuid("g-library".to_owned()));
-    vm.toggle_row(&key);
+    vm.toggle_row(&key, &lookup);
     let rows_before = rows(&vm, &lookup);
 
     let applied = vm.replace_index_results_for_query(
@@ -1069,21 +1109,21 @@ fn adr_0084_search_open_defects_r28_03_focused_row_index_counts_each_row() {
     });
     let lookup = RecordedLibrary::default().with_track("g-library", "i1", 10, true);
     vm.set_tab(SearchResultsTab::Tracks);
-    assert_eq!(vm.focused_row_index(), None);
+    assert_eq!(vm.focused_row_index(&lookup), None);
 
     vm.move_focus(FocusStep::Home, &lookup);
-    assert_eq!(vm.focused_row_index(), Some(0));
+    assert_eq!(vm.focused_row_index(&lookup), Some(0));
     vm.move_focus(FocusStep::Down, &lookup);
     assert_eq!(
-        vm.focused_row_index(),
+        vm.focused_row_index(&lookup),
         Some(2),
         "the row with no key is the child at index 1"
     );
 
     vm.set_tab(SearchResultsTab::Releases);
-    assert_eq!(vm.focused_row_index(), None);
+    assert_eq!(vm.focused_row_index(&lookup), None);
     vm.set_tab(SearchResultsTab::Artists);
-    assert_eq!(vm.focused_row_index(), None);
+    assert_eq!(vm.focused_row_index(&lookup), None);
 }
 
 #[test]
