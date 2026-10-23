@@ -9,7 +9,7 @@
     reason = "legacy screen module is being migrated incrementally under ADR 0023"
 )]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -334,6 +334,15 @@ pub struct LibraryApp {
     /// The saved search of the current location, for the open row of the
     /// Discover column. The top app sets it at each render.
     open_saved_search: Option<crate::view_models::search_results::SavedSearchId>,
+    /// `true` after the once-per-session identity backfill starts (ADR
+    /// 0084 task 034, decision D2). It starts after the first successful
+    /// Library tree load of the session, and it never starts twice.
+    album_identity_backfill_started: bool,
+    /// The Library releases that still wait for the backfill, newest
+    /// feed id first. Each completion pops and starts the next entry, so
+    /// at most `ALBUM_IDENTITY_BACKFILL_CONCURRENCY` commands run at a
+    /// time.
+    album_identity_backfill_queue: VecDeque<(i64, String)>,
 }
 
 pub(crate) struct PlaylistActorState {

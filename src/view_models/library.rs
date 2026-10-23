@@ -3196,6 +3196,30 @@ impl LibraryViewModel {
         updated
     }
 
+    /// Replaces the named feeds of each tree album of one feed id (ADR
+    /// 0084 task 034). The singles join rule and the Artists list image
+    /// both read `AlbumNode::named_feeds`, so a hydration result must
+    /// reach this field, not only `identity_facts`.
+    pub(crate) fn update_album_named_feeds(
+        &mut self,
+        feed_id: i64,
+        named_feeds: &[crate::view_models::named_feeds::NamedFeed],
+    ) -> bool {
+        let mut updated = false;
+        for album in self
+            .snapshot
+            .tree
+            .artists
+            .iter_mut()
+            .flat_map(|artist| artist.albums.iter_mut())
+            .filter(|album| album.feed_id == Some(feed_id))
+        {
+            album.named_feeds = named_feeds.to_vec();
+            updated = true;
+        }
+        updated
+    }
+
     pub(crate) fn finish_library_reload(&mut self, track_count: usize) {
         self.library_loading = false;
         self.status = format!("{track_count} library track{}", plural(track_count));
@@ -7958,6 +7982,32 @@ mod tests {
         assert!(vm.update_album_description(10, Some("Source description")));
         let album = &vm.tree().artists[0].albums[0];
         assert_eq!(album.description.as_deref(), Some("Source description"));
+    }
+
+    /// R34-03 (ADR 0084 task 034): the hydration result reaches
+    /// `AlbumNode::named_feeds` of the matching tree album, the field the
+    /// singles join rule and the Artists list image read.
+    #[test]
+    fn adr_0084_task_034_update_album_named_feeds_by_feed_id() {
+        use crate::view_models::named_feeds::NamedFeed;
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(library_tree());
+        let named_feeds = vec![NamedFeed {
+            feed_guid: "haleen-guid".into(),
+            title: Some("Haleen".into()),
+            position: Some(0),
+            role: Some("artist".into()),
+            role_agreement: Some("both".into()),
+            feed_rel: None,
+            album_rel: None,
+            confirmed: true,
+            image_url: Some("https://example.test/haleen.jpg".into()),
+        }];
+
+        assert!(vm.update_album_named_feeds(10, &named_feeds));
+        let album = &vm.tree().artists[0].albums[0];
+        assert_eq!(album.named_feeds, named_feeds);
+        assert!(!vm.update_album_named_feeds(999, &named_feeds));
     }
 
     /// R3-04 (ADR 0084 Decision 4): the content-list view model gives a

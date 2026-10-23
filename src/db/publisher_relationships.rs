@@ -390,6 +390,45 @@ pub(crate) fn named_feeds(
     Ok(feeds)
 }
 
+/// The feed ids of `candidates` that have no stored row of this table, in
+/// any direction (ADR 0084 task 034, decision D2). The once-per-session
+/// identity backfill pass uses this to select the Library releases that
+/// `HydrateAlbumIdentity` never ran for. The result keeps the order of
+/// `candidates`.
+///
+/// # Errors
+///
+/// Returns an error when the database read fails.
+pub(crate) fn feed_ids_with_no_stored_relationship(
+    conn: &Connection,
+    candidates: &[i64],
+) -> Result<Vec<i64>> {
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = candidates
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT DISTINCT feed_id FROM feed_publisher_relationships WHERE feed_id IN ({placeholders})"
+    );
+    let mut statement = conn.prepare(&sql).context("Prepare stored feed id read")?;
+    let stored: std::collections::BTreeSet<i64> = statement
+        .query_map(rusqlite::params_from_iter(candidates), |row| {
+            row.get::<_, i64>(0)
+        })
+        .context("Query stored feed ids")?
+        .collect::<rusqlite::Result<_>>()
+        .context("Read stored feed ids")?;
+    Ok(candidates
+        .iter()
+        .copied()
+        .filter(|feed_id| !stored.contains(feed_id))
+        .collect())
+}
+
 /// The `source` of a `remote_items` entry that names a publisher feed (ADR
 /// 0085 Decision 6, migration 19).
 const NAMED_FEED_REMOTE_ITEM_SOURCE: &str = "podcast_publisher";
@@ -762,6 +801,36 @@ mod tests {
 
         assert!(test_support::rows(&conn, 1).is_empty());
         assert_eq!(test_support::rows(&conn, 2).len(), 1);
+    }
+
+    /// R34-09 (ADR 0084 task 034): the backfill candidate read gives every
+    /// candidate id with no stored row, in their given order, and drops a
+    /// candidate id that already has a stored row, of any direction.
+    #[test]
+    fn adr_0084_task_034_feed_ids_with_no_stored_relationship() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        upgrades::create_fixture(&conn, CURRENT_VERSION).unwrap();
+        conn.execute_batch(
+            "INSERT INTO feeds(id, feed_url, feed_guid) VALUES (1, 'https://example.test/one.xml', 'f1');
+             INSERT INTO feeds(id, feed_url, feed_guid) VALUES (2, 'https://example.test/two.xml', 'f2');
+             INSERT INTO feeds(id, feed_url, feed_guid) VALUES (3, 'https://example.test/three.xml', 'f3');",
+        )
+        .unwrap();
+        // Feed 2's only stored entry is a `publisher_to_music` row, a
+        // different direction than `named_feeds` reads, but it still
+        // counts as a stored row for this read.
+        let mut publisher_to_music = entry("publisher-a", None);
+        publisher_to_music.direction = Some("publisher_to_music".to_owned());
+        upsert_feed_publisher_relationships(&mut conn, 2, None, Some(&[publisher_to_music]), 10)
+            .unwrap();
+
+        let needing = feed_ids_with_no_stored_relationship(&conn, &[3, 1, 2]).unwrap();
+
+        assert_eq!(needing, vec![3, 1]);
+        assert_eq!(
+            feed_ids_with_no_stored_relationship(&conn, &[]).unwrap(),
+            Vec::<i64>::new()
+        );
     }
 
     /// The recorded publisher feed response of R2-02 stores one row for each

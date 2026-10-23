@@ -134,6 +134,7 @@ Each entry names the step, the decision and the reason.
 | Packet 031: one release row menu, and the drag of a selection | Implemented. V1 to V9 open | `5486f0b` |
 | Packet 032: one track row style on the group page, and the matched singles in the feed group | Implemented. V1 to V7 open | `ea1902f` |
 | Packet 033: the download state icons of track rows and release rows | Implemented. V1 to V8 open | `9422468` |
+| Packet 034: the feed links of a release after a download, and one pass at start | Implemented. V1 to V4 open | this commit |
 
 ## Questions For The Operator
 
@@ -220,6 +221,7 @@ The operator sends screenshots, and the orchestrator records each result here wi
 | 2026-10-22 | 032: one track row style on the Haleen group page; the download column and the duration column line up | Pass | "56 singles · 7 in Library · Artist feed". MusicIndex singles show no duration, because the list data gives none |
 | 2026-10-22 | 032: one Haleen group row, "7 singles · In Library · Artist feed"; the Haleen Artists row reads "7 releases" | Pass | Releases "Library" and Artists |
 | 2026-10-22 | Track rows show no hover fill; the rows of the two list columns do | Fail, fixed, then Pass on the new build | `ListRow` drew the fill only when it owned the click, and a `TrackRow` click is on its body. `ListRow::child_click()` and the guard `adr_0083_track_row_shows_the_hover_fill_of_a_list_row` correct it |
+| 2026-10-22 | A downloaded MusicIndex single moves from the feed singles into the "Matched by name" block of the group page | Fail, fix in progress | A download stores no feed links. The app stores them only when an album page opens (`hydrate_album_identity_on_view`). The operator confirmed it on the database: "The Sacred Temple" and "You Are Enough" have 1 link each, and "Breathing", "Shanti" and "OM Namo Narayanaya", downloaded on 2026-10-22, have 0. Packet 034 |
 
 ## Final Walk
 

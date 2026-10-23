@@ -44,6 +44,11 @@ pub(crate) struct AlbumIdentityHydration {
     /// The stored values of the feed after the hydration writes.
     pub(crate) stored_values: FeedStoredValues,
     pub(crate) description: Option<String>,
+    /// The feed's named feeds after the hydration writes (ADR 0084 task
+    /// 034). `apply_library_hydration_result` writes this onto the
+    /// matching tree album, so the singles join rule and the Artists
+    /// list image read the stored link with no page view.
+    pub(crate) named_feeds: Vec<crate::view_models::named_feeds::NamedFeed>,
     pub(crate) observation_receipts: Vec<ObservationReceipt>,
 }
 
@@ -724,11 +729,16 @@ fn hydrate_album_identity_facts(
         let description =
             LibraryViewModel::display_description_text(stored_values.description.value.as_deref())
                 .map(str::to_owned);
+        // ADR 0084 task 034: read after the write block above, so a fresh
+        // write and a reused response each give the row's current named
+        // feeds.
+        let named_feeds = db::publisher_relationships::named_feeds(&db, feed_id)?;
         Ok(AlbumIdentityHydration {
             identity_facts,
             metadata_facts,
             stored_values,
             description,
+            named_feeds,
             observation_receipts: Vec::new(),
         })
     })();
@@ -1605,6 +1615,22 @@ mod observation_tests {
         .map(|(name, value)| (name.to_owned(), value))
         .collect::<Vec<_>>();
         assert_eq!(rows[1], expected_conflict);
+    }
+
+    /// R34-01 (ADR 0084 task 034): the hydration result carries the named
+    /// feeds that its own write just stored, the same list a direct read
+    /// of the table gives.
+    #[test]
+    fn adr_0084_task_034_hydration_result_carries_named_feeds() {
+        let fixture = Fixture::start();
+        fixture.set_mode(23);
+
+        let hydration = fixture.hydrate().unwrap();
+
+        assert_eq!(hydration.named_feeds.len(), 2);
+        let conn = fixture.conn.lock().unwrap();
+        let stored = db::publisher_relationships::named_feeds(&conn, 1).unwrap();
+        assert_eq!(hydration.named_feeds, stored);
     }
 
     /// R85-3-07: the album hydration writes the position of each

@@ -80,6 +80,7 @@ Open - the run adds each packet when its mechanical checks are Green.
   - [ADR 0084 packet 031](tasks/adr-0084-task-031-release-row-actions-and-selection-drag.md) V1 to V9
   - [ADR 0084 packet 032](tasks/adr-0084-task-032-singles-group-rows.md) V1 to V7
   - [ADR 0084 packet 033](tasks/adr-0084-task-033-download-state-icons.md) V1 to V8
+  - [ADR 0084 packet 034](tasks/adr-0084-task-034-store-feed-links-on-download.md) V1 to V4
 - Packet 024 adds migration 20, and packet 012 adds migration 21. Before the first start of the new build, make the backup of the Rollback section of packet 012.
 - Part B holds the deferred visual requirements of the overhaul plan that present screens can show.
 

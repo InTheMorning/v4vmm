@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -85,7 +85,7 @@ use crate::view_models::library::{
     ContentListSelectionTarget, DestinationListRowTarget, FeedCheckRouteRepairOutcome,
     FeedUpdateActionDisplay, FeedUpdateActionKind, FeedUpdateDisplay, FeedUpdatePhase,
     InspectorPanelKind, LibrarySearchLookup, LibraryTrackActionVm, LibraryTrackInspectorState,
-    LibraryTrackRowVm, LibraryViewModel, MbTrackStatus, PlaylistAppendIntent,
+    LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbTrackStatus, PlaylistAppendIntent,
     PlaylistAppendOutcome, PlaylistDetailActionsDisplay, ReleasesDisclosureStep,
     ReleasesListEntryVm, ReleasesRowId, RemovalConfirmation, TrackSubscribeOutcome,
 };
@@ -235,14 +235,36 @@ fn apply_library_hydration_result(
     vm.update_album_metadata_facts(feed_id, &hydration.metadata_facts);
     vm.update_album_stored_values(feed_id, &hydration.stored_values);
     vm.update_album_description(feed_id, hydration.description.as_deref());
+    // ADR 0084 task 034: the singles join rule and the Artists list
+    // image read `AlbumNode::named_feeds`, so the tree needs this field
+    // too, not only the identity facts.
+    vm.update_album_named_feeds(feed_id, &hydration.named_feeds);
     if let LibraryDetail::Album(album) = detail {
         if album.feed_id == Some(feed_id) {
             album.identity_facts = hydration.identity_facts;
             *album.metadata_facts = hydration.metadata_facts;
             album.stored_values = Some(Box::new(hydration.stored_values));
             album.description = hydration.description;
+            album.named_feeds = hydration.named_feeds;
         }
     }
+}
+
+/// The Library releases that the identity backfill pass can hydrate,
+/// newest feed id first (ADR 0084 task 034, decision D2). Only an album
+/// with both a feed id and a feed GUID is a candidate: the pass has
+/// nothing to read or hydrate otherwise. A higher `feed_id` is a more
+/// recently subscribed Library row, so sorting by it descending gives
+/// the stated "newest first" order with no extra read.
+fn album_identity_backfill_order(tree: &LibraryTree) -> Vec<(i64, String)> {
+    let mut candidates: Vec<(i64, String)> = tree
+        .artists
+        .iter()
+        .flat_map(|artist| artist.albums.iter())
+        .filter_map(|album| Some((album.feed_id?, album.feed_guid.clone()?)))
+        .collect();
+    candidates.sort_by_key(|&(feed_id, _)| std::cmp::Reverse(feed_id));
+    candidates
 }
 
 /// ADR 0075 retains feed-view evidence before the stale entry reduces into state.
@@ -1102,6 +1124,8 @@ impl LibraryApp {
             detail_scroll_binding: super::detail_selection::DetailScrollBinding::default(),
             saved_searches: Vec::new(),
             open_saved_search: None,
+            album_identity_backfill_started: false,
+            album_identity_backfill_queue: VecDeque::new(),
         };
         // ADR 0084 Decision 3, packet 012: Discover shows the saved
         // searches from the first render.
@@ -1426,7 +1450,7 @@ impl LibraryApp {
             command,
             CommandContext::next(),
             cx,
-            |this, result, _cx| {
+            |this, result, cx| {
                 this.vm.replace_tree(result.tree);
                 this.vm.finish_library_reload(result.count);
                 // ADR 0084 Decision 2: the Needs attention count stays
@@ -1445,6 +1469,12 @@ impl LibraryApp {
                 // keep each row after a removal.
                 if let Some(rows) = this.library_detail_page_rows() {
                     this.detail_selection.retain_visible(&rows.members());
+                }
+                // ADR 0084 task 034, decision D2: the first successful
+                // Library tree load of the session starts the
+                // once-per-session identity backfill pass.
+                if !this.album_identity_backfill_started {
+                    this.start_album_identity_backfill(cx);
                 }
             },
             |this, err, _cx| this.vm.set_error_status(err),
@@ -2299,17 +2329,25 @@ impl LibraryApp {
         })
     }
 
-    fn hydrate_album_identity_on_view(&mut self, album: &AlbumNode, cx: &mut Context<Self>) {
-        if album_has_feed_identity_actions(&album.identity_facts)
-            && album.description.is_some()
-            && !album.metadata_facts.is_empty()
-        {
-            return;
-        }
-        let (Some(feed_id), Some(feed_guid)) = (album.feed_id, album.feed_guid.clone()) else {
-            return;
-        };
-
+    /// Sends `HydrateAlbumIdentity` for one feed through the ADR 0040
+    /// runtime, then applies the result in place (ADR 0084 task 034).
+    /// The album page view hook, the post-download hooks, and the
+    /// once-per-session backfill pass each call this one function, so
+    /// they all apply a hydration result the same way.
+    ///
+    /// `continue_backfill` is `true` only for the backfill pass
+    /// (`pump_album_identity_backfill`). Its own completion, success or
+    /// failure, then starts the next queued release, so the pass runs
+    /// at most `ALBUM_IDENTITY_BACKFILL_CONCURRENCY` commands at a time.
+    /// Neither closure changes a `DownloadOutcome`: a hydration failure
+    /// never marks a download as failed (decision D3).
+    fn hydrate_album_identity(
+        &mut self,
+        feed_id: i64,
+        feed_guid: String,
+        continue_backfill: bool,
+        cx: &mut Context<Self>,
+    ) {
         let command = HydrateAlbumIdentity::new(
             Arc::clone(&self.conn),
             self.musicindex_endpoint.clone(),
@@ -2323,10 +2361,150 @@ impl LibraryApp {
             cx,
             move |this, hydration, cx| {
                 apply_library_hydration_result(&mut this.vm, &mut this.detail, feed_id, hydration);
+                if continue_backfill {
+                    this.pump_album_identity_backfill(cx);
+                }
                 cx.notify();
             },
-            |this, error, _| retain_library_query_failure(&mut this.vm, &error),
+            move |this, error, cx| {
+                retain_library_query_failure(&mut this.vm, &error);
+                if continue_backfill {
+                    this.pump_album_identity_backfill(cx);
+                }
+            },
         );
+    }
+
+    /// Finds the Library feed row that a `MusicIndex` download just
+    /// wrote, by its feed GUID, then hydrates it (ADR 0084 task 034,
+    /// decision D1). Sends no command when `feed_guid` is absent or the
+    /// Library has no feed row of that GUID yet: the once-per-session
+    /// backfill pass picks up a release this misses.
+    pub(super) fn hydrate_album_identity_by_feed_guid(
+        &mut self,
+        feed_guid: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(feed_guid) = feed_guid else {
+            return;
+        };
+        let feed_id = {
+            let Ok(conn) = self.conn.lock() else {
+                return;
+            };
+            db::find_feed_id_by_guid(&conn, &feed_guid).ok().flatten()
+        };
+        let Some(feed_id) = feed_id else {
+            return;
+        };
+        self.hydrate_album_identity(feed_id, feed_guid, false, cx);
+    }
+
+    fn hydrate_album_identity_on_view(&mut self, album: &AlbumNode, cx: &mut Context<Self>) {
+        if album_has_feed_identity_actions(&album.identity_facts)
+            && album.description.is_some()
+            && !album.metadata_facts.is_empty()
+        {
+            return;
+        }
+        let (Some(feed_id), Some(feed_guid)) = (album.feed_id, album.feed_guid.clone()) else {
+            return;
+        };
+        self.hydrate_album_identity(feed_id, feed_guid, false, cx);
+    }
+
+    /// The number of identity backfill commands that
+    /// `start_album_identity_backfill` starts before any reply arrives
+    /// (ADR 0084 task 034, decision D2).
+    const ALBUM_IDENTITY_BACKFILL_CONCURRENCY: usize = 4;
+
+    /// Starts the once-per-session identity backfill pass (ADR 0084 task
+    /// 034, decision D2). Sets `album_identity_backfill_started` first,
+    /// so a later Library tree reload never starts a second pass. Builds
+    /// the queue of releases that have a feed GUID, no stored row of
+    /// `feed_publisher_relationships`, and no prior hydration observation
+    /// (Review Corrections 2026-10-22, below), newest feed id first, then
+    /// pumps it up to `ALBUM_IDENTITY_BACKFILL_CONCURRENCY` times.
+    ///
+    /// A feed whose MusicIndex record names no publisher never gains a
+    /// stored relationship row, so a candidate read that only checks that
+    /// table repeats the feed's request at every app start, forever. The
+    /// second read below excludes a feed whose hydration-shaped request
+    /// already observed a `success` or a `partial` result, from the
+    /// retained evidence of ADR 0075. A read failure reports through the
+    /// Library status path and leaves the queue empty for this session;
+    /// it never leaves the failure unreported.
+    fn start_album_identity_backfill(&mut self, cx: &mut Context<Self>) {
+        self.album_identity_backfill_started = true;
+        let candidates = album_identity_backfill_order(self.vm.tree());
+        if candidates.is_empty() {
+            return;
+        }
+        let feed_ids: Vec<i64> = candidates.iter().map(|(feed_id, _)| *feed_id).collect();
+        let feed_guids: Vec<String> = candidates
+            .iter()
+            .map(|(_, feed_guid)| feed_guid.clone())
+            .collect();
+        let provider_identity = self
+            .musicindex_endpoint
+            .require()
+            .map(str::to_owned)
+            .unwrap_or_default();
+        let include = crate::application::request_profiles::LIBRARY_ALBUM_HYDRATION_FEED
+            .include()
+            .unwrap_or_default();
+        let (needing, observed) = {
+            let conn = match self.conn.lock() {
+                Ok(conn) => conn,
+                Err(_) => {
+                    self.vm.set_error_status("database lock poisoned");
+                    return;
+                }
+            };
+            let needing = match db::publisher_relationships::feed_ids_with_no_stored_relationship(
+                &conn, &feed_ids,
+            ) {
+                Ok(ids) => ids,
+                Err(error) => {
+                    self.vm.set_error_status(error);
+                    return;
+                }
+            };
+            let observed = match db::provider_observations::feed_guids_with_hydration_observation(
+                &conn,
+                &provider_identity,
+                include,
+                &feed_guids,
+            ) {
+                Ok(guids) => guids,
+                Err(error) => {
+                    self.vm.set_error_status(error);
+                    return;
+                }
+            };
+            (needing, observed)
+        };
+        let needing: BTreeSet<i64> = needing.into_iter().collect();
+        self.album_identity_backfill_queue = candidates
+            .into_iter()
+            .filter(|(feed_id, feed_guid)| {
+                needing.contains(feed_id) && !observed.contains(feed_guid)
+            })
+            .collect();
+        for _ in 0..Self::ALBUM_IDENTITY_BACKFILL_CONCURRENCY {
+            self.pump_album_identity_backfill(cx);
+        }
+    }
+
+    /// Starts the next queued identity backfill command, when one is
+    /// queued (ADR 0084 task 034, decision D2). `hydrate_album_identity`
+    /// calls this again from its own completion, so the pass keeps at
+    /// most `ALBUM_IDENTITY_BACKFILL_CONCURRENCY` commands running.
+    fn pump_album_identity_backfill(&mut self, cx: &mut Context<Self>) {
+        let Some((feed_id, feed_guid)) = self.album_identity_backfill_queue.pop_front() else {
+            return;
+        };
+        self.hydrate_album_identity(feed_id, feed_guid, true, cx);
     }
 
     /// Synchronize LibraryApp detail state to match a navigation entry.
@@ -2813,6 +2991,10 @@ impl LibraryApp {
             self.finish_download(&identity, outcome, cx);
             return;
         };
+        // ADR 0084 task 034, decision D1: hydrate this feed's identity
+        // after the download succeeds, so it joins its feed group with
+        // no page view.
+        let hydrate_feed_guid = feed.feed_guid.clone();
         let failed_identity = identity.clone();
         let command = SubscribeFeed::new(
             Arc::clone(&self.conn),
@@ -2828,6 +3010,9 @@ impl LibraryApp {
             CommandContext::next(),
             cx,
             move |this, _result, cx| {
+                if let Some(feed_guid) = hydrate_feed_guid {
+                    this.hydrate_album_identity(feed_id, feed_guid, false, cx);
+                }
                 this.refresh_origin_playlist_actor();
                 this.start_async_reload_preserving_detail(cx);
                 this.finish_download(&identity, DownloadOutcome::Succeeded, cx);
@@ -2998,6 +3183,13 @@ impl LibraryApp {
                 return;
             }
         };
+        // ADR 0084 task 034, decision D1: hydrate this track's feed after
+        // the download succeeds, the same reasoning as the Library feed
+        // job. This task's own reading of D1 extends the hook to the
+        // Library track job too (see the packet's "Orchestrator
+        // Decisions", D4): a Library track can be the only track of a
+        // single-track feed that was never hydrated.
+        let hydrate_feed = (track.feed_id, track.feed_guid.clone());
         let failed_identity = identity.clone();
         let command = SubscribeTrack::new(
             Arc::clone(&self.conn),
@@ -3013,6 +3205,9 @@ impl LibraryApp {
             CommandContext::next(),
             cx,
             move |this, result, cx| {
+                if let (feed_id, Some(feed_guid)) = hydrate_feed {
+                    this.hydrate_album_identity(feed_id, feed_guid, false, cx);
+                }
                 apply_track_subscription_to_album_detail(
                     &mut this.detail,
                     track_id,
@@ -5404,6 +5599,7 @@ mod tests {
                 stored_values:
                     crate::application::queries::stored_values::FeedStoredValues::default(),
                 description: Some("Hydrated description".into()),
+                named_feeds: Vec::new(),
                 observation_receipts: vec![library_observation_receipt(3)],
             },
         );
@@ -5469,6 +5665,7 @@ mod tests {
                 stored_values:
                     crate::application::queries::stored_values::FeedStoredValues::default(),
                 description: None,
+                named_feeds: Vec::new(),
                 observation_receipts: vec![library_observation_receipt(5)],
             },
         );
@@ -5549,6 +5746,17 @@ mod tests {
             }],
         });
         detail = LibraryDetail::Album(album);
+        let named_feeds = vec![crate::view_models::named_feeds::NamedFeed {
+            feed_guid: "haleen-guid".into(),
+            title: Some("Haleen".into()),
+            position: Some(0),
+            role: Some("artist".into()),
+            role_agreement: Some("both".into()),
+            feed_rel: None,
+            album_rel: None,
+            confirmed: true,
+            image_url: None,
+        }];
         apply_library_hydration_result(
             &mut vm,
             &mut detail,
@@ -5559,6 +5767,7 @@ mod tests {
                 stored_values:
                     crate::application::queries::stored_values::FeedStoredValues::default(),
                 description: Some("Current description".into()),
+                named_feeds: named_feeds.clone(),
                 observation_receipts: vec![library_observation_receipt(6)],
             },
         );
@@ -5570,7 +5779,37 @@ mod tests {
             vm.tree().artists[0].albums[0].description,
             album.description
         );
+        // R34-02 (ADR 0084 task 034): the hydration result reaches the
+        // open album detail and the tree album's own `named_feeds`.
+        assert_eq!(album.named_feeds, named_feeds);
+        assert_eq!(vm.tree().artists[0].albums[0].named_feeds, named_feeds);
         assert_eq!(vm.retained_observation_evidence_counts(), (2, 0));
+    }
+
+    /// R34-11 (ADR 0084 task 034): the backfill candidate order holds
+    /// every tree album with a feed id and a feed GUID, newest feed id
+    /// first, and drops an album with no feed GUID.
+    #[test]
+    fn adr_0084_task_034_backfill_order_is_newest_feed_id_first() {
+        let mut low = test_album(5, Vec::new());
+        low.feed_guid = Some("feed-5".into());
+        let mut high = test_album(20, Vec::new());
+        high.feed_guid = Some("feed-20".into());
+        let mut no_guid = test_album(30, Vec::new());
+        no_guid.feed_guid = None;
+        let tree = crate::view_models::library::LibraryTree {
+            artists: vec![crate::view_models::library::ArtistNode {
+                name: "Artist".into(),
+                albums: vec![low, high, no_guid],
+            }],
+        };
+
+        let order = album_identity_backfill_order(&tree);
+
+        assert_eq!(
+            order,
+            vec![(20, "feed-20".to_owned()), (5, "feed-5".to_owned())]
+        );
     }
 
     #[test]

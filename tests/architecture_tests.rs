@@ -18446,13 +18446,23 @@ fn adr_0075_library_observation_callers_and_consumers_are_guarded() {
     assert!(callbacks.contains("Arc::clone(&self.conn)"));
     assert!(callbacks.contains("apply_library_comparison_result("));
     assert!(callbacks.contains("apply_library_comparison_failure("));
+    // ADR 0084 task 034: the album page view hook and the post-download
+    // hooks share one command dispatch, `hydrate_album_identity`. The
+    // view hook keeps its two skip checks, then calls the shared
+    // function.
+    let shared_hydration = source_between(
+        &app,
+        "fn hydrate_album_identity(",
+        "fn hydrate_album_identity_on_view(",
+    );
+    assert!(shared_hydration.contains("apply_library_hydration_result("));
+    assert!(shared_hydration.contains("retain_library_query_failure("));
     let hydration_callback = source_between(
         &app,
         "fn hydrate_album_identity_on_view(",
         "pub(crate) fn hydrate_detail_from_nav(",
     );
-    assert!(hydration_callback.contains("apply_library_hydration_result("));
-    assert!(hydration_callback.contains("retain_library_query_failure("));
+    assert!(hydration_callback.contains("self.hydrate_album_identity("));
     assert!(hydration_callback.contains("album_has_feed_identity_actions"));
     assert!(hydration_callback.contains("album.description.is_some()"));
     assert!(hydration_callback.contains("!album.metadata_facts.is_empty()"));
@@ -23084,4 +23094,147 @@ fn adr_0084_task_033_retired_state_word_types_stay_gone() {
         }
     }
     assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+}
+
+/// R34-04, R34-05 (ADR 0084 task 034, decision D1). Situational: delete
+/// this guard when that decision is superseded. The success path of a
+/// Library feed job and a Library track job must hydrate the downloaded
+/// feed, so a release joins its feed group with no page view.
+#[test]
+fn adr_0084_task_034_library_download_jobs_hydrate_their_feed() {
+    const FIX: &str = "ADR 0084 task 034, decision D1: a Library feed job and a Library track \
+job must call `hydrate_album_identity(` on their success path, so the downloaded release is \
+hydrated with no page view.";
+    let app = read_source(&manifest_path("src/library/app_impl.rs"));
+    let feed_job = source_between(
+        &app,
+        "fn run_library_feed_job(",
+        "pub(crate) fn remove_track_after_confirmation(",
+    );
+    assert!(feed_job.contains(".hydrate_album_identity("), "{FIX}");
+    let track_job = source_between(
+        &app,
+        "fn run_library_track_job(",
+        "fn fail_library_track_job(",
+    );
+    assert!(track_job.contains(".hydrate_album_identity("), "{FIX}");
+}
+
+/// R34-06, R34-07 (ADR 0084 task 034, decision D1). Situational: delete
+/// this guard when that decision is superseded. The success path of an
+/// Index release job and an Index track job must hydrate the Library
+/// feed that the download just wrote, so a downloaded `MusicIndex`
+/// single joins its feed group with no page view.
+#[test]
+fn adr_0084_task_034_index_download_jobs_hydrate_their_feed() {
+    const FIX: &str = "ADR 0084 task 034, decision D1: an Index release job and an Index track \
+job must call `this.hydrate_album_identity_by_feed_guid(` on their success path, so the \
+downloaded release is hydrated with no page view.";
+    let downloads = read_source(&manifest_path("src/library/downloads.rs"));
+    let track_job = source_between(
+        &downloads,
+        "fn run_index_track_job(",
+        "fn run_index_release_job(",
+    );
+    assert!(
+        track_job.contains("this.hydrate_album_identity_by_feed_guid("),
+        "{FIX}"
+    );
+    let release_job = source_between(
+        &downloads,
+        "fn run_index_release_job(",
+        "fn read_index_release_job(",
+    );
+    assert!(
+        release_job.contains("this.hydrate_album_identity_by_feed_guid("),
+        "{FIX}"
+    );
+}
+
+/// R34-08 (ADR 0084 task 034, decision D1). Situational: delete this
+/// guard when that decision is superseded. `hydrate_album_identity_by_feed_guid`
+/// must resolve the Library feed id of a feed GUID before it hydrates,
+/// and must return without sending a command when it has no feed GUID.
+#[test]
+fn adr_0084_task_034_hydrate_by_feed_guid_resolves_the_feed_id_first() {
+    const FIX: &str = "ADR 0084 task 034, decision D1: `hydrate_album_identity_by_feed_guid` \
+must read the Library feed id with `find_feed_id_by_guid` before it calls \
+`self.hydrate_album_identity(`, and must return early when its argument is `None`.";
+    let app = read_source(&manifest_path("src/library/app_impl.rs"));
+    let function = source_between(
+        &app,
+        "fn hydrate_album_identity_by_feed_guid(",
+        "fn hydrate_album_identity_on_view(",
+    );
+    assert!(
+        function.contains("let Some(feed_guid) = feed_guid else"),
+        "{FIX}"
+    );
+    let find_at = function.find("find_feed_id_by_guid(");
+    let hydrate_at = function.find("self.hydrate_album_identity(");
+    assert!(
+        matches!((find_at, hydrate_at), (Some(find_at), Some(hydrate_at)) if find_at < hydrate_at),
+        "{FIX}"
+    );
+}
+
+/// R34-10, R34-12, R34-13 (ADR 0084 task 034, decision D2 and D3).
+/// Situational: delete this guard when that decision is superseded. The
+/// once-per-session backfill pass sets its started flag before it builds
+/// its queue, the Library tree load checks that flag before it starts
+/// the pass, the pass starts its queued commands inside its concurrency
+/// loop, and a hydration's own completion never turns into a download
+/// failure.
+#[test]
+fn adr_0084_task_034_backfill_starts_once_and_hydration_failure_stays_separate() {
+    const FIX: &str = "ADR 0084 task 034: decision D2 needs `album_identity_backfill_started` \
+set before the queue is built, and checked before `start_album_identity_backfill` runs again. \
+Decision D3 needs `hydrate_album_identity`'s failure closure to call \
+`retain_library_query_failure(` and never build a `DownloadOutcome`.";
+    let app = read_source(&manifest_path("src/library/app_impl.rs"));
+    let start = source_between(
+        &app,
+        "fn start_album_identity_backfill(",
+        "fn pump_album_identity_backfill(",
+    );
+    let flag_at = start.find("self.album_identity_backfill_started = true;");
+    let queue_at = start.find("self.album_identity_backfill_queue =");
+    assert!(
+        matches!((flag_at, queue_at), (Some(flag_at), Some(queue_at)) if flag_at < queue_at),
+        "{FIX}"
+    );
+    let concurrency_at = start.find("Self::ALBUM_IDENTITY_BACKFILL_CONCURRENCY");
+    let pump_at = start.find("self.pump_album_identity_backfill(cx);");
+    assert!(
+        matches!((concurrency_at, pump_at), (Some(concurrency_at), Some(pump_at)) if concurrency_at < pump_at),
+        "{FIX}"
+    );
+    let reload = source_between(
+        &app,
+        "fn start_async_reload_with_mode(",
+        "fn reload_playlists(",
+    );
+    let check_at = reload.find("if !this.album_identity_backfill_started {");
+    let call_at = reload.find("this.start_album_identity_backfill(cx);");
+    assert!(
+        matches!((check_at, call_at), (Some(check_at), Some(call_at)) if check_at < call_at),
+        "{FIX}"
+    );
+    let shared = source_between(
+        &app,
+        "fn hydrate_album_identity(",
+        "fn hydrate_album_identity_by_feed_guid(",
+    );
+    assert!(!shared.contains("DownloadOutcome"), "{FIX}");
+    assert!(
+        shared.contains("retain_library_query_failure(&mut this.vm, &error);"),
+        "{FIX}"
+    );
+    assert_eq!(
+        shared
+            .matches("this.pump_album_identity_backfill(cx);")
+            .count(),
+        2,
+        "{FIX}"
+    );
 }

@@ -1092,6 +1092,84 @@ pub fn read_track_provider_state(
     Ok(result)
 }
 
+/// Each feed GUID among `feed_guids` that already has a `success` or
+/// `partial` MusicIndex feed-detail observation with the given `include`
+/// value (ADR 0084 task 034, Review Corrections 2026-10-22).
+///
+/// `hydrate_album_identity_facts` sends this exact request
+/// (`/v1/feeds/{feed_guid}` with this `include` list) under the
+/// `LIBRARY_ALBUM_HYDRATION_FEED` profile. A feed whose MusicIndex record
+/// names no publisher writes no row of `feed_publisher_relationships`
+/// (ADR 0077 Decision 5). A candidate read that checks only that table
+/// thus repeats this feed's request at every app start, forever. This
+/// read instead finds a feed whose matching request already ran and
+/// succeeded, from the retained evidence of ADR 0075. A `failed`
+/// observation does not count, so the once-per-session backfill pass
+/// still retries that feed next session.
+///
+/// The observation must also hold a body whose `data.publisher` list is
+/// absent or empty (orchestrator review of 2026-10-22). A download reads
+/// the feed with this same request shape, but it stores no link. An
+/// answer that names a publisher thus keeps the feed a candidate, and the
+/// pass stores its link. Only an answer with no publisher entry, which
+/// can never store a row, excludes the feed.
+///
+/// # Errors
+///
+/// Returns an error when the database read fails.
+pub fn feed_guids_with_hydration_observation(
+    conn: &Connection,
+    provider_identity: &str,
+    include: &str,
+    feed_guids: &[String],
+) -> Result<std::collections::BTreeSet<String>> {
+    if feed_guids.is_empty() {
+        return Ok(std::collections::BTreeSet::new());
+    }
+    let placeholders = feed_guids
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT DISTINCT s.feed_scope
+         FROM metadata_observations o
+         JOIN metadata_providers p ON p.id = o.provider_id
+         JOIN metadata_subjects s ON s.id = o.requested_subject_id
+         WHERE p.kind = 'musicindex'
+           AND p.identity = ?
+           AND s.kind = 'feed'
+           AND s.feed_scope_kind = 'guid'
+           AND s.feed_scope IN ({placeholders})
+           AND o.outcome IN ('success', 'partial')
+           AND json_extract(o.profile_json, '$.query[0][0]') = 'include'
+           AND json_extract(o.profile_json, '$.query[0][1]') = ?
+           AND EXISTS (
+               SELECT 1 FROM metadata_bodies b
+               WHERE b.sha256 = o.body_sha256
+                 AND CASE
+                     WHEN json_valid(CAST(b.bytes AS TEXT)) THEN
+                         COALESCE(json_array_length(json_extract(
+                             CAST(b.bytes AS TEXT), '$.data.publisher')), 0) = 0
+                     ELSE 0
+                 END
+           )"
+    );
+    let mut statement = conn.prepare(&sql)?;
+    let mut bind: Vec<&str> = Vec::with_capacity(feed_guids.len() + 2);
+    bind.push(provider_identity);
+    for feed_guid in feed_guids {
+        bind.push(feed_guid.as_str());
+    }
+    bind.push(include);
+    let rows = statement
+        .query_map(rusqlite::params_from_iter(bind), |row| {
+            row.get::<_, String>(0)
+        })?
+        .collect::<rusqlite::Result<std::collections::BTreeSet<String>>>()?;
+    Ok(rows)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1513,5 +1591,276 @@ mod tests {
         let token = begin_provider_request(&conn, spec).unwrap();
         let _receipt = record_provider_observation(&conn, token, Arc::new(failed)).unwrap();
         assert_eq!(snapshot(&conn), before);
+    }
+
+    /// ADR 0084 task 034, Review Corrections 2026-10-22: a minimal feed
+    /// observation row, written straight to the schema tables. This skips
+    /// `musicindex::extract` and its coverage and fact rows, which
+    /// `feed_guids_with_hydration_observation` never reads.
+    fn insert_feed_observation(
+        conn: &Connection,
+        provider_identity: &str,
+        feed_guid: &str,
+        include: &str,
+        outcome: &str,
+        observation_key: &str,
+        body: &str,
+    ) {
+        let body_sha256 = format!("{:x}", Sha256::digest(body.as_bytes()));
+        conn.execute(
+            "INSERT INTO metadata_bodies(sha256, byte_length, bytes) VALUES (?1, ?2, ?3)
+             ON CONFLICT(sha256) DO NOTHING",
+            params![
+                body_sha256,
+                i64::try_from(body.len()).unwrap(),
+                body.as_bytes()
+            ],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO metadata_providers(kind, identity) VALUES ('musicindex', ?1)
+             ON CONFLICT(kind, identity) DO NOTHING",
+            params![provider_identity],
+        )
+        .unwrap();
+        let provider_id: i64 = conn
+            .query_row(
+                "SELECT id FROM metadata_providers WHERE kind = 'musicindex' AND identity = ?1",
+                params![provider_identity],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let request_uri = format!("{provider_identity}/v1/feeds/{feed_guid}");
+        conn.execute(
+            "INSERT INTO metadata_resources(provider_id, request_uri) VALUES (?1, ?2)
+             ON CONFLICT(provider_id, request_uri) DO NOTHING",
+            params![provider_id, request_uri],
+        )
+        .unwrap();
+        let resource_id: i64 = conn
+            .query_row(
+                "SELECT id FROM metadata_resources WHERE provider_id = ?1 AND request_uri = ?2",
+                params![provider_id, request_uri],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let subject_key = SubjectKey::guid(feed_guid, None).json().to_string();
+        conn.execute(
+            "INSERT INTO metadata_subjects(subject_key, kind, feed_scope_kind, feed_scope, item_guid)
+             VALUES (?1, 'feed', 'guid', ?2, NULL)
+             ON CONFLICT(subject_key) DO NOTHING",
+            params![subject_key, feed_guid],
+        )
+        .unwrap();
+        let subject_id: i64 = conn
+            .query_row(
+                "SELECT id FROM metadata_subjects WHERE subject_key = ?1",
+                params![subject_key],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let requested_subject_json = json!({
+            "parameters": {"path": ["v1", "feeds", feed_guid], "query": [["include", include]]},
+            "subject": [1, "feed", "guid", feed_guid],
+        })
+        .to_string();
+        let profile_json = json!({
+            "version": 1,
+            "path": ["v1", "feeds", feed_guid],
+            "query": [["include", include]],
+        })
+        .to_string();
+        conn.execute(
+            "INSERT INTO metadata_observations (
+                observation_key, provider_id, resource_id, requested_subject_id,
+                requested_subject_json, profile_json, body_sha256, http_status, response_uri,
+                interpretation_metadata_json, source_times_json, decoder_version, outcome,
+                first_generation, last_generation, first_started_at_us, last_started_at_us,
+                first_finished_at_us, last_finished_at_us, first_fetched_at_us, last_fetched_at_us,
+                first_occurrence_metadata_json, last_occurrence_metadata_json, occurrence_count,
+                superseded_count
+            ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6, ?9, 200, ?7, '{}', '{}', 'musicindex-json-v1', ?8,
+                1, 1, 100, 100, 200, 200, 190, 190, '{}', '{}', 1, 0
+            )",
+            params![
+                observation_key,
+                provider_id,
+                resource_id,
+                subject_id,
+                requested_subject_json,
+                profile_json,
+                request_uri,
+                outcome,
+                body_sha256,
+            ],
+        )
+        .unwrap();
+    }
+
+    /// Orchestrator review of 2026-10-22: a download reads the feed with
+    /// the same request shape but stores no link. A success observation
+    /// whose answer names a publisher thus keeps the feed a candidate, so
+    /// the pass stores its link. Only an answer with no publisher entry
+    /// excludes the feed.
+    #[test]
+    fn adr_0084_task_034_answer_with_a_publisher_keeps_the_feed_a_candidate() {
+        let conn = setup();
+        let include = "tracks,source_enclosures,publisher";
+        insert_feed_observation(
+            &conn,
+            "https://private.invalid",
+            "f1",
+            include,
+            "success",
+            "observation-f1",
+            r#"{"data":{"feed_guid":"f1","publisher":[{"direction":"music_to_publisher"}]}}"#,
+        );
+        insert_feed_observation(
+            &conn,
+            "https://private.invalid",
+            "f2",
+            include,
+            "success",
+            "observation-f2",
+            r#"{"data":{"feed_guid":"f2"}}"#,
+        );
+
+        let found = feed_guids_with_hydration_observation(
+            &conn,
+            "https://private.invalid",
+            include,
+            &["f1".to_owned(), "f2".to_owned()],
+        )
+        .unwrap();
+
+        assert!(
+            !found.contains("f1"),
+            "an answer with a publisher keeps the feed a candidate"
+        );
+        assert!(
+            found.contains("f2"),
+            "an answer with no publisher list excludes the feed"
+        );
+    }
+
+    /// A feed response body with no publisher entry.
+    const NO_PUBLISHER_BODY: &str = r#"{"data":{"feed_guid":"f","publisher":[]}}"#;
+
+    /// ADR 0084 task 034, Review Corrections 2026-10-22: a feed with a
+    /// `success` observation of the hydration profile is excluded, even
+    /// with no stored `feed_publisher_relationships` row. A feed with no
+    /// observation stays a candidate.
+    #[test]
+    fn adr_0084_task_034_feed_with_success_hydration_observation_is_excluded() {
+        let conn = setup();
+        let include = "tracks,source_enclosures,publisher";
+        insert_feed_observation(
+            &conn,
+            "https://private.invalid",
+            "f1",
+            include,
+            "success",
+            "observation-f1",
+            NO_PUBLISHER_BODY,
+        );
+
+        let found = feed_guids_with_hydration_observation(
+            &conn,
+            "https://private.invalid",
+            include,
+            &["f1".to_owned(), "f2".to_owned()],
+        )
+        .unwrap();
+
+        assert!(
+            found.contains("f1"),
+            "a feed with a success observation of the hydration profile is excluded"
+        );
+        assert!(
+            !found.contains("f2"),
+            "a feed with no observation at all stays a candidate"
+        );
+    }
+
+    /// Review Corrections 2026-10-22: a `partial` observation also
+    /// excludes its feed.
+    #[test]
+    fn adr_0084_task_034_feed_with_partial_hydration_observation_is_excluded() {
+        let conn = setup();
+        let include = "tracks,source_enclosures,publisher";
+        insert_feed_observation(
+            &conn,
+            "https://private.invalid",
+            "f1",
+            include,
+            "partial",
+            "observation-f1",
+            NO_PUBLISHER_BODY,
+        );
+
+        let found = feed_guids_with_hydration_observation(
+            &conn,
+            "https://private.invalid",
+            include,
+            &["f1".to_owned()],
+        )
+        .unwrap();
+
+        assert!(
+            found.contains("f1"),
+            "a feed with a partial observation of the hydration profile is excluded"
+        );
+    }
+
+    /// Review Corrections 2026-10-22: a feed with only a `failed`
+    /// observation of the hydration profile stays a candidate. The
+    /// once-per-session backfill pass must retry it next session.
+    #[test]
+    fn adr_0084_task_034_feed_with_only_failed_observation_stays_a_candidate() {
+        let conn = setup();
+        let include = "tracks,source_enclosures,publisher";
+        insert_feed_observation(
+            &conn,
+            "https://private.invalid",
+            "f1",
+            include,
+            "failed",
+            "observation-f1",
+            NO_PUBLISHER_BODY,
+        );
+
+        let found = feed_guids_with_hydration_observation(
+            &conn,
+            "https://private.invalid",
+            include,
+            &["f1".to_owned()],
+        )
+        .unwrap();
+
+        assert!(
+            !found.contains("f1"),
+            "a feed with only a failed observation stays a candidate"
+        );
+    }
+
+    /// Review Corrections 2026-10-22: a feed with no observation at all
+    /// stays a candidate.
+    #[test]
+    fn adr_0084_task_034_feed_with_no_observation_stays_a_candidate() {
+        let conn = setup();
+
+        let found = feed_guids_with_hydration_observation(
+            &conn,
+            "https://private.invalid",
+            "tracks,source_enclosures,publisher",
+            &["f1".to_owned()],
+        )
+        .unwrap();
+
+        assert!(
+            found.is_empty(),
+            "a feed with no observation at all stays a candidate"
+        );
     }
 }

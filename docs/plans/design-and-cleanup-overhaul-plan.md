@@ -188,6 +188,7 @@ The operator asked on 2026-10-08 for a later phase that tunes how fast the app r
 19. 2026-10-21: by packet 026 decision D4, the Releases list in "Everything" reads each new artist feed of the singles on a page before the page shows. The first pages each send 27 to 42 more requests, at most 4 at a time, so page 1 can show 1 s to 4 s later (`src/application/queries/name_lists.rs`, ADR 0084 packet 026). Measured on 2026-10-21 at 17:52 UTC: page 1 sent 37 feed requests in 2.36 s after its list request of 1.06 s, and page 2 sent 28 in 1.06 s. Page 1 also reads each Library artist feed with singles.
 20. 2026-10-21: a search row whose image load fails does not try again in the same session. The row keeps its monogram until the next start (`src/app/search_dispatch.rs`, ADR 0084 packet 028).
 21. 2026-10-21: while the Index part of a search loads and the tab has Library rows, the page shows no loading row. The Index rows then appear with no notice, for example after Back to a search (`src/view_models/search_results/mod.rs`, ADR 0084 packet 010).
+22. 2026-10-22: once in each session, after the first load of the Library tree, the app sends one `HydrateAlbumIdentity` request for each Library release that has a feed GUID and no stored feed link, at most 4 at a time, with no progress state. A release whose recorded MusicIndex answer names no publisher is not sent again (`start_album_identity_backfill` in `src/library/app_impl.rs`, ADR 0084 packet 034).
 
 ## Visual Requirements Moved From Pending Checks - 2026-10-07
 

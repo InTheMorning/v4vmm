@@ -300,6 +300,10 @@ impl LibraryApp {
         context: Box<TrackContext>,
         cx: &mut Context<Self>,
     ) {
+        // ADR 0084 task 034, decision D1: hydrate this track's feed after
+        // the download succeeds, so it joins its feed group with no page
+        // view.
+        let hydrate_feed_guid = feed_guid.clone();
         let finished_job = DownloadJob::IndexTrack {
             feed_guid,
             track_guid,
@@ -324,6 +328,7 @@ impl LibraryApp {
             CommandContext::next(),
             cx,
             move |this, _result, cx| {
+                this.hydrate_album_identity_by_feed_guid(hydrate_feed_guid, cx);
                 this.finish_index_download(&identity, finished_job, DownloadOutcome::Succeeded, cx);
             },
             move |this, error, cx| {
@@ -344,6 +349,11 @@ impl LibraryApp {
         cx: &mut Context<Self>,
     ) {
         let feed_url = feed_url.or_else(|| feed.feed_url.clone());
+        // ADR 0084 task 034, decision D1: hydrate this release's feed
+        // after the download succeeds, so it joins its feed group with
+        // no page view. This is the path that downloads a `MusicIndex`
+        // single.
+        let hydrate_feed_guid = feed_guid.clone();
         let finished_job = DownloadJob::IndexRelease {
             feed_guid,
             feed_url,
@@ -365,6 +375,7 @@ impl LibraryApp {
             CommandContext::next(),
             cx,
             move |this, _result, cx| {
+                this.hydrate_album_identity_by_feed_guid(hydrate_feed_guid, cx);
                 this.finish_index_download(&identity, finished_job, DownloadOutcome::Succeeded, cx);
             },
             move |this, error, cx| {
