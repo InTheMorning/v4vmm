@@ -1,6 +1,6 @@
 # ADR 0086 Task 001: Parallel New Releases Detail Reads
 
-Status: Ready - 2026-10-23.
+Status: Implemented - 2026-10-23. Cases R86-1-01 to R86-1-06 pass. Mechanical checks are Green. V1 to V4 are open, in the final walk of the run of 2026-10-23.
 
 ## Goal
 

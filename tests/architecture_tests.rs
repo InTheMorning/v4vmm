@@ -23259,3 +23259,25 @@ Decision D3 needs `hydrate_album_identity`'s failure closure to call \
         "{FIX}"
     );
 }
+
+/// R86-1-06 (ADR 0086 Task 001) situational guard: the New releases feed
+/// detail reads must run through the shared `PARALLEL_DETAIL_READS`
+/// limit. Delete this guard when ADR 0086 is superseded.
+#[test]
+fn adr_0086_parallel_reads_r86_1_06_feed_detail_reads_use_the_shared_limit() {
+    let feed_source = read_source(&manifest_path("src/application/queries/feed.rs"));
+    let feed_source = production_source(&feed_source);
+    let compact = compact_source(feed_source);
+    let body = source_between(
+        &compact,
+        "fnfetch_recent_feed_result_rows(",
+        "Ok(RecentFeedsPageBatch{",
+    );
+    assert!(
+        body.contains("PARALLEL_DETAIL_READS"),
+        "ADR 0086 Decision 5: a New releases feed detail read must run through the shared \
+         limit. Send the detail reads of `fetch_recent_feed_result_rows` through \
+         `PARALLEL_DETAIL_READS` in src/application/queries/mod.rs, the same limit as \
+         `fetch_feed_singles_set` in src/application/queries/name_lists.rs."
+    );
+}

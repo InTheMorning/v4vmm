@@ -190,3 +190,12 @@ Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 202
 - Owner: [task 015](tasks/adr-0046-task-015-forward-navigation.md#operator-visual-check).
 - Scheduling: it needs a macOS desktop session.
 - V2, macOS part: `cmd-[` and `cmd-]` outside a text box do the same as Back and Forward. Indent and outdent still work in a macOS text box.
+
+## 6. Final Walk Of The Run Of 2026-10-23
+
+Open - the run adds each packet when its mechanical checks are Green.
+
+- Owner: the [run record](reviews/orchestrated-run-2026-10-23.md#final-walk).
+- The walk starts with ADR 0084 packet 020 V1 to V6 and packet 026 V1 to V10 (section 2).
+- The packets of the run. Each item names its packet and its open checks:
+  - [ADR 0086 packet 001](tasks/adr-0086-task-001-parallel-new-releases-detail-reads.md) V1 to V4

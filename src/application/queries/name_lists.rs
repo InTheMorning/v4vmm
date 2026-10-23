@@ -9,7 +9,8 @@
 //! The release page command also reads the `MusicIndex` singles of each new
 //! artist feed of its singles, with one list request for each feed (ADR
 //! 0084 Decision 6, packet 026 decision D4). At most
-//! [`FEED_SINGLES_PARALLEL`] of these requests run at the same time.
+//! [`PARALLEL_DETAIL_READS`] of these requests run at the same time (ADR
+//! 0086 Decision 5).
 //!
 //! `FetchFeedSingles` reads the singles of one feed for the group page and
 //! for the single page (packet 026 Part B).
@@ -24,6 +25,7 @@ use crate::api::{ArtistNameRow, Client, Feed};
 use crate::application::command_bus::{ApplicationCommand, CommandOutcome, CommandResult};
 use crate::application::command_context::CommandContext;
 use crate::application::errors::command::CommandError;
+use crate::application::queries::PARALLEL_DETAIL_READS;
 use crate::application::request_profiles::{
     INDEX_ARTIST_NAME_LIST, INDEX_FEED_SINGLES, INDEX_RELEASE_NAME_LIST,
 };
@@ -45,9 +47,6 @@ pub(crate) const FEED_SINGLES_PAGE_LIMIT: i32 = 200;
 /// The most pages that the app reads for one feed (packet 026 decision
 /// D11).
 pub(crate) const FEED_SINGLES_MAX_PAGES: usize = 5;
-/// The most feed requests that run at the same time (packet 026 decision
-/// D4).
-pub(crate) const FEED_SINGLES_PARALLEL: usize = 4;
 
 /// Fetches one page of `MusicIndex` music releases in name order, and the
 /// `MusicIndex` singles of each new artist feed of the singles on that
@@ -231,9 +230,9 @@ impl ApplicationCommand for FetchFeedSingles {
 }
 
 /// Reads the singles of each feed of `feeds` with
-/// [`fetch_feed_singles`]. At most [`FEED_SINGLES_PARALLEL`] requests run
-/// at the same time (packet 026 decision D4). The results keep the
-/// sequence of `feeds`.
+/// [`fetch_feed_singles`]. At most [`PARALLEL_DETAIL_READS`] requests run
+/// at the same time (packet 026 decision D4, ADR 0086 Decision 5). The
+/// results keep the sequence of `feeds`.
 ///
 /// # Errors
 /// Gives [`CommandError::Cancelled`] when the command is cancelled.
@@ -245,7 +244,7 @@ fn fetch_feed_singles_set(
     let next = AtomicUsize::new(0);
     let results: Mutex<Vec<Option<FeedSinglesRows>>> = Mutex::new(vec![None; feeds.len()]);
     std::thread::scope(|scope| {
-        for _ in 0..FEED_SINGLES_PARALLEL.min(feeds.len()) {
+        for _ in 0..PARALLEL_DETAIL_READS.min(feeds.len()) {
             scope.spawn(|| loop {
                 if context.cancellation().is_cancelled() {
                     return;
@@ -680,7 +679,7 @@ mod tests {
         assert!(!requests.iter().any(|path| path.contains("known-feed")));
         assert!(!requests.iter().any(|path| path.contains("34bf795f")));
         let peak = running.lock().unwrap().1;
-        assert!(peak <= FEED_SINGLES_PARALLEL, "{peak} requests at one time");
+        assert!(peak <= PARALLEL_DETAIL_READS, "{peak} requests at one time");
         assert!(peak > 1, "the requests run at the same time");
     }
 

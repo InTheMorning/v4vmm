@@ -22,8 +22,8 @@ Each entry names the step, the decision and the reason.
 
 | Step | State | Commit |
 |---|---|---|
-| Planning documents of 2026-10-23 | In progress | |
-| ADR 0086 packet 001: parallel detail reads | Ready | |
+| Planning documents of 2026-10-23 | Done | `e38b6e3`, Stophammer `97aa28e` |
+| ADR 0086 packet 001: parallel detail reads | Implemented. V1 to V4 open | (this commit) |
 | ADR 0086 packet 002: New releases window groups | Ready | |
 | ADR 0086 packet 003: the pager closes each window | Ready | |
 | ADR 0086 packet 004: the window group page | Ready | |

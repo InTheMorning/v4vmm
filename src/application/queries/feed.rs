@@ -1,6 +1,7 @@
 //! Feed local query family.
 
 use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
@@ -11,11 +12,12 @@ use crate::application::application_query_service::ApplicationQueryService;
 use crate::application::command_bus::{ApplicationCommand, CommandOutcome, CommandResult};
 use crate::application::command_context::CommandContext;
 use crate::application::errors::command::CommandError;
+use crate::application::queries::PARALLEL_DETAIL_READS;
 use crate::db;
 use crate::view_models::publisher_page::{
     CoCreditedFeedFact, PublisherPageAlbumFact, PublisherPageFacts,
 };
-use crate::view_models::recent_feeds::RecentFeedsPageBatch;
+use crate::view_models::recent_feeds::{RecentFeedResultRow, RecentFeedsPageBatch};
 
 use super::search::{index_feed_display, index_item_id, non_empty_str, INDEX_FEED_ID_BASE};
 use crate::application::request_profiles::{INDEX_FEED_DETAIL, INDEX_PUBLISHER_PAGE};
@@ -109,6 +111,18 @@ impl ApplicationCommand for FetchIndexPublisherPage {
     }
 }
 
+/// Reads the list response, then reads the detail of each feed, at most
+/// [`PARALLEL_DETAIL_READS`] detail reads at the same time (ADR 0086
+/// Decision 5). This runs the `std::thread::scope` pattern of
+/// `fetch_feed_singles_set` in `src/application/queries/name_lists.rs`
+/// (ADR 0084 packet 026 decision D4): each worker takes the next feed
+/// index from a shared counter, so the rows keep the order of the list
+/// response even when the server answers the detail requests in a
+/// different order.
+///
+/// # Errors
+///
+/// Returns an error when the list request fails or does not decode.
 fn fetch_recent_feed_result_rows(
     endpoint: &crate::config::MusicIndexEndpoint,
     cursor: Option<&str>,
@@ -116,26 +130,38 @@ fn fetch_recent_feed_result_rows(
 ) -> Result<RecentFeedsPageBatch> {
     let client = crate::api::Client::new_with_base_url(endpoint.clone());
     let response = client.fetch_recent_feeds(Some(crate::api::PAGE_LIMIT), cursor)?;
-    let rows = response
-        .data
-        .into_iter()
+    let feeds = response.data;
+
+    let next_index = AtomicUsize::new(0);
+    let rows_by_index: Mutex<Vec<Option<RecentFeedResultRow>>> =
+        Mutex::new(vec![None; feeds.len()]);
+    std::thread::scope(|scope| {
+        for _ in 0..PARALLEL_DETAIL_READS.min(feeds.len()) {
+            scope.spawn(|| loop {
+                let index = next_index.fetch_add(1, Ordering::SeqCst);
+                let Some(feed) = feeds.get(index) else {
+                    return;
+                };
+                let row = recent_feed_result_row(&client, feed, start_index + index);
+                if let Ok(mut rows_by_index) = rows_by_index.lock() {
+                    rows_by_index[index] = Some(row);
+                }
+            });
+        }
+    });
+
+    // A missing row only happens when its worker never ran (a lock
+    // poisoned by a panic in another worker). Build it here, so the row
+    // order stays correct and no row goes missing.
+    let rows_by_index = rows_by_index
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let rows = feeds
+        .iter()
+        .zip(rows_by_index)
         .enumerate()
-        .map(|(index, feed)| {
-            let row_index = start_index + index;
-            let feed_guid = recent_feed_activation_id(&feed, row_index);
-            let detail = feed
-                .feed_guid
-                .as_deref()
-                .and_then(|guid| {
-                    client
-                        .fetch_feed_with_profile(guid, &INDEX_FEED_DETAIL)
-                        .ok()
-                })
-                .unwrap_or(feed);
-            (
-                index_item_id(INDEX_FEED_ID_BASE, row_index),
-                index_feed_display(&feed_guid, Some(crate::api::EntityDetail::Feed(detail))),
-            )
+        .map(|(index, (feed, row))| {
+            row.unwrap_or_else(|| recent_feed_result_row(&client, feed, start_index + index))
         })
         .collect();
 
@@ -144,6 +170,27 @@ fn fetch_recent_feed_result_rows(
         cursor: response.pagination.cursor,
         has_more: response.pagination.has_more,
     })
+}
+
+/// Builds one row of [`fetch_recent_feed_result_rows`]: the detail feed
+/// when the list feed names a feed GUID and the detail request gives a
+/// result, else the list feed. This fallback does not change with ADR
+/// 0086 Task 001.
+fn recent_feed_result_row(client: &Client, feed: &Feed, row_index: usize) -> RecentFeedResultRow {
+    let feed_guid = recent_feed_activation_id(feed, row_index);
+    let detail = feed
+        .feed_guid
+        .as_deref()
+        .and_then(|guid| {
+            client
+                .fetch_feed_with_profile(guid, &INDEX_FEED_DETAIL)
+                .ok()
+        })
+        .unwrap_or_else(|| feed.clone());
+    (
+        index_item_id(INDEX_FEED_ID_BASE, row_index),
+        index_feed_display(&feed_guid, Some(crate::api::EntityDetail::Feed(detail))),
+    )
 }
 
 fn recent_feed_activation_id(feed: &crate::api::Feed, index: usize) -> String {
@@ -644,6 +691,314 @@ mod adr_0075_request_profile_tests {
         assert!(
             facts.albums[0].in_library,
             "the album that a stored music_to_publisher row names must be marked as in the Library"
+        );
+    }
+}
+
+/// ADR 0086 Task 001: the parallel feed detail reads of
+/// `fetch_recent_feed_result_rows`.
+#[cfg(test)]
+mod adr_0086_parallel_reads_tests {
+    use super::*;
+    use crate::application::queries::PARALLEL_DETAIL_READS;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    /// A local HTTP server that gives each connection its own thread, so
+    /// the parallel detail reads of ADR 0086 Decision 5 can run at the
+    /// same time. `answer` builds the body of one request from its path.
+    /// An empty body answers with a server error. `running` holds the
+    /// request count in flight now and the peak count reached, for
+    /// R86-1-02.
+    #[expect(
+        clippy::type_complexity,
+        reason = "a test server gives its address, its request log and its request counts"
+    )]
+    fn serve_routes(
+        answer: fn(&str) -> String,
+        expected_requests: usize,
+    ) -> (String, Arc<Mutex<Vec<String>>>, Arc<Mutex<(usize, usize)>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let running = Arc::new(Mutex::new((0_usize, 0_usize)));
+        let received = Arc::clone(&requests);
+        let counter = Arc::clone(&running);
+        std::thread::spawn(move || {
+            for _ in 0..expected_requests {
+                let (mut stream, _) = listener.accept().unwrap();
+                let received = Arc::clone(&received);
+                let counter = Arc::clone(&counter);
+                std::thread::spawn(move || {
+                    {
+                        let mut count = counter.lock().unwrap();
+                        count.0 += 1;
+                        count.1 = count.1.max(count.0);
+                    }
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(2)))
+                        .unwrap();
+                    let mut bytes = Vec::new();
+                    let mut buffer = [0; 4096];
+                    while !bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                        match stream.read(&mut buffer) {
+                            Ok(0) | Err(_) => break,
+                            Ok(read) => bytes.extend_from_slice(&buffer[..read]),
+                        }
+                    }
+                    let request = String::from_utf8_lossy(&bytes);
+                    let path = request
+                        .lines()
+                        .next()
+                        .and_then(|line| line.split_whitespace().nth(1))
+                        .unwrap_or_default()
+                        .to_owned();
+                    received.lock().unwrap().push(path.clone());
+                    std::thread::sleep(Duration::from_millis(60));
+                    let body = answer(&path);
+                    counter.lock().unwrap().0 -= 1;
+                    let status = if body.is_empty() {
+                        "500 Internal Server Error"
+                    } else {
+                        "200 OK"
+                    };
+                    write!(
+                        stream,
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .unwrap();
+                });
+            }
+        });
+        (format!("http://{address}"), requests, running)
+    }
+
+    /// A local HTTP server like `serve_routes`, whose delay before each
+    /// answer comes from `delay_millis(path)` instead of one fixed delay,
+    /// so an earlier feed can answer after a later one (R86-1-03).
+    fn serve_routes_with_delay(
+        answer: fn(&str) -> String,
+        delay_millis: fn(&str) -> u64,
+        expected_requests: usize,
+    ) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        std::thread::spawn(move || {
+            for _ in 0..expected_requests {
+                let (mut stream, _) = listener.accept().unwrap();
+                std::thread::spawn(move || {
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(2)))
+                        .unwrap();
+                    let mut bytes = Vec::new();
+                    let mut buffer = [0; 4096];
+                    while !bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                        match stream.read(&mut buffer) {
+                            Ok(0) | Err(_) => break,
+                            Ok(read) => bytes.extend_from_slice(&buffer[..read]),
+                        }
+                    }
+                    let request = String::from_utf8_lossy(&bytes);
+                    let path = request
+                        .lines()
+                        .next()
+                        .and_then(|line| line.split_whitespace().nth(1))
+                        .unwrap_or_default()
+                        .to_owned();
+                    std::thread::sleep(Duration::from_millis(delay_millis(&path)));
+                    let body = answer(&path);
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .unwrap();
+                });
+            }
+        });
+        format!("http://{address}")
+    }
+
+    /// One `GET /v1/feeds/recent` list response of `count` feeds, each
+    /// named `feed-0` to `feed-<count - 1>`, with no detail fields.
+    fn list_response(count: usize) -> String {
+        let data: Vec<_> = (0..count)
+            .map(|index| serde_json::json!({"feed_guid": format!("feed-{index}")}))
+            .collect();
+        serde_json::json!({"data": data, "pagination": {"has_more": false, "cursor": null}})
+            .to_string()
+    }
+
+    /// The feed GUID that a detail request path names, read from
+    /// `/v1/feeds/<guid>?include=...`.
+    fn detail_feed_guid(path: &str) -> &str {
+        path.trim_start_matches("/v1/feeds/")
+            .split('?')
+            .next()
+            .unwrap_or_default()
+    }
+
+    /// One `GET /v1/feeds/<guid>` detail response that gives the row its
+    /// own title, so a test can tell a detail row from a list row.
+    fn detail_response(guid: &str) -> String {
+        serde_json::json!({"data": {"feed_guid": guid, "title": format!("Detail {guid}")}})
+            .to_string()
+    }
+
+    /// R86-1-01: with a list of 20 feeds, the query gives 20 rows, each
+    /// holding its own detail feed.
+    #[test]
+    fn adr_0086_parallel_reads_r86_1_01_twenty_feeds_give_twenty_rows() {
+        fn answer(path: &str) -> String {
+            if path.starts_with("/v1/feeds/recent") {
+                return list_response(20);
+            }
+            detail_response(detail_feed_guid(path))
+        }
+        let (endpoint, _requests, _running) = serve_routes(answer, 21);
+
+        let batch = fetch_recent_feed_result_rows(&endpoint.into(), None, 0).unwrap();
+
+        assert_eq!(batch.rows.len(), 20, "R86-1-01: 20 feeds give 20 rows");
+        for (index, (_, display)) in batch.rows.iter().enumerate() {
+            assert_eq!(
+                display.label,
+                format!("Detail feed-{index}"),
+                "R86-1-01: row {index} must hold its own detail feed"
+            );
+        }
+    }
+
+    /// R86-1-02: the peak count of detail requests at one time is at
+    /// most `PARALLEL_DETAIL_READS`, and more than 1. The counter pattern
+    /// of R26-08 in `name_lists.rs`.
+    #[test]
+    fn adr_0086_parallel_reads_r86_1_02_peak_is_bounded_and_above_one() {
+        fn answer(path: &str) -> String {
+            if path.starts_with("/v1/feeds/recent") {
+                return list_response(20);
+            }
+            detail_response(detail_feed_guid(path))
+        }
+        let (endpoint, _requests, running) = serve_routes(answer, 21);
+
+        let batch = fetch_recent_feed_result_rows(&endpoint.into(), None, 0).unwrap();
+
+        assert_eq!(batch.rows.len(), 20);
+        let peak = running.lock().unwrap().1;
+        assert!(
+            peak <= PARALLEL_DETAIL_READS,
+            "R86-1-02: {peak} detail requests ran at the same time, more than the shared limit"
+        );
+        assert!(
+            peak > 1,
+            "R86-1-02: the detail requests must run at the same time, peak was {peak}"
+        );
+    }
+
+    /// R86-1-03: the rows keep the order of the list response, also when
+    /// the server answers the detail requests in a different order. Each
+    /// feed's own delay falls as its index rises, so a later feed answers
+    /// before an earlier one.
+    #[test]
+    fn adr_0086_parallel_reads_r86_1_03_rows_keep_order_with_shuffled_answers() {
+        const FEED_COUNT: usize = 8;
+        fn answer(path: &str) -> String {
+            if path.starts_with("/v1/feeds/recent") {
+                return list_response(FEED_COUNT);
+            }
+            detail_response(detail_feed_guid(path))
+        }
+        fn delay_millis(path: &str) -> u64 {
+            if path.starts_with("/v1/feeds/recent") {
+                return 0;
+            }
+            let guid = detail_feed_guid(path);
+            let index: u64 = guid
+                .strip_prefix("feed-")
+                .and_then(|digits| digits.parse().ok())
+                .unwrap_or(0);
+            (FEED_COUNT as u64 - index) * 15
+        }
+        let endpoint = serve_routes_with_delay(answer, delay_millis, FEED_COUNT + 1);
+
+        let batch = fetch_recent_feed_result_rows(&endpoint.into(), None, 0).unwrap();
+
+        assert_eq!(batch.rows.len(), FEED_COUNT);
+        for (index, (_, display)) in batch.rows.iter().enumerate() {
+            assert_eq!(
+                display.label,
+                format!("Detail feed-{index}"),
+                "R86-1-03: row {index} must keep the order of the list response"
+            );
+        }
+    }
+
+    /// R86-1-04: a failed detail request gives the row of the list feed,
+    /// the same as before this packet.
+    #[test]
+    fn adr_0086_parallel_reads_r86_1_04_failed_detail_falls_back_to_list_feed() {
+        fn answer(path: &str) -> String {
+            if path.starts_with("/v1/feeds/recent") {
+                return serde_json::json!({
+                    "data": [
+                        {"feed_guid": "feed-0", "title": "List Feed 0"},
+                        {"feed_guid": "broken", "title": "List Feed Broken"},
+                        {"feed_guid": "feed-2", "title": "List Feed 2"}
+                    ],
+                    "pagination": {"has_more": false, "cursor": null}
+                })
+                .to_string();
+            }
+            let guid = detail_feed_guid(path);
+            if guid == "broken" {
+                return String::new();
+            }
+            detail_response(guid)
+        }
+        let (endpoint, _requests, _running) = serve_routes(answer, 4);
+
+        let batch = fetch_recent_feed_result_rows(&endpoint.into(), None, 0).unwrap();
+
+        assert_eq!(batch.rows.len(), 3);
+        assert_eq!(batch.rows[0].1.label, "Detail feed-0");
+        assert_eq!(
+            batch.rows[1].1.label, "List Feed Broken",
+            "R86-1-04: a failed detail request gives the row of the list feed"
+        );
+        assert_eq!(batch.rows[2].1.label, "Detail feed-2");
+    }
+
+    /// R86-1-05: a list feed with no feed GUID sends no detail request,
+    /// and gives the row of the list feed.
+    #[test]
+    fn adr_0086_parallel_reads_r86_1_05_no_feed_guid_sends_no_detail_request() {
+        fn answer(_path: &str) -> String {
+            serde_json::json!({
+                "data": [
+                    {"feed_guid": null, "feed_url": "https://example.test/no-guid.xml",
+                     "title": "No GUID Feed"}
+                ],
+                "pagination": {"has_more": false, "cursor": null}
+            })
+            .to_string()
+        }
+        let (endpoint, requests, _running) = serve_routes(answer, 1);
+
+        let batch = fetch_recent_feed_result_rows(&endpoint.into(), None, 0).unwrap();
+
+        assert_eq!(batch.rows.len(), 1);
+        assert_eq!(
+            batch.rows[0].1.label, "No GUID Feed",
+            "R86-1-05: the row of the list feed, with no detail request"
+        );
+        assert_eq!(
+            *requests.lock().unwrap(),
+            ["/v1/feeds/recent?limit=20"],
+            "R86-1-05: a list feed with no feed GUID sends no detail request"
         );
     }
 }
