@@ -224,7 +224,7 @@ The operator sends screenshots, and the orchestrator records each result here wi
 | 2026-10-22 | A downloaded MusicIndex single moves from the feed singles into the "Matched by name" block of the group page | Fail, fix in progress | A download stores no feed links. The app stores them only when an album page opens (`hydrate_album_identity_on_view`). The operator confirmed it on the database: "The Sacred Temple" and "You Are Enough" have 1 link each, and "Breathing", "Shanti" and "OM Namo Narayanaya", downloaded on 2026-10-22, have 0. Packet 034 |
 | 2026-10-23 | 034: after the pass at start, the downloaded singles are among the feed singles in date order | Pass | Haleen group page: "Breathing", "Shanti" and "OM Namo Narayanaya" sit in date order with the downloaded icon and a duration. The group row reads "16 singles · Artist feed" |
 | 2026-10-23 | 033: the downloaded icon on the group page rows and on the Releases rows; the download icon on the MusicIndex singles | Pass | Same screenshot |
-| 2026-10-23 | 033: the gray downloaded icon is too weak, and the state icon of a release row is not at the right edge | Fail, fixed | The icon uses `SuccessLabel`. The icon is the last column of the row, after the menu cell |
+| 2026-10-23 | 033: the gray downloaded icon is too weak, and the state icon of a release row is not at the right edge | Fail, fixed, then Pass on 2026-10-23 | The icon uses `SuccessLabel`. The icon is the last column of the row, after the menu cell |
 
 ## Final Walk
 
