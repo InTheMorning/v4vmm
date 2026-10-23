@@ -134,7 +134,7 @@ Each entry names the step, the decision and the reason.
 | Packet 031: one release row menu, and the drag of a selection | Implemented. V1 to V9 open | `5486f0b` |
 | Packet 032: one track row style on the group page, and the matched singles in the feed group | Implemented. V1 to V7 open | `ea1902f` |
 | Packet 033: the download state icons of track rows and release rows | Implemented. V1 to V8 open | `9422468` |
-| Packet 034: the feed links of a release after a download, and one pass at start | Implemented. V1 to V4 open | this commit |
+| Packet 034: the feed links of a release after a download, and one pass at start | Implemented. V1 to V4 open | `c061689` |
 
 ## Questions For The Operator
 
