@@ -54,7 +54,7 @@ Open - implementation and mechanical checks recorded 2026-09-11.
 
 ## 2. Final Walk Of The Run Of 2026-10-20
 
-Open - the run adds each packet when its mechanical checks are Green.
+Open - the run closed on 2026-10-23. The Walk Log of the run record shows the checks that the operator passed. Each other check of these packets stays open until a person walks it.
 
 - Owner: the [run record](reviews/orchestrated-run-2026-10-20.md#final-walk).
 - The packets of the run. Each item names its packet and its open checks:

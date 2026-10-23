@@ -25,7 +25,8 @@ for each item, three columns, the six destinations and Discover.
 Stophammer release 0.13.0 delivered request 9 on 2026-10-21, so packets 026 and 029 wait for nothing outside this repository.
 
 Packets 001 to 009, 013 to 015, 018 and 019 are complete. Packets 010 to 012, 016, 017 and 020 to 034 are implemented,
-and so are ADR 0083 tasks 006 to 008. Their visual checks are open in the final walk of the run of 2026-10-20.
+and so are ADR 0083 tasks 006 to 008. The run of 2026-10-20 closed on 2026-10-23. Its unwalked visual checks stay open in
+[pending human checks](docs/pending-human-checks.md), and the [run record](docs/reviews/orchestrated-run-2026-10-20.md) lists them.
 
 Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
@@ -36,11 +37,6 @@ Each file in `docs/tasks/` is open: it is Ready, or it waits for an operator che
 The operator resumed visual checks on 2026-10-02. [Pending human checks](docs/pending-human-checks.md)
 holds each open check. Walk a new check right after its packet. The procedures in `docs/runbooks/` stay
 regression checks.
-
-Exception for the orchestrated run of 2026-10-20: one orchestrator session runs several steps. The operator walks
-the visual checks of the run at its end. The operator decided both points on 2026-10-20. The orchestrator commits each reviewed
-step. The [run record](docs/reviews/orchestrated-run-2026-10-20.md) holds the steps, the decisions and the final walk.
-Delete this paragraph when the operator walks the final walk.
 
 Ready packets include
 [ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md).

@@ -2,9 +2,9 @@
 
 ## Status
 
-Implementation complete - 2026-10-21. Packet 026 waits for Stophammer request 9. The final walk is open.
+Closed - 2026-10-23. The operator closed the run. Each packet of the run is implemented and committed. The operator walked the short checks of the Walk Log. Each other visual check of the run stays open in `docs/pending-human-checks.md`, section 2, as a regression check.
 
-This record is advisory. It states no rule. Each rule stays in its ADR. The operator walks the final walk at the end of the run. Until then, each visual gate of the run is open.
+This record is advisory. It states no rule. Each rule stays in its ADR.
 
 ## Operator Decisions - 2026-10-20
 
