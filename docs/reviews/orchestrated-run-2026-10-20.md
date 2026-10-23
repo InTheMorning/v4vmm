@@ -214,6 +214,8 @@ The operator sends screenshots, and the orchestrator records each result here wi
 | 2026-10-22 | 031: the drag of a selection | Pass | |
 | 2026-10-22 | Singles group page: Library singles are track rows and MusicIndex singles are release rows, so the rows do not line up | Fail | Haleen group page. Packet 032 |
 | 2026-10-22 | Releases "Library": "Haleen · 5 singles · Artist feed" and "Haleen · 2 singles · By name" show as two groups | Fail, operator decision | Packet 032 joins them (ADR 0084 Decision 6, amended on 2026-10-22) |
+| 2026-10-22 | 032: one track row style on the Haleen group page; the download column and the duration column line up | Pass | "56 singles · 7 in Library · Artist feed". MusicIndex singles show no duration, because the list data gives none |
+| 2026-10-22 | 032: one Haleen group row, "7 singles · In Library · Artist feed"; the Haleen Artists row reads "7 releases" | Pass | Releases "Library" and Artists |
 
 ## Final Walk
 
