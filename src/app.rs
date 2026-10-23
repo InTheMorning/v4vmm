@@ -41,9 +41,7 @@ use crate::view_models::app_toolbar::AppToolbarVm;
 use crate::view_models::cached_files::CachedFilesVm;
 use crate::view_models::library::DescriptionState;
 use crate::view_models::publisher_page::PublisherPageContext;
-use crate::view_models::search_results::{
-    SearchResultsInspectorPageVm, SearchResultsTab, SearchRun,
-};
+use crate::view_models::search_results::{SearchResultsInspectorPageVm, SearchResultsTab};
 use crate::view_models::settings::{SettingsAction, SettingsVm};
 use crate::view_models::show::{EventSectionInput, ShowCommandState, ShowPageVm};
 use crate::view_models::workspace::{
@@ -72,6 +70,7 @@ mod resize;
 mod saved_search_dispatch;
 mod search_dispatch;
 mod search_field_list;
+mod search_live;
 mod search_selection;
 mod show;
 mod tab_bar;
@@ -160,6 +159,12 @@ pub struct TopApp {
     workspace_layout: WorkspaceLayout,
     last_music_content_nav: Option<FrameNavigationState>,
     search_results_detail: Option<SearchResultsInspectorPageVm>,
+    /// The pause, the run generation and the Index request of the toolbar
+    /// search page (ADR 0087 Decision 4, packet 003).
+    toolbar_search_runs: search_live::SearchSlotRuns,
+    /// The run generation and the Index request of the saved-search page
+    /// (ADR 0087 Decision 4, packet 003). This slot arms no pause.
+    saved_search_runs: search_live::SearchSlotRuns,
     /// The keyboard focus of the search list in the list column (ADR 0084
     /// packet 010). The key handlers act on the search selection only while
     /// the search list carries the focus.
@@ -501,6 +506,8 @@ impl TopApp {
             ),
             last_music_content_nav: None,
             search_results_detail: None,
+            toolbar_search_runs: search_live::SearchSlotRuns::default(),
+            saved_search_runs: search_live::SearchSlotRuns::default(),
             search_list_focus: cx.focus_handle(),
             search_list_scroll: gpui::ScrollHandle::new(),
             saved_search_page: None,
@@ -617,8 +624,12 @@ impl TopApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let InputEvent::PressEnter { .. } = event {
-            self.submit_global_search(window, cx);
+        // ADR 0087 Decision 4: a change of the text arms the pause, and
+        // Enter runs the search at once.
+        match event {
+            InputEvent::Change => self.start_search_pause(cx),
+            InputEvent::PressEnter { .. } => self.submit_global_search(window, cx),
+            InputEvent::Focus | InputEvent::Blur => {}
         }
     }
 
@@ -844,6 +855,9 @@ impl TopApp {
         entry: &FrameNavigationEntry,
         cx: &mut Context<Self>,
     ) {
+        // ADR 0087 packet 003 decision D10: each page change stops the
+        // pending pause of the toolbar field.
+        self.toolbar_search_runs.gate.cancel_pause();
         self.sync_search_results_detail_with_nav(content_list_id, cx);
         self.library.update(cx, |library, cx| {
             library.hydrate_detail_from_nav(entry, cx);
@@ -854,11 +868,8 @@ impl TopApp {
         self.restore_release_page_source_for_nav(entry, cx);
         self.restore_track_page_source_for_nav(entry, cx);
         if let FrameNavigationEntry::Search(query) = entry {
-            self.start_index_search_for_run(
-                SearchPageSlot::ToolbarSearch,
-                &SearchRun::new(query),
-                cx,
-            );
+            let run = self.next_search_run(SearchPageSlot::ToolbarSearch, query);
+            self.start_index_search_for_run(SearchPageSlot::ToolbarSearch, &run, cx);
         }
         cx.notify();
     }

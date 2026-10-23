@@ -16,6 +16,7 @@
 #![warn(clippy::pedantic)]
 
 use crate::db::TrackRow;
+use crate::view_models::live_run::RunGeneration;
 use crate::view_models::search_query::{QueryScope, QueryTerm, SearchQuery, TermKind};
 
 /// The text of the note under the Library rows when the Index part sends no
@@ -38,6 +39,8 @@ pub(crate) struct SearchRun {
     text: String,
     query: SearchQuery,
     index_plan: IndexSearchPlan,
+    /// The generation of the run (ADR 0087 Decision 4, packet 003).
+    generation: RunGeneration,
 }
 
 impl SearchRun {
@@ -51,7 +54,23 @@ impl SearchRun {
             text,
             query,
             index_plan,
+            generation: RunGeneration::default(),
         }
+    }
+
+    /// Gives this run with the generation `generation` (packet 003). The
+    /// text, the query and the plan do not change.
+    #[must_use]
+    pub(crate) fn with_generation(mut self, generation: RunGeneration) -> SearchRun {
+        self.generation = generation;
+        self
+    }
+
+    /// The generation of the run. [`SearchRun::new`] gives
+    /// `RunGeneration::default()`.
+    #[must_use]
+    pub(crate) fn generation(&self) -> RunGeneration {
+        self.generation
     }
 
     /// The trimmed query text.
@@ -84,6 +103,45 @@ impl SearchRun {
     pub(crate) fn runs_library(&self) -> bool {
         library_part_runs(&self.query)
     }
+}
+
+/// The step of a live run after the pause (ADR 0087 Decision 4, packet
+/// 003).
+#[derive(Clone, Debug)]
+pub(crate) enum LiveRunStep {
+    /// Run this search.
+    Run(SearchRun),
+    /// The text has no term that can run, so nothing runs.
+    NotRunnable,
+    /// The trimmed text is the query of the mounted search page, so nothing
+    /// runs (packet 003 decision D6).
+    SameQuery,
+    /// The open tab is not Music, so nothing runs (packet 003 decision
+    /// D8).
+    NotMusic,
+}
+
+/// The step of a live run of `text` when the pause ends. `mounted_query`
+/// is the query of the search page of the current path. `music_tab` is
+/// `true` when the Music tab is open. The first true row of packet 003
+/// "The live run" gives the step.
+#[must_use]
+pub(crate) fn live_run_step(
+    text: &str,
+    mounted_query: Option<&str>,
+    music_tab: bool,
+) -> LiveRunStep {
+    if !music_tab {
+        return LiveRunStep::NotMusic;
+    }
+    let run = SearchRun::new(text);
+    if !run.is_runnable() {
+        return LiveRunStep::NotRunnable;
+    }
+    if mounted_query == Some(run.text()) {
+        return LiveRunStep::SameQuery;
+    }
+    LiveRunStep::Run(run)
 }
 
 /// `true` when the Library part of `query` runs: the query is runnable, and
@@ -320,6 +378,60 @@ mod tests {
             })
         );
         assert_eq!(plan("is:"), IndexSearchPlan::Skip(IndexSkip::NoIndexPart));
+    }
+
+    /// R87-3-05: a text with no runnable term gives `NotRunnable`. A text
+    /// with a word and a field with no value gives `Run`.
+    #[test]
+    fn adr_0087_live_results_r87_3_05_text_with_no_runnable_term_runs_nothing() {
+        for text in ["", "   ", "!!!", "-remix", "artist:", "in:library"] {
+            assert!(
+                matches!(live_run_step(text, None, true), LiveRunStep::NotRunnable),
+                "R87-3-05: {text:?}"
+            );
+        }
+        assert!(matches!(
+            live_run_step("haleen artist:", None, true),
+            LiveRunStep::Run(run) if run.text() == "haleen artist:"
+        ));
+    }
+
+    /// R87-3-06: the query of the mounted page gives `SameQuery`. A
+    /// different text gives `Run`. A tab other than Music gives `NotMusic`.
+    #[test]
+    fn adr_0087_live_results_r87_3_06_same_query_and_other_tab_run_nothing() {
+        assert!(matches!(
+            live_run_step("haleen ", Some("haleen"), true),
+            LiveRunStep::SameQuery
+        ));
+        assert!(matches!(
+            live_run_step("haleen", Some("hale"), true),
+            LiveRunStep::Run(_)
+        ));
+        for text in ["", "haleen", "artist:", "haleen artist:"] {
+            for mounted in [None, Some("hale"), Some("haleen")] {
+                assert!(
+                    matches!(live_run_step(text, mounted, false), LiveRunStep::NotMusic),
+                    "R87-3-06: {text:?} {mounted:?}"
+                );
+            }
+        }
+    }
+
+    /// R87-3-07: a new run has the default generation. `with_generation`
+    /// changes only the generation.
+    #[test]
+    fn adr_0087_live_results_r87_3_07_with_generation_keeps_the_run() {
+        let run = SearchRun::new(" haleen after:2026-10 ");
+        assert_eq!(run.generation(), RunGeneration::default());
+        let mut gate = crate::view_models::live_run::LiveRunGate::default();
+        let generation = gate.next_run();
+        let next = run.clone().with_generation(generation);
+        assert_eq!(next.generation(), generation);
+        assert_ne!(next.generation(), RunGeneration::default());
+        assert_eq!(next.text(), run.text());
+        assert_eq!(next.query(), run.query());
+        assert_eq!(next.index_plan(), run.index_plan());
     }
 
     /// R87-2-28: a saved search keeps its text, and each run parses it

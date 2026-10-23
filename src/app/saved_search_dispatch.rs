@@ -18,7 +18,7 @@ use crate::ui::shells::search_results_inspector::{
 use crate::view_models::search_results::{
     delete_saved_search_confirmation, location_after_saved_search_delete, saved_search_restore,
     saved_search_result_is_current, SavedSearch, SavedSearchId, SavedSearchPage,
-    SavedSearchRestore, SearchResultsTab, SearchRun,
+    SavedSearchRestore, SearchResultsTab,
 };
 use crate::view_models::workspace::{FrameNavigationEntry, NavigationPathStart};
 
@@ -83,8 +83,11 @@ impl TopApp {
     /// (ADR 0087 Decision 6) and uses the Index entry of the toolbar search
     /// (packet 002 decision D21).
     fn run_saved_search(&mut self, search: &SavedSearch, cx: &mut Context<Self>) {
-        let run = SearchRun::new(&search.query);
-        let results = self.search_results_detail_for_run(&run, cx);
+        // ADR 0087 Decision 4: each run of the slot takes a new generation.
+        let run = self.next_search_run(SearchPageSlot::SavedSearch, &search.query);
+        let results = self
+            .search_results_detail_for_run(&run, cx)
+            .with_run_generation(run.generation());
         let page = SavedSearchPage::open(search, results);
         // Packet 028 review: each run of a saved search starts at the top.
         self.scroll_search_page_to_top(SearchPageSlot::SavedSearch);

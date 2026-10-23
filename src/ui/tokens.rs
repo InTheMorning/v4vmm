@@ -1084,6 +1084,9 @@ pub enum Motion {
     /// the default spring-loading delay of the macOS Finder. The operator
     /// walk of ADR 0083 task 008 confirms it.
     SpringLoadDelay,
+    /// 300 ms. The pause after the last typed character before the search
+    /// runs (ADR 0087 Decision 4).
+    SearchPause,
 }
 
 impl Motion {
@@ -1092,6 +1095,7 @@ impl Motion {
     pub const fn duration(self) -> Duration {
         match self {
             Self::SpringLoadDelay => Duration::from_millis(500),
+            Self::SearchPause => Duration::from_millis(300),
         }
     }
 }

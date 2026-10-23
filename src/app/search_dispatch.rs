@@ -37,6 +37,7 @@ use crate::view_models::library::{
     DescriptionState, LibraryTrackRowVm, TrackRowWork,
 };
 use crate::view_models::list_selection::RowSelectionVm;
+use crate::view_models::live_run::RunGeneration;
 use crate::view_models::publisher_page::PublisherPageContext;
 use crate::view_models::release_page::{
     index_feed_artwork_url, index_feed_guid, release_page_vm, ReleasePageCommand, ReleasePageFacts,
@@ -215,13 +216,28 @@ fn index_track_detail_result_is_current(
 /// accept, an HTTP `400` reply, retains no action: the service is
 /// available, and the operator must change the query (walk of
 /// 2026-10-21). A connection error, a timeout, a `5xx` reply and a bad
-/// endpoint retain the action.
+/// endpoint retain the action. A canceled request is not an error, so it
+/// retains no action (ADR 0087 packet 003 decision D14).
 fn index_search_error_retains_action(error: &crate::application::CommandError) -> bool {
-    !matches!(error, crate::application::CommandError::QueryRejected(_))
+    !matches!(
+        error,
+        crate::application::CommandError::QueryRejected(_)
+            | crate::application::CommandError::Cancelled
+    )
+}
+
+/// Tells if a failed `MusicIndex` search shows its error on the search
+/// page. A newer run canceled the request, so a canceled request shows no
+/// error (ADR 0087 packet 003 decision D14).
+fn index_search_error_shows(error: &crate::application::CommandError) -> bool {
+    !matches!(error, crate::application::CommandError::Cancelled)
 }
 
 impl TopApp {
     pub(super) fn submit_global_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // ADR 0087 Decision 4: Enter runs the search at once, so the pause
+        // of the last change does not run the same text again.
+        self.toolbar_search_runs.gate.cancel_pause();
         let query = self.global_search_input.read(cx).value().to_string();
         self.open_search_results_in_content_list(&query, window, cx);
     }
@@ -243,31 +259,8 @@ impl TopApp {
         if self.tab != AppTab::Music {
             self.select_tab(AppTab::Music, window, cx);
         }
-        match self
-            .workspace_layout
-            .open_search_results_in_content_list(query.clone())
-        {
-            Ok(content_list_id) => {
-                self.search_results_detail = Some(self.search_results_detail_for_run(&run, cx));
-                // Packet 028 review: a new query starts at the top of its list.
-                self.scroll_search_page_to_top(SearchPageSlot::ToolbarSearch);
-                // ADR 0084 Decision 9, walk of 2026-10-21: a submitted search
-                // restores its page through the function that Back uses. The
-                // Library detail of the earlier page thus clears, and the
-                // detail column shows its empty state. The earlier entries
-                // stay in the stack for Back. The restore also starts the
-                // MusicIndex search of the query.
-                self.restore_content_list_nav_entry(
-                    content_list_id,
-                    &FrameNavigationEntry::Search(query),
-                    cx,
-                );
-            }
-            Err(e) => {
-                self.settings_status = format!("Error opening search results: {e}");
-                cx.notify();
-            }
-        }
+        let run = self.next_search_run(SearchPageSlot::ToolbarSearch, &query);
+        self.show_toolbar_search_run(&run, cx);
     }
 
     /// The search page of `run` with its Library rows (ADR 0087 packet
@@ -324,6 +317,7 @@ impl TopApp {
             return;
         };
         let query = run.text();
+        let generation = run.generation();
         if let Err(reason) =
             crate::view_models::app_toolbar::AppToolbarVm::index_search_availability(
                 self.feature_availability(),
@@ -338,11 +332,15 @@ impl TopApp {
                 .search_page_mut(slot)
                 .filter(|detail| detail.query() == query)
             {
-                detail.set_index_error(
-                    &crate::application::errors::command::CommandError::Unavailable(reason),
-                    &endpoint,
-                    std::time::SystemTime::now(),
-                );
+                if detail.begin_index_run(generation) {
+                    detail.set_index_error_for_run(
+                        generation,
+                        query,
+                        &crate::application::errors::command::CommandError::Unavailable(reason),
+                        &endpoint,
+                        std::time::SystemTime::now(),
+                    );
+                }
             }
             if slot == SearchPageSlot::ToolbarSearch {
                 self.retain_failed_action(
@@ -356,11 +354,14 @@ impl TopApp {
             cx.notify();
             return;
         }
-        if let Some(detail) = self
+        // ADR 0087 Decision 4: a run of an older generation does not
+        // change the page and sends nothing.
+        if self
             .search_page_mut(slot)
             .filter(|detail| detail.query() == query)
+            .is_some_and(|detail| !detail.begin_index_run(generation))
         {
-            detail.mark_index_loading();
+            return;
         }
 
         let command = FetchIndexSearchResults::new(
@@ -368,7 +369,18 @@ impl TopApp {
             request.clone(),
             self.library.read(cx).name_feed_matches(),
         );
-        self.dispatch_index_search(slot, query, command, None, cx);
+        let context = self.index_search_context(slot);
+        self.dispatch_index_search(slot, query, generation, command, context, None, cx);
+    }
+
+    /// The command context of a new Index request of the search page
+    /// `slot`. The token of the older request of the slot is canceled
+    /// (ADR 0087 packet 003 decision D12).
+    fn index_search_context(&mut self, slot: SearchPageSlot) -> CommandContext {
+        let context = CommandContext::next();
+        self.search_runs_mut(slot)
+            .replace_index_cancel(context.cancellation().clone());
+        context
     }
 
     pub(super) fn retry_index_search(
@@ -377,7 +389,7 @@ impl TopApp {
         intent: RecoveryIntent,
         cx: &mut Context<Self>,
     ) {
-        let run = SearchRun::new(query);
+        let run = self.next_search_run(SearchPageSlot::ToolbarSearch, query);
         let IndexSearchPlan::Send(request) = run.index_plan() else {
             self.capability_vm.pending.finish(
                 intent.id,
@@ -397,9 +409,13 @@ impl TopApp {
             );
             return;
         }
-        self.search_results_detail = Some(self.search_results_detail_for_run(&run, cx));
+        let generation = run.generation();
+        self.search_results_detail = Some(
+            self.search_results_detail_for_run(&run, cx)
+                .with_run_generation(generation),
+        );
         if let Some(detail) = &mut self.search_results_detail {
-            detail.mark_index_loading();
+            detail.begin_index_run(generation);
         }
         let id = intent.id;
         let command = self.retry_command(
@@ -410,7 +426,16 @@ impl TopApp {
             ),
             intent,
         );
-        self.dispatch_index_search(SearchPageSlot::ToolbarSearch, query, command, Some(id), cx);
+        let context = self.index_search_context(SearchPageSlot::ToolbarSearch);
+        self.dispatch_index_search(
+            SearchPageSlot::ToolbarSearch,
+            query,
+            generation,
+            command,
+            context,
+            Some(id),
+            cx,
+        );
     }
 
     /// Tells if an Index result for `query` can write the search page
@@ -431,11 +456,20 @@ impl TopApp {
         }
     }
 
+    /// Dispatches the Index request of the run `generation` (ADR 0087
+    /// Decision 4). A result of a run that is not the current run of the
+    /// slot changes nothing. A canceled request shows no error.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "each argument is one fact of the run; ADR 0087 packet 003 adds the generation and the context"
+    )]
     fn dispatch_index_search<C>(
         &self,
         slot: SearchPageSlot,
         query: &str,
+        generation: RunGeneration,
         command: C,
+        context: CommandContext,
         retry_id: Option<u64>,
         cx: &mut Context<Self>,
     ) where
@@ -452,7 +486,7 @@ impl TopApp {
         present_command(
             &self.command_runner,
             command,
-            CommandContext::next(),
+            context,
             cx,
             move |this, rows, cx| {
                 if let Some(id) = retry_id {
@@ -460,25 +494,43 @@ impl TopApp {
                         .pending
                         .succeed(id, "App completed the original Index search.".into());
                 }
+                // ADR 0087 Decision 4: a result of an older run changes
+                // nothing.
+                if !this.search_runs_mut(slot).gate.is_current(generation) {
+                    return;
+                }
                 if !this.index_search_result_is_current(slot, saved_id, &success_query) {
                     return;
                 }
 
                 if slot == SearchPageSlot::ToolbarSearch && this.search_results_detail.is_none() {
                     this.search_results_detail = Some(
-                        this.search_results_detail_for_run(&SearchRun::new(&success_query), cx),
+                        this.search_results_detail_for_run(&SearchRun::new(&success_query), cx)
+                            .with_run_generation(generation),
                     );
                 }
 
                 // Packet 010 "The stale results": a result for another
                 // query changes neither the rows nor the selection.
                 if this.search_page_mut(slot).is_some_and(|detail| {
-                    detail.replace_index_results_for_query(&success_query, rows)
+                    detail.replace_index_results_for_run(generation, &success_query, rows)
                 }) {
                     cx.notify();
                 }
             },
             move |this, error, cx| {
+                // ADR 0087 packet 003 decision D14: a newer run canceled
+                // this request. It retains no action and changes no page.
+                if !index_search_error_shows(&error) {
+                    if let Some(id) = retry_id {
+                        this.capability_vm.pending.finish(
+                            id,
+                            "App stopped the original Index search, because a newer search started."
+                                .into(),
+                        );
+                    }
+                    return;
+                }
                 if let Some(id) = retry_id {
                     this.capability_vm.pending.finish(
                         id,
@@ -501,20 +553,29 @@ impl TopApp {
                         cx,
                     );
                 }
+                if !this.search_runs_mut(slot).gate.is_current(generation) {
+                    return;
+                }
                 if !this.index_search_result_is_current(slot, saved_id, &error_query) {
                     return;
                 }
 
                 if slot == SearchPageSlot::ToolbarSearch && this.search_results_detail.is_none() {
-                    this.search_results_detail =
-                        Some(this.search_results_detail_for_run(&SearchRun::new(&error_query), cx));
+                    this.search_results_detail = Some(
+                        this.search_results_detail_for_run(&SearchRun::new(&error_query), cx)
+                            .with_run_generation(generation),
+                    );
                 }
 
-                if let Some(detail) = this
-                    .search_page_mut(slot)
-                    .filter(|detail| detail.query() == error_query)
-                {
-                    detail.set_index_error(&error, &error_endpoint, std::time::SystemTime::now());
+                if this.search_page_mut(slot).is_some_and(|detail| {
+                    detail.set_index_error_for_run(
+                        generation,
+                        &error_query,
+                        &error,
+                        &error_endpoint,
+                        std::time::SystemTime::now(),
+                    )
+                }) {
                     cx.notify();
                 }
             },
@@ -560,8 +621,11 @@ impl TopApp {
                 .as_ref()
                 .is_none_or(|detail| detail.query() != query);
             if needs_refresh {
-                self.search_results_detail =
-                    Some(self.search_results_detail_for_run(&SearchRun::new(&query), cx));
+                let run = self.next_search_run(SearchPageSlot::ToolbarSearch, &query);
+                self.search_results_detail = Some(
+                    self.search_results_detail_for_run(&run, cx)
+                        .with_run_generation(run.generation()),
+                );
             }
         } else {
             self.search_results_detail = None;
@@ -2199,7 +2263,7 @@ mod remote_detail_thumbnail_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::index_search_error_retains_action;
+    use super::{index_search_error_retains_action, index_search_error_shows};
     use crate::application::CommandError;
 
     /// Walk of 2026-10-21: an HTTP `400` reply to the search retains no
@@ -2212,7 +2276,21 @@ mod tests {
         assert!(index_search_error_retains_action(&CommandError::Query(
             "GET failed with HTTP 503 Service Unavailable".into()
         )));
-        assert!(index_search_error_retains_action(&CommandError::Cancelled));
+    }
+
+    /// R87-3-18 (ADR 0087 packet 003 decision D14): a canceled request
+    /// retains no action and shows no error. A rejected query and each
+    /// other error show their error.
+    #[test]
+    fn adr_0087_live_results_r87_3_18_cancelled_request_is_not_an_error() {
+        assert!(!index_search_error_retains_action(&CommandError::Cancelled));
+        assert!(!index_search_error_shows(&CommandError::Cancelled));
+        assert!(index_search_error_shows(&CommandError::QueryRejected(
+            "GET failed with HTTP 400 Bad Request".into()
+        )));
+        assert!(index_search_error_shows(&CommandError::Other(
+            "connection refused".into()
+        )));
     }
 
     /// R5-05: each completed search download requests one tag update scan.

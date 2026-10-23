@@ -60,6 +60,15 @@ Each entry names the step, the decision and the reason.
   - The notices are above the scroll container of the rows, so `scroll_to_item` gets row indexes.
   - The `in:index` conflict of a row comes from `SearchQuery`, so no field syntax is outside the parser.
   - `src/app/search_field_list.rs` is in `SCREEN_FILES`, as the guard of top level GPUI modules requires. The rule of the guard does not change.
+- ADR 0087 packet 003. The orchestrator accepted these deviations:
+  - `show_toolbar_search_run` takes `&SearchRun`, as clippy requires.
+  - `SearchSlotRuns::next_run` also cancels the token of the Index request in flight. A newer run that sends no Index request thus also stops the older request (D12).
+  - A result that arrives with no mounted toolbar page builds the page with its own generation. A new generation there drops the result.
+  - A canceled retry closes its pending retry intent with a message.
+  - `dispatch_index_search` takes a generation and a `CommandContext`, with `#[expect(clippy::too_many_arguments)]` and the helper `index_search_context(slot)`.
+  - `LiveRunGate::current_run` and `run_generation()` are `#[cfg(test)]` until a production caller exists.
+  - The test `adr_0084_search_list_rejected_query_retains_no_action` expects no retained action for `Cancelled` (D14).
+  - Five guards name the moved or renamed code and keep their rules. `src/app/search_live.rs` is in `SCREEN_FILES`.
 - Commit `d410e9f`, "docs: research request on shared search code", came from a different session during the run. It adds `docs/plans/research-search-request.md`. It changes no file of the run, and the run did not change it.
 
 ## Steps
@@ -74,8 +83,8 @@ Each entry names the step, the decision and the reason.
 | ADR 0086 packet 005: saved search window groups | Implemented. V1 to V7 open | `3e28b24` |
 | ADR 0087 packet 001: the query parser | Complete. No visual check | `93b2c79` |
 | ADR 0087 packet 002: Library fields and Index words | Implemented. V1 to V9 open | `ca8411a` |
-| ADR 0087 packet 004: the field list | Implemented. V1 to V9 open | (this commit) |
-| ADR 0087 packet 003: live results | Ready | |
+| ADR 0087 packet 004: the field list | Implemented. V1 to V9 open | `1ab7dff` |
+| ADR 0087 packet 003: live results | Implemented. V1 to V9 open | (this commit) |
 | ADR 0087 packet 005: the values of the field list | Ready | |
 
 ## Questions For The Operator

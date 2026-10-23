@@ -14,6 +14,7 @@ use crate::view_models::detail_selection::{
     DetailPageRows, DetailRowClick, DetailRowKey, DetailSelection,
 };
 use crate::view_models::list_selection::{FocusStep, SelectionRow};
+use crate::view_models::live_run::RunGeneration;
 use crate::view_models::selection_action_bar::SelectionActionBarVm;
 use crate::view_models::window_groups::WindowGroupTileVm;
 use crate::view_models::workspace::{FrameHeaderActionDisplay, FrameNavigationEntry};
@@ -51,8 +52,9 @@ pub(crate) use saved_search::{
 };
 pub(crate) use saved_search_groups::{saved_search_window_page, SearchResultItemVm};
 pub(crate) use search_run::{
-    library_part_runs, IndexSearchPlan, IndexSearchRequest, IndexSkip, LibrarySearchRows,
-    SearchRun, INDEX_SKIP_ROWS_TEXT, SCOPE_CONFLICT_TEXT, SCOPE_CONFLICT_TITLE,
+    library_part_runs, live_run_step, IndexSearchPlan, IndexSearchRequest, IndexSkip,
+    LibrarySearchRows, LiveRunStep, SearchRun, INDEX_SKIP_ROWS_TEXT, SCOPE_CONFLICT_TEXT,
+    SCOPE_CONFLICT_TITLE,
 };
 pub(crate) use tabs::{SearchResultItemId, SearchResultOrigin, SearchResultsTab};
 
@@ -102,6 +104,9 @@ pub(crate) struct SearchResultsInspectorPageVm {
     /// not all the Library rows of the query (ADR 0086 packet 005 decision
     /// D3).
     library_rows_partial: bool,
+    /// The generation of the newest run of the page (ADR 0087 Decision 4,
+    /// packet 003). A result of an older run does not change the page.
+    run_generation: RunGeneration,
 }
 
 impl SearchResultsInspectorPageVm {
@@ -129,6 +134,7 @@ impl SearchResultsInspectorPageVm {
             status_text: None,
             feed_rows_partial: false,
             library_rows_partial: false,
+            run_generation: RunGeneration::default(),
         };
         page.refresh_empty_state();
         page
@@ -161,6 +167,75 @@ impl SearchResultsInspectorPageVm {
     pub(crate) fn with_library_rows_partial(mut self, partial: bool) -> Self {
         self.library_rows_partial = partial;
         self
+    }
+
+    /// Returns this page with the run generation `generation` (packet 003).
+    #[must_use]
+    pub(crate) fn with_run_generation(mut self, generation: RunGeneration) -> Self {
+        self.run_generation = generation;
+        self
+    }
+
+    /// The generation of the newest run of the page.
+    /// No production code calls it yet (ADR 0087 packet 003).
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn run_generation(&self) -> RunGeneration {
+        self.run_generation
+    }
+
+    /// `true` when this page can replace `current`: `current` is `None`, or
+    /// this generation is equal to or greater than the generation of
+    /// `current` (ADR 0087 invariant "A result of an older run never
+    /// replaces the result of a newer run").
+    #[must_use]
+    pub(crate) fn is_newer_than(&self, current: Option<&Self>) -> bool {
+        current.is_none_or(|current| self.run_generation >= current.run_generation)
+    }
+
+    /// Starts the Index part of the run `generation`. An older generation
+    /// gives `false` and changes nothing. Else the page takes the
+    /// generation, marks the Index part as loading and gives `true`.
+    pub(crate) fn begin_index_run(&mut self, generation: RunGeneration) -> bool {
+        if generation < self.run_generation {
+            return false;
+        }
+        self.run_generation = generation;
+        self.mark_index_loading();
+        true
+    }
+
+    /// Applies the Index rows of the run `generation` for `query`. A
+    /// generation other than the page generation gives `false` and changes
+    /// nothing. Else the rule of `replace_index_results_for_query` applies.
+    pub(crate) fn replace_index_results_for_run(
+        &mut self,
+        generation: RunGeneration,
+        query: &str,
+        rows: IndexSearchResultRows,
+    ) -> bool {
+        if generation != self.run_generation {
+            return false;
+        }
+        self.replace_index_results_for_query(query, rows)
+    }
+
+    /// Records the Index error of the run `generation` for `query`. A
+    /// generation other than the page generation, or a different query,
+    /// gives `false` and changes nothing.
+    pub(crate) fn set_index_error_for_run(
+        &mut self,
+        generation: RunGeneration,
+        query: &str,
+        error: &crate::application::CommandError,
+        endpoint: &str,
+        observed_at: std::time::SystemTime,
+    ) -> bool {
+        if generation != self.run_generation || self.query != query {
+            return false;
+        }
+        self.set_index_error(error, endpoint, observed_at);
+        true
     }
 
     /// Tells if the page holds each release row of the query (ADR 0086

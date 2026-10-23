@@ -12,7 +12,7 @@ use rusqlite::Connection;
 use crate::api::SearchResult;
 use crate::application::application_query_service::ApplicationQueryService;
 use crate::application::command_bus::{ApplicationCommand, CommandOutcome, CommandResult};
-use crate::application::command_context::CommandContext;
+use crate::application::command_context::{CancellationToken, CommandContext};
 use crate::application::errors::command::CommandError;
 use crate::view_models::artist_identity::{NameFeedMatch, NameFeedMatches, UNKNOWN_ARTIST_TEXT};
 use crate::view_models::artists_everything::FeedLinkClass;
@@ -72,7 +72,12 @@ impl ApplicationCommand for FetchIndexSearchResults {
         if context.cancellation().is_cancelled() {
             return Err(CommandError::Cancelled);
         }
-        let rows = fetch_index_search_result_rows(&self.endpoint, &self.request.q, &self.matches)?;
+        let rows = fetch_index_search_result_rows(
+            &self.endpoint,
+            &self.request.q,
+            &self.matches,
+            context.cancellation(),
+        )?;
         Ok(CommandOutcome::without_events(rows))
     }
 }
@@ -437,10 +442,16 @@ fn query_error(error: &anyhow::Error) -> CommandError {
 /// answered each request with HTTP `400`, it did not accept the query
 /// text, and the error is [`CommandError::QueryRejected`] (walk of
 /// 2026-10-21). Each other failure is [`CommandError::Query`].
+///
+/// ADR 0087 packet 003: the function examines `cancel` before each
+/// request. A canceled token gives [`CommandError::Cancelled`], and no
+/// later request starts. A request that started finishes, because the
+/// client is blocking.
 fn fetch_index_search_result_rows(
     endpoint: &crate::config::MusicIndexEndpoint,
     query: &str,
     matches: &NameFeedMatches,
+    cancel: &CancellationToken,
 ) -> Result<IndexSearchResultRows, CommandError> {
     let client = crate::api::Client::new_with_base_url(endpoint.clone());
     let mut rows = IndexSearchResultRows::default();
@@ -449,10 +460,13 @@ fn fetch_index_search_result_rows(
     // ADR 0075 packet 047, Required Change 2: each row comes from this
     // search's own summary fields. No call below sends a detail request
     // for a returned hit.
+    stop_if_cancelled(cancel)?;
     let feed_rows = fetch_index_feed_result_rows(&client, query);
+    stop_if_cancelled(cancel)?;
     let track_rows = fetch_index_track_result_rows(&client, query);
     // Packet 010 "The Artists tab": the third request gives the feed rows.
     // Its failure alone shows the other rows.
+    stop_if_cancelled(cancel)?;
     let publisher_rows = fetch_index_feed_page_result_rows(&client, query);
 
     if let (Err(feed_error), Err(track_error), Err(publisher_error)) =
@@ -485,11 +499,20 @@ fn fetch_index_search_result_rows(
         merge_index_artist_candidates(&mut artists, tracks.artists);
     }
 
-    rows.artists = index_artist_rows(&client, artists, matches);
+    rows.artists = index_artist_rows(&client, artists, matches, cancel)?;
     if let Ok(feed_page_rows) = publisher_rows {
         rows.artists.extend(feed_page_rows);
     }
     Ok(rows)
+}
+
+/// Gives [`CommandError::Cancelled`] when `cancel` is canceled (ADR 0087
+/// packet 003).
+fn stop_if_cancelled(cancel: &CancellationToken) -> Result<(), CommandError> {
+    if cancel.is_cancelled() {
+        return Err(CommandError::Cancelled);
+    }
+    Ok(())
 }
 
 /// Tells if `MusicIndex` answered the request with HTTP `400`. A
@@ -552,12 +575,15 @@ fn index_feed_page_result_display(hit: &SearchResult) -> Option<ArtistResultDisp
 /// packet 017 decisions D6, D7 and D15). A name that matches exactly one
 /// Library artist feed gives the row of that feed, one time for each feed.
 /// Each other name gives its name row only when `MusicIndex` holds a `name`
-/// row with its key.
+/// row with its key. The function examines `cancel` before each name
+/// check, and a canceled token gives [`CommandError::Cancelled`] (ADR 0087
+/// packet 003).
 fn index_artist_rows(
     client: &crate::api::Client,
     artists: BTreeMap<String, IndexArtistCandidate>,
     matches: &NameFeedMatches,
-) -> Vec<(SearchResultItemId, ArtistResultDisplay)> {
+    cancel: &CancellationToken,
+) -> Result<Vec<(SearchResultItemId, ArtistResultDisplay)>, CommandError> {
     let mut feeds_shown = BTreeSet::new();
     let mut displays = Vec::new();
     for (key, artist) in artists {
@@ -569,17 +595,18 @@ fn index_artist_rows(
                 }
             }
             NameFeedMatch::Ambiguous | NameFeedMatch::NoFeed => {
+                stop_if_cancelled(cancel)?;
                 if index_name_row_exists(client, &key) {
                     displays.push(artist.into_display());
                 }
             }
         }
     }
-    displays
+    Ok(displays
         .into_iter()
         .enumerate()
         .map(|(index, display)| (index_item_id(INDEX_ARTIST_ID_BASE, index), display))
-        .collect()
+        .collect())
 }
 
 struct IndexFeedSearchRows {
@@ -1799,6 +1826,56 @@ including publisher (ADR 0077 Decision 5). Got: {requests:?}"
             "ADR 0075, amendment of 2026-10-07: the scoped track detail request asks for every track collection"
         );
     }
+
+    /// R87-3-16 (ADR 0087 packet 003): a run with a token that is not
+    /// canceled sends the three `GET /v1/search` requests. A run with a
+    /// canceled token gives `CommandError::Cancelled` and sends no request.
+    #[test]
+    fn adr_0087_live_results_r87_3_16_cancelled_run_sends_no_request() {
+        use crate::application::command_context::{OperationId, TraceId};
+
+        let context = |token: CancellationToken| {
+            CommandContext::new(OperationId::new(1), token, TraceId::new(1))
+        };
+
+        let fixture = Fixture::start();
+        FetchIndexSearchResults::new(
+            fixture.endpoint.clone(),
+            IndexSearchRequest {
+                q: "live results".to_owned(),
+            },
+            NameFeedMatches::default(),
+        )
+        .execute(&context(CancellationToken::new()))
+        .expect("the fixture answers each request");
+        let requests = fixture.requests.lock().unwrap().clone();
+        let searches: Vec<&String> = requests
+            .iter()
+            .filter(|path| path.starts_with("/v1/search?"))
+            .collect();
+        assert_eq!(searches.len(), 3, "Got: {requests:?}");
+        for kind in ["type=feed", "type=track", "type=publisher"] {
+            assert!(
+                searches.iter().any(|path| path.contains(kind)),
+                "missing {kind}. Got: {requests:?}"
+            );
+        }
+
+        let fixture = Fixture::start();
+        let token = CancellationToken::new();
+        token.cancel();
+        let error = FetchIndexSearchResults::new(
+            fixture.endpoint.clone(),
+            IndexSearchRequest {
+                q: "live results".to_owned(),
+            },
+            NameFeedMatches::default(),
+        )
+        .execute(&context(token))
+        .expect_err("a canceled token stops the run");
+        assert!(matches!(error, CommandError::Cancelled), "Got: {error:?}");
+        assert!(fixture.requests.lock().unwrap().is_empty());
+    }
 }
 
 /// ADR 0084 packet 017: the `MusicIndex` requests of the name level page and
@@ -2036,7 +2113,8 @@ mod adr_0084_name_level_query_tests {
         .into_iter()
         .collect();
 
-        let rows = index_artist_rows(&client, candidates, &matches);
+        let rows = index_artist_rows(&client, candidates, &matches, &CancellationToken::new())
+            .expect("the token is not canceled");
         let labels: Vec<(&str, &str)> = rows
             .iter()
             .map(|(_, row)| (row.id.as_str(), row.label.as_str()))
@@ -2096,9 +2174,13 @@ mod adr_0084_name_level_query_tests {
                 }
             }),
         );
-        let rows =
-            fetch_index_search_result_rows(&endpoint.into(), "Libre", &NameFeedMatches::default())
-                .expect("the recorded response decodes");
+        let rows = fetch_index_search_result_rows(
+            &endpoint.into(),
+            "Libre",
+            &NameFeedMatches::default(),
+            &CancellationToken::new(),
+        )
+        .expect("the recorded response decodes");
 
         let ids: Vec<&str> = rows
             .artists
@@ -2165,9 +2247,13 @@ mod adr_0084_name_level_query_tests {
                 }
             }),
         );
-        let rows =
-            fetch_index_search_result_rows(&endpoint.into(), "Libre", &NameFeedMatches::default())
-                .expect("the recorded response decodes");
+        let rows = fetch_index_search_result_rows(
+            &endpoint.into(),
+            "Libre",
+            &NameFeedMatches::default(),
+            &CancellationToken::new(),
+        )
+        .expect("the recorded response decodes");
 
         let classes: Vec<Option<FeedLinkClass>> = rows
             .artists
@@ -2223,6 +2309,7 @@ mod adr_0084_name_level_query_tests {
             &endpoint.into(),
             "haleen'",
             &NameFeedMatches::default(),
+            &CancellationToken::new(),
         )
         .expect_err("each request failed");
         let CommandError::QueryRejected(message) = error else {
@@ -2238,9 +2325,13 @@ mod adr_0084_name_level_query_tests {
         );
 
         let (endpoint, _requests) = serve(3, Arc::new(|_path: &str| (500, "{}".to_owned())));
-        let error =
-            fetch_index_search_result_rows(&endpoint.into(), "haleen", &NameFeedMatches::default())
-                .expect_err("each request failed");
+        let error = fetch_index_search_result_rows(
+            &endpoint.into(),
+            "haleen",
+            &NameFeedMatches::default(),
+            &CancellationToken::new(),
+        )
+        .expect_err("each request failed");
         assert!(matches!(error, CommandError::Query(_)), "Got: {error:?}");
     }
 
@@ -2270,9 +2361,13 @@ mod adr_0084_name_level_query_tests {
                 }
             }),
         );
-        let rows =
-            fetch_index_search_result_rows(&endpoint.into(), "Libre", &NameFeedMatches::default())
-                .expect("one failed request keeps the other rows");
+        let rows = fetch_index_search_result_rows(
+            &endpoint.into(),
+            "Libre",
+            &NameFeedMatches::default(),
+            &CancellationToken::new(),
+        )
+        .expect("one failed request keeps the other rows");
         assert_eq!(rows.feeds.len(), 1);
         assert!(rows.artists.is_empty());
 
@@ -2280,7 +2375,8 @@ mod adr_0084_name_level_query_tests {
         assert!(fetch_index_search_result_rows(
             &endpoint.into(),
             "Libre",
-            &NameFeedMatches::default()
+            &NameFeedMatches::default(),
+            &CancellationToken::new()
         )
         .is_err());
     }
@@ -2320,6 +2416,7 @@ mod adr_0084_name_level_query_tests {
             &endpoint.as_str().into(),
             "zz",
             &NameFeedMatches::default(),
+            &CancellationToken::new(),
         )
         .expect("the feed request passes");
 
@@ -2347,6 +2444,7 @@ mod adr_0084_name_level_query_tests {
             &endpoint.as_str().into(),
             "zz",
             &NameFeedMatches::default(),
+            &CancellationToken::new(),
         )
         .expect("the track request passes");
 

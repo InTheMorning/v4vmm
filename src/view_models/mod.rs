@@ -79,6 +79,7 @@ pub mod library;
 pub mod library_removal;
 pub(crate) mod library_search_facts;
 pub(crate) mod list_selection;
+pub(crate) mod live_run;
 pub(crate) mod live_status;
 pub mod metadata;
 pub mod musicbrainz_panel;

@@ -2070,3 +2070,68 @@ fn adr_0084_music_open_defects_r30_15_typed_targets_do_not_collide() {
     assert_eq!(labels.get(&bare).map(String::as_str), Some("Bare"));
     assert_eq!(labels.get(&split), None);
 }
+
+/// R87-3-12 (ADR 0087 Decision 4, packet 003 decision D5): the live runs of
+/// `h`, `ha` and `hal` from the Discover page give one search entry. One
+/// Back returns to the Discover page.
+#[test]
+fn adr_0087_live_results_r87_3_12_typed_text_adds_one_entry() {
+    let mut layout = WorkspaceLayout::default_layout();
+    let content_list_id = WorkspaceFrameId::new(2);
+    layout
+        .reset_nav(content_list_id, discover())
+        .expect("should reset ContentList nav");
+
+    for text in ["h", "ha", "hal"] {
+        layout
+            .open_search_results_in_content_list(text)
+            .expect("should open the search page");
+    }
+
+    let nav = layout
+        .frame_nav(content_list_id)
+        .expect("ContentList should have navigation state");
+    assert_eq!(
+        nav.current(),
+        &FrameNavigationEntry::Search("hal".to_owned())
+    );
+    assert_eq!(layout.pop_nav(content_list_id), Some(discover()));
+}
+
+/// R87-3-13 (ADR 0087 Decision 4, ADR 0084 Decision 9): live runs from a
+/// release page under a search start one new path, and later live runs
+/// replace it. A result page over the search keeps the search in the
+/// stack.
+#[test]
+fn adr_0087_live_results_r87_3_13_live_run_from_a_result_page_starts_one_path() {
+    let mut layout = WorkspaceLayout::default_layout();
+    let content_list_id = WorkspaceFrameId::new(2);
+    let release = FrameNavigationEntry::Release(ReleaseKey::FeedGuid("haleen-music".to_owned()));
+    layout
+        .open_search_results_in_content_list("hal")
+        .expect("should open the search page");
+    layout
+        .push_nav(content_list_id, release.clone())
+        .expect("should open the release page");
+
+    for text in ["halx", "halxy"] {
+        layout
+            .open_search_results_in_content_list(text)
+            .expect("should open the search page");
+    }
+    let search = FrameNavigationEntry::Search("halxy".to_owned());
+    let nav = layout
+        .frame_nav(content_list_id)
+        .expect("ContentList should have navigation state");
+    assert_eq!(nav.current(), &search);
+    assert_eq!(nav.path_entries(), vec![search.clone()]);
+    assert_eq!(layout.pop_nav(content_list_id), Some(release.clone()));
+
+    layout
+        .open_search_results_in_content_list("halxy")
+        .expect("should open the search page");
+    layout
+        .push_nav(content_list_id, release)
+        .expect("should open the release page");
+    assert_eq!(layout.pop_nav(content_list_id), Some(search));
+}

@@ -205,3 +205,4 @@ Open - the run adds each packet when its mechanical checks are Green.
   - [ADR 0086 packet 005](tasks/adr-0086-task-005-saved-search-window-groups.md) V1 to V7
   - [ADR 0087 packet 002](tasks/adr-0087-task-002-library-fields-and-index-words.md) V1 to V9
   - [ADR 0087 packet 004](tasks/adr-0087-task-004-field-list.md) V1 to V9
+  - [ADR 0087 packet 003](tasks/adr-0087-task-003-live-results.md) V1 to V9

@@ -1,10 +1,10 @@
 # ADR 0087 Task 003: The Search Results Update While The Curator Types
 
-Status: Ready - 2026-10-23.
+Status: Implemented - 2026-10-23. Cases R87-3-01 to R87-3-19 pass. Mechanical checks are Green. V1 to V9 are open, in the final walk of the run of 2026-10-23.
 
 Orchestrator note - 2026-10-23: packets 001 and 002 are implemented. The run record lists their deviations. `LibrarySearchFacts::track` and `SearchResultsInspectorPageVm::index_skip` are `#[cfg(test)]`. Remove the attribute of each name that this packet calls. `search_local_library_tracks` is `pub(crate)`. `UnsupportedIndexTerms` is in `search_results::search_run`.
 
-Packet 004 is implemented before this packet. Enter on a selected row of the field list does not emit `PressEnter`, and the test R87-4-17 proves it. After Enter, the field list view ignores one `Change` with the submitted text. The field `submitted_text` in `src/app/search_field_list.rs` holds that text. Keep this rule when you add the pause.
+Packet 004 is implemented before this packet. Enter on a selected row of the field list does not emit `PressEnter`. The test R87-4-17 proves it. After Enter, the field list view ignores one `Change` with the submitted text. The field `submitted_text` in `src/app/search_field_list.rs` holds that text. Keep this rule when you add the pause.
 
 ## Goal
 

@@ -1735,3 +1735,88 @@ fn adr_0087_library_fields_r87_2_26_tabs_read_their_own_rows() {
         .collect();
     assert_eq!(tracks, vec!["Own Track".to_owned()]);
 }
+
+/// The generations 1 to `count` of one gate, in order (ADR 0087 packet
+/// 003).
+fn generations(count: usize) -> Vec<crate::view_models::live_run::RunGeneration> {
+    let mut gate = crate::view_models::live_run::LiveRunGate::default();
+    (0..count).map(|_| gate.next_run()).collect()
+}
+
+fn one_release_rows(guid: &str) -> IndexSearchResultRows {
+    IndexSearchResultRows {
+        feeds: vec![index_release(2_000_000_000, guid, guid)],
+        ..no_index_rows()
+    }
+}
+
+fn row_ids(vm: &SearchResultsInspectorPageVm) -> Vec<String> {
+    rows(vm, &RecordedLibrary::default())
+        .into_iter()
+        .map(|row| row.id)
+        .collect()
+}
+
+/// R87-3-08: an Index result of an older generation does not change a
+/// loading page. The result of the page generation applies.
+#[test]
+fn adr_0087_live_results_r87_3_08_older_index_result_is_dropped() {
+    let generation = generations(4);
+    let mut vm = SearchResultsInspectorPageVm::new("haleen");
+    assert!(vm.begin_index_run(generation[3]));
+    assert!(!vm.replace_index_results_for_run(generation[2], "haleen", one_release_rows("old")));
+    assert!(vm.is_index_loading());
+    assert!(row_ids(&vm).is_empty());
+    assert!(vm.replace_index_results_for_run(generation[3], "haleen", one_release_rows("new")));
+    assert!(!vm.is_index_loading());
+    assert_eq!(row_ids(&vm), ["index-feed:new"]);
+}
+
+/// R87-3-09: an error or a start of an older generation changes nothing.
+/// A newer start takes the generation and marks the page as loading.
+#[test]
+fn adr_0087_live_results_r87_3_09_older_error_and_start_change_nothing() {
+    let generation = generations(3);
+    let mut vm = SearchResultsInspectorPageVm::new("haleen").with_run_generation(generation[1]);
+    let error = crate::application::CommandError::Query("connection refused".to_owned());
+    let at = std::time::SystemTime::UNIX_EPOCH;
+    assert!(!vm.set_index_error_for_run(generation[0], "haleen", &error, "http://index", at));
+    assert!(vm.index_error.is_none());
+    assert!(!vm.begin_index_run(generation[0]));
+    assert!(!vm.is_index_loading());
+    assert_eq!(vm.run_generation(), generation[1]);
+
+    assert!(vm.begin_index_run(generation[2]));
+    assert!(vm.is_index_loading());
+    assert_eq!(vm.run_generation(), generation[2]);
+    assert!(vm.set_index_error_for_run(generation[2], "haleen", &error, "http://index", at));
+    assert!(vm.index_error.is_some());
+}
+
+/// R87-3-10: the Library drop. A page of an older generation does not
+/// replace the mounted page.
+#[test]
+fn adr_0087_live_results_r87_3_10_older_library_page_is_dropped() {
+    let generation = generations(5);
+    let mounted = SearchResultsInspectorPageVm::new("haleen").with_run_generation(generation[3]);
+    let older = SearchResultsInspectorPageVm::new("hale").with_run_generation(generation[2]);
+    let newer = SearchResultsInspectorPageVm::new("haleen d").with_run_generation(generation[4]);
+    assert!(!older.is_newer_than(Some(&mounted)));
+    assert!(newer.is_newer_than(Some(&mounted)));
+    assert!(older.is_newer_than(None));
+}
+
+/// R87-3-11: three runs begin in order, and their Index results come in
+/// the order 3, 1, 2. The page shows the rows of the third run only.
+#[test]
+fn adr_0087_live_results_r87_3_11_out_of_order_results_keep_the_newest_rows() {
+    let generation = generations(3);
+    let mut vm = SearchResultsInspectorPageVm::new("haleen");
+    for (generation, _text) in generation.iter().zip(["hal", "hale", "haleen"]) {
+        assert!(vm.begin_index_run(*generation));
+    }
+    assert!(vm.replace_index_results_for_run(generation[2], "haleen", one_release_rows("third")));
+    assert!(!vm.replace_index_results_for_run(generation[0], "hal", one_release_rows("first")));
+    assert!(!vm.replace_index_results_for_run(generation[1], "hale", one_release_rows("second")));
+    assert_eq!(row_ids(&vm), ["index-feed:third"]);
+}

@@ -332,6 +332,7 @@ const SCREEN_FILES: &[&str] = &[
     "src/app/saved_search_dispatch.rs",
     "src/app/search_dispatch.rs",
     "src/app/search_field_list.rs",
+    "src/app/search_live.rs",
     "src/app/tab_bar.rs",
     "src/library.rs",
 ];
@@ -2177,8 +2178,11 @@ fn adr_0066_search_failure_report_stays_readable_and_vm_owned() {
         );
     }
     let dispatch = read_source(&manifest_path("src/app/search_dispatch.rs"));
-    assert!(dispatch
-        .contains("detail.set_index_error(&error, &error_endpoint, std::time::SystemTime::now())"));
+    // ADR 0087 packet 003: the error of the current run reaches the view
+    // model with the time of the observation.
+    assert!(compact_source(&dispatch).contains(
+        "detail.set_index_error_for_run(generation,&error_query,&error,&error_endpoint,std::time::SystemTime::now(),)"
+    ));
     assert!(dispatch.contains("detail.activate_failure_action(action)"));
     assert!(dispatch.contains("ClipboardItem::new_string(report)"));
     assert!(!dispatch.contains("fn command_error_detail("));
@@ -2919,11 +2923,20 @@ fn adr_0084_search_list_r10_08_feed_rows_open_the_feed_page() {
 /// pins the call.
 #[test]
 fn adr_0084_search_list_submit_restores_through_the_back_path() {
+    // ADR 0087 packet 003: the submit and the live run open the page in
+    // `show_toolbar_search_run`.
     let dispatch = read_source(&manifest_path("src/app/search_dispatch.rs"));
-    let open = source_between(
+    let submit = source_between(
         &dispatch,
         "pub(super) fn open_search_results_in_content_list(",
         "fn search_results_detail_for_run(",
+    );
+    assert!(submit.contains("self.show_toolbar_search_run(&run, cx)"));
+    let live = read_source(&manifest_path("src/app/search_live.rs"));
+    let open = source_between(
+        &live,
+        "pub(super) fn show_toolbar_search_run(",
+        "#[cfg(test)]",
     );
     assert!(
         compact_source(open).contains(
@@ -2994,9 +3007,11 @@ fn adr_0084_search_open_defects_r28_03_focus_move_scrolls_to_the_focused_row() {
         "ADR 0084 packet 028 review: the note after the search rows is a child of the scroll \
          container, so it must call `flex_shrink_0()`. Else it shrinks under the rows."
     );
-    let dispatch = compact_source(&read_source(&manifest_path("src/app/search_dispatch.rs")));
+    // ADR 0087 packet 003: `show_toolbar_search_run` opens each toolbar
+    // search, from Enter and from the pause.
+    let live = compact_source(&read_source(&manifest_path("src/app/search_live.rs")));
     assert!(
-        dispatch.contains("self.scroll_search_page_to_top(SearchPageSlot::ToolbarSearch);"),
+        live.contains("self.scroll_search_page_to_top(SearchPageSlot::ToolbarSearch);"),
         "ADR 0084 packet 028 review: a submitted search must call \
          `scroll_search_page_to_top(SearchPageSlot::ToolbarSearch)`, so a new query starts at \
          the top of its list."
@@ -11572,8 +11587,9 @@ fn adr_0048_index_search_is_async_and_vm_owned() {
         "content_list_nav_matches_search",
         // Packet 010 "The stale results": the rows of another query
         // change neither the rows nor the selection.
-        "detail.replace_index_results_for_query(&success_query, rows)",
-        "set_index_error(",
+        // ADR 0087 packet 003: the run check calls the query check.
+        "detail.replace_index_results_for_run(generation, &success_query, rows)",
+        "set_index_error_for_run(",
     ] {
         assert!(
             search_dispatch_source.contains(required),
@@ -17474,9 +17490,16 @@ fn adr_0060_search_uses_music_section_navigation() {
     let select = open
         .find("self.select_tab(AppTab::Music, window, cx)")
         .unwrap();
-    let push = open
-        .find(".open_search_results_in_content_list(query.clone())")
-        .unwrap();
+    // ADR 0087 packet 003: the toolbar search opens the query in
+    // `show_toolbar_search_run`.
+    let push = open.find("self.show_toolbar_search_run(&run, cx)").unwrap();
+    let live = read_source(&manifest_path("src/app/search_live.rs"));
+    assert!(source_between(
+        &live,
+        "pub(super) fn show_toolbar_search_run(",
+        "#[cfg(test)]"
+    )
+    .contains(".open_search_results_in_content_list(query.clone())"));
     assert!(
         empty < select && select < push,
         "Ignore empty input, restore Music navigation, then open the query"
@@ -23942,4 +23965,206 @@ fn adr_0087_field_list_r87_4_19_list_keeps_focus_and_reads_view_model() {
             "the copy with `{bad}` must fail"
         );
     }
+}
+
+/// The violations of the live search rule of ADR 0087 Decision 4 in
+/// `files`, a map of each relative path to its source.
+fn live_results_violations(files: &BTreeMap<String, String>) -> Vec<String> {
+    const TOKENS: &str = "src/ui/tokens.rs";
+    const LIVE: &str = "src/app/search_live.rs";
+    const APP: &str = "src/app.rs";
+    const DISPATCH: &str = "src/app/search_dispatch.rs";
+    const TAB_BAR: &str = "src/app/tab_bar.rs";
+    let mut violations = Vec::new();
+    let mut report = |file: &str, violation: &str| {
+        violations.push(format!(
+            "ADR 0087 Decision 4 (results show while the curator types): {file} {violation}. Start the\n\
+pause only in TopApp::start_search_pause, through present_after with\n\
+Motion::SearchPause.duration(). Do not call cx.spawn or a timer in src/app or src/ui. A restore\n\
+writes the field with set_value, which starts no run. One run dispatches one\n\
+FetchIndexSearchResults through start_index_search_for_run."
+        ));
+    };
+    let code = |file: &str| {
+        files
+            .get(file)
+            .map(|source| code_only(production_source(source)))
+            .unwrap_or_default()
+    };
+
+    if !code(TOKENS).contains("Self::SearchPause => Duration::from_millis(300),") {
+        report(TOKENS, "does not give 300 ms for `Motion::SearchPause`");
+    }
+    let live = code(LIVE);
+    if !live.contains("present_after(Motion::SearchPause.duration()") {
+        report(
+            LIVE,
+            "does not call `present_after(Motion::SearchPause.duration()`",
+        );
+    }
+    for forbidden in [
+        "Duration::from_millis(",
+        "Duration::from_secs(",
+        "cx.spawn(",
+        "timer(",
+    ] {
+        if live.contains(forbidden) {
+            report(LIVE, &format!("holds `{forbidden}`"));
+        }
+    }
+    for (file, source) in files {
+        let checked =
+            file == APP || file == DISPATCH || file == TAB_BAR || file.starts_with("src/ui/");
+        if !checked {
+            continue;
+        }
+        let file_code = code_only(production_source(source));
+        for forbidden in ["timer(", "background_executor("] {
+            if file_code.contains(forbidden) {
+                report(file, &format!("holds `{forbidden}`"));
+            }
+        }
+    }
+
+    let app = code(APP);
+    let section = |start: &str, end: &str| -> Option<String> {
+        let begin = app.find(start)?;
+        let rest = &app[begin..];
+        let finish = rest.find(end)?;
+        Some(rest[..finish].to_owned())
+    };
+    match section("fn on_global_search_event(", "fn select_tab(") {
+        Some(body) => {
+            for required in ["InputEvent::Change", "start_search_pause("] {
+                if !body.contains(required) {
+                    report(
+                        APP,
+                        &format!("on_global_search_event does not hold `{required}`"),
+                    );
+                }
+            }
+        }
+        None => report(APP, "has no `on_global_search_event`"),
+    }
+    for (name, start, end) in [
+        (
+            "handle_content_list_back_select",
+            "fn handle_content_list_back_select(",
+            "fn handle_content_list_forward_select(",
+        ),
+        (
+            "handle_content_list_forward_select",
+            "fn handle_content_list_forward_select(",
+            "fn open_music_page(",
+        ),
+    ] {
+        match section(start, end) {
+            Some(body) => {
+                for forbidden in ["start_search_pause(", "show_toolbar_search_run("] {
+                    if body.contains(forbidden) {
+                        report(APP, &format!("{name} holds `{forbidden}`"));
+                    }
+                }
+            }
+            None => report(APP, &format!("has no `{name}`")),
+        }
+    }
+    match section(
+        "fn apply_pending_toolbar_search(",
+        "pub(super) fn focus_global_search(",
+    ) {
+        Some(body) => {
+            if !body.contains("set_value(") {
+                report(
+                    APP,
+                    "apply_pending_toolbar_search does not call `set_value(`",
+                );
+            }
+            if body.contains(".replace(") {
+                report(APP, "apply_pending_toolbar_search calls `.replace(`");
+            }
+        }
+        None => report(APP, "has no `apply_pending_toolbar_search`"),
+    }
+    match section(
+        "fn restore_content_list_nav_entry(",
+        "fn apply_pending_toolbar_search(",
+    ) {
+        Some(body) if body.contains("cancel_pause(") => {}
+        Some(_) => report(
+            APP,
+            "restore_content_list_nav_entry does not call `cancel_pause(`",
+        ),
+        None => report(APP, "has no `restore_content_list_nav_entry`"),
+    }
+
+    let dispatch = compact_source(&code(DISPATCH));
+    let dispatch_section = |start: &str, end: &str| -> String {
+        dispatch
+            .find(start)
+            .map(|begin| &dispatch[begin..])
+            .and_then(|rest| rest.find(end).map(|finish| rest[..finish].to_owned()))
+            .unwrap_or_default()
+    };
+    let new_call = "FetchIndexSearchResults::new(";
+    let total = dispatch.matches(new_call).count();
+    let in_retry = dispatch_section(
+        "pub(super)fnretry_index_search(",
+        "fnindex_search_result_is_current(",
+    )
+    .matches(new_call)
+    .count();
+    let in_start = dispatch_section(
+        "pub(super)fnstart_index_search_for_run(",
+        "pub(super)fnretry_index_search(",
+    )
+    .matches(new_call)
+    .count();
+    if total - in_retry != 1 || in_start != 1 {
+        report(
+            DISPATCH,
+            "does not hold exactly one `FetchIndexSearchResults::new(` outside retry_index_search, \
+in start_index_search_for_run",
+        );
+    }
+    violations
+}
+
+/// R87-3-17, situational ADR 0087 Decision 4. The pause is the named token
+/// `Motion::SearchPause` through `present_after`, no screen starts a timer,
+/// a restore writes the field with `set_value`, and one function sends the
+/// Index search of a run. Delete this guard when ADR 0087 Decision 4 is
+/// superseded.
+#[test]
+fn adr_0087_live_results_r87_3_17_pause_token_and_no_screen_timer() {
+    let mut files = BTreeMap::new();
+    for file in [
+        "src/ui/tokens.rs",
+        "src/app/search_live.rs",
+        "src/app.rs",
+        "src/app/search_dispatch.rs",
+        "src/app/tab_bar.rs",
+    ] {
+        files.insert(file.to_owned(), read_source(&manifest_path(file)));
+    }
+    for path in rust_files_under("src/ui") {
+        files.insert(rel_path(&path), read_source(&path));
+    }
+    let violations = live_results_violations(&files);
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+
+    // A copy of `src/app/search_live.rs` with a time literal in place of
+    // the token fails.
+    let mut literal = files.clone();
+    let live = literal
+        .get_mut("src/app/search_live.rs")
+        .expect("the live run file is present");
+    let bad = live.replacen(
+        "Motion::SearchPause.duration()",
+        "Duration::from_millis(300)",
+        1,
+    );
+    assert_ne!(&bad, live);
+    *live = bad;
+    assert!(!live_results_violations(&literal).is_empty());
 }

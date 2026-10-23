@@ -2,6 +2,8 @@
 
 Status: Ready - 2026-10-23.
 
+Orchestrator note - 2026-10-23: packets 001 to 004 are implemented. The run record lists their deviations. Packet 003 gives `Motion::SearchPause`, `present_after` and `crate::view_models::live_run::{LiveRunGate, PauseTicket, RunGeneration}`. `LiveRunGate::current_run` and `run_generation()` are `#[cfg(test)]`. Remove the attribute of each name that this packet calls.
+
 ## Goal
 
 After a field name and its colon, the field list shows the values of that field:
