@@ -171,6 +171,14 @@ pub(crate) const INDEX_PUBLISHER_SEARCH: RequestProfile =
 pub(crate) const INDEX_FEED_SINGLES: RequestProfile =
     RequestProfile::new(RequestPathShape::RecentFeedList, Some("named_feeds"));
 
+/// MusicIndex artist names of the field list. The one request of the
+/// `artist:` values after each pause of the toolbar search field (ADR 0087
+/// Decision 3, packet 005). It sends `from` and `limit=20`. The include
+/// gives the link facts, so a feed that is not an artist gives no name.
+/// Owner: `name_lists::FetchArtistNameValues`.
+pub(crate) const INDEX_FIELD_LIST_ARTIST_NAMES: RequestProfile =
+    RequestProfile::new(RequestPathShape::ArtistNameList, Some("link_facts"));
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,5 +357,18 @@ mod tests {
             RequestPathShape::RecentFeedList
         );
         assert_eq!(INDEX_FEED_SINGLES.include(), Some("named_feeds"));
+    }
+
+    /// R87-5-17 (ADR 0087 packet 005): the field list profile names the
+    /// artist name list path shape and the include `link_facts`. It stays
+    /// out of the registry list, as the name check profile does.
+    #[test]
+    fn adr_0087_field_values_r87_5_17_field_list_profile() {
+        assert_eq!(
+            INDEX_FIELD_LIST_ARTIST_NAMES.path_shape(),
+            RequestPathShape::ArtistNameList
+        );
+        assert_eq!(INDEX_FIELD_LIST_ARTIST_NAMES.include(), Some("link_facts"));
+        assert_eq!(ALL.len(), 12);
     }
 }

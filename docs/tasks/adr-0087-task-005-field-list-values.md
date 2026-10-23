@@ -1,8 +1,12 @@
 # ADR 0087 Task 005: The Values Of A Field In The Field List
 
-Status: Ready - 2026-10-23.
+Status: Implemented - 2026-10-23. Cases R87-5-01 to R87-5-20 pass. Mechanical checks are Green. V1 to V7 are open, in the final walk of the run of 2026-10-23.
 
 Orchestrator note - 2026-10-23: packets 001 to 004 are implemented. The run record lists their deviations. Packet 003 gives `Motion::SearchPause`, `present_after` and `crate::view_models::live_run::{LiveRunGate, PauseTicket, RunGeneration}`. `LiveRunGate::current_run` and `run_generation()` are `#[cfg(test)]`. Remove the attribute of each name that this packet calls.
+
+Orchestrator decision - 2026-10-23 (run record): change `cursor_term` in `src/view_models/search_query.rs`. A quoted field value gets a `value_range` from its opening quote to after its closing quote, or to the end of the text. Its `prefix` is the raw text from the opening quote to the cursor.
+
+The fixed-value match of packet 004 resolves the prefix with `unquote_field_value_prefix`. A quoted `kind:` value is one item. `FieldListRowKind` and `FieldListRowAction` lose `Copy`, and the packet 004 tests borrow them. Add one packet 001 test for the range of a quoted value.
 
 ## Goal
 

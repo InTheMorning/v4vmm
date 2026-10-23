@@ -6,6 +6,11 @@
 //! action and its availability. It also gives the open state of the list,
 //! the outcome of each list key and the text edit of each row.
 //!
+//! After `artist:`, `release:` and `playlist:`, the list shows the values of
+//! the field from the Library and, for `artist:`, from `MusicIndex` (ADR
+//! 0087 packet 005). Each value row has a source mark in words. A loading
+//! row and an error row tell the state of the `MusicIndex` request.
+//!
 //! This module reads the query text only through `search_query`: the
 //! `cursor_term` function, the `SearchQuery` parser and the field table. It
 //! has no GPUI type and no I/O. The renderer only composes the rows.
@@ -14,9 +19,14 @@
 
 use std::ops::Range;
 
+use crate::view_models::index_name_list::name_sort_key;
+use crate::view_models::search_field_values::{
+    artist_value_request_key, FieldValueRows, FieldValueSource, IndexArtistValues,
+};
 use crate::view_models::search_query::{
-    cursor_term, fields_with_prefix, CursorPartial, FieldValueState, FixedValueInfo,
-    QueryFieldInfo, QueryFieldName, QueryScope, SearchQuery, TermKind,
+    cursor_term, fields_with_prefix, quote_field_value, unquote_field_value_prefix, CursorPartial,
+    FieldValueState, FixedValueInfo, QueryFieldInfo, QueryFieldName, QueryScope, SearchQuery,
+    TermKind,
 };
 
 /// The note of a row that `in:index` makes unavailable.
@@ -24,6 +34,22 @@ const NOTE_INDEX_SCOPE: &str = "Not available with in:index";
 
 /// The note of the `in:index` row in a Library-only query.
 const NOTE_LIBRARY_SCOPE: &str = "Not available with a Library-only field or in:library";
+
+/// The label of the row that waits for the `MusicIndex` names.
+const LOADING_LABEL: &str = "Loading names from MusicIndex";
+
+/// The accessibility label of the loading row.
+const LOADING_A11Y_LABEL: &str = "Loading artist names from MusicIndex";
+
+/// The label of the row of a failed `MusicIndex` name request.
+const INDEX_ERROR_LABEL: &str = "Names from MusicIndex did not load";
+
+/// The note of the error row.
+const INDEX_ERROR_NOTE: &str = "The Library names show. The next change of the text tries again.";
+
+/// The accessibility label of the error row.
+const INDEX_ERROR_A11Y_LABEL: &str =
+    "Artist names from MusicIndex did not load. The Library names show.";
 
 /// The text of the scope conflict notice.
 const SCOPE_CONFLICT_TEXT: &str =
@@ -112,7 +138,7 @@ impl FieldListState {
 }
 
 /// The kind of one row.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FieldListRowKind {
     /// One query field.
     Field { field: QueryFieldName },
@@ -121,10 +147,20 @@ pub enum FieldListRowKind {
         field: QueryFieldName,
         word: &'static str,
     },
+    /// One value of the Library or of `MusicIndex` (packet 005).
+    Value {
+        field: QueryFieldName,
+        text: String,
+        source: FieldValueSource,
+    },
+    /// The row waits for the `MusicIndex` names of the field.
+    Loading { field: QueryFieldName },
+    /// The `MusicIndex` name request of the field failed.
+    IndexError { field: QueryFieldName },
 }
 
 /// The typed action of one row.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FieldListRowAction {
     /// Puts the field token into the text.
     InsertField(QueryFieldName),
@@ -133,6 +169,10 @@ pub enum FieldListRowAction {
         field: QueryFieldName,
         word: &'static str,
     },
+    /// Puts the value text into the text, in quotes when it needs them.
+    InsertText { field: QueryFieldName, text: String },
+    /// The row has no action.
+    Inert,
 }
 
 /// The reason that a row is not available.
@@ -140,6 +180,10 @@ pub enum FieldListRowAction {
 pub enum FieldListRowUnavailable {
     /// The row conflicts with the scope of the query.
     ScopeConflict,
+    /// The row waits for the `MusicIndex` names.
+    Loading,
+    /// The `MusicIndex` name request failed.
+    IndexError,
 }
 
 /// The availability of one row.
@@ -162,6 +206,9 @@ impl FieldListRowAvailability {
 pub enum FieldListMark {
     /// Only the Library can apply the field.
     LibraryOnly,
+    /// The source of a value row. The mark is a word, so the color is not
+    /// the only cue.
+    Source(FieldValueSource),
 }
 
 impl FieldListMark {
@@ -170,6 +217,7 @@ impl FieldListMark {
     pub fn label(self) -> &'static str {
         match self {
             Self::LibraryOnly => "Library only",
+            Self::Source(source) => source.label(),
         }
     }
 }
@@ -277,11 +325,17 @@ impl FieldListVm {
     /// Builds the field list for the text, the selection and the state.
     ///
     /// `selection` is the byte range of the selection. An empty range is
-    /// the cursor. The result is `None` when the list is closed, when the
-    /// search field has no focus, when the selection is not empty, or when
-    /// the list has no row and no notice.
+    /// the cursor. `values` gives the Library values and the state of the
+    /// `MusicIndex` name request. The result is `None` when the list is
+    /// closed, when the search field has no focus, when the selection is not
+    /// empty, or when the list has no row and no notice.
     #[must_use]
-    pub fn build(text: &str, selection: Range<usize>, state: &FieldListState) -> Option<Self> {
+    pub(crate) fn build(
+        text: &str,
+        selection: Range<usize>,
+        state: &FieldListState,
+        values: &FieldValueRows<'_>,
+    ) -> Option<Self> {
         if state.opening == FieldListOpening::Closed || !state.focused {
             return None;
         }
@@ -318,11 +372,42 @@ impl FieldListVm {
                         .chars()
                         .next()
                         .is_some_and(char::is_whitespace);
-                field
-                    .values_with_prefix(prefix)
+                let edit = ValueEdit {
+                    range: value_range.clone(),
+                    add_space,
+                };
+                let mut rows: Vec<FieldListRowVm> = field
+                    .values_with_prefix(&unquote_field_value_prefix(prefix))
                     .into_iter()
-                    .map(|value| value_row(*field, value, value_range.clone(), add_space, scope))
-                    .collect()
+                    .map(|value| value_row(*field, value, &edit, scope))
+                    .collect();
+                let library = values.library.matching(*field, prefix);
+                rows.extend(library.iter().enumerate().map(|(position, entry)| {
+                    text_value_row(
+                        *field,
+                        &entry.text,
+                        FieldValueSource::Library,
+                        position,
+                        &edit,
+                        scope,
+                    )
+                }));
+                if *field == QueryFieldName::Artist {
+                    let request_key = artist_value_request_key(text, cursor);
+                    if request_key.is_some() && request_key.as_deref() == values.index.key() {
+                        let library_keys: Vec<&str> =
+                            library.iter().map(|entry| entry.key.as_str()).collect();
+                        rows.extend(index_rows(
+                            *field,
+                            values.index,
+                            &library_keys,
+                            &edit,
+                            scope,
+                            cursor,
+                        ));
+                    }
+                }
+                rows
             }
             CursorPartial::Other => Vec::new(),
         };
@@ -434,12 +519,36 @@ fn field_row(
     }
 }
 
-/// Builds the row of one fixed value. `value_range` is the value item.
+/// The value item that a value row replaces, and whether a space follows
+/// the new value.
+struct ValueEdit {
+    /// The byte range of the value item, with its quotes.
+    range: Range<usize>,
+    /// `true` when the edit adds one space after the value.
+    add_space: bool,
+}
+
+impl ValueEdit {
+    /// The edit that puts `value` into the value item.
+    fn edit(&self, value: &str) -> FieldListEdit {
+        let mut text = value.to_owned();
+        if self.add_space {
+            text.push(' ');
+        }
+        let cursor = self.range.start + text.len();
+        FieldListEdit {
+            range: self.range.clone(),
+            text,
+            cursor,
+        }
+    }
+}
+
+/// Builds the row of one fixed value.
 fn value_row(
     field: QueryFieldName,
     value: &'static FixedValueInfo,
-    value_range: Range<usize>,
-    add_space: bool,
+    value_edit: &ValueEdit,
     scope: QueryScope,
 ) -> FieldListRowVm {
     let token = field.info().token;
@@ -458,11 +567,6 @@ fn value_row(
     let note = unavailable_note(availability, scope);
     let mut a11y_label = format!("Value {} for {token}, {}", value.word, value.description);
     push_note(&mut a11y_label, note.as_deref());
-    let mut text = value.word.to_owned();
-    if add_space {
-        text.push(' ');
-    }
-    let cursor = value_range.start + text.len();
     FieldListRowVm {
         element_id: format!(
             "search-field-list-value-{}-{}",
@@ -484,12 +588,136 @@ fn value_row(
             word: value.word,
         },
         availability,
-        edit: FieldListEdit {
-            range: value_range,
-            text,
-            cursor,
-        },
+        edit: value_edit.edit(value.word),
         selected: false,
+    }
+}
+
+/// Builds the row of one Library value or one `MusicIndex` name.
+/// `position` is the position of the row in its source.
+fn text_value_row(
+    field: QueryFieldName,
+    text: &str,
+    source: FieldValueSource,
+    position: usize,
+    value_edit: &ValueEdit,
+    scope: QueryScope,
+) -> FieldListRowVm {
+    let token = field.info().token;
+    // The value of a Library-only field under the cursor is itself a
+    // Library-only field. With `in:index`, the scope is then `Conflict`, so
+    // both scopes make the row unavailable. Each such conflict comes from
+    // `in:index`.
+    let conflict =
+        field.is_library_only() && matches!(scope, QueryScope::IndexOnly | QueryScope::Conflict);
+    let (availability, note) = if conflict {
+        (
+            FieldListRowAvailability::Unavailable(FieldListRowUnavailable::ScopeConflict),
+            Some(NOTE_INDEX_SCOPE.to_owned()),
+        )
+    } else {
+        (FieldListRowAvailability::Available, None)
+    };
+    let source_words = match source {
+        FieldValueSource::Library => "from the Library",
+        FieldValueSource::Index => "from MusicIndex",
+    };
+    let source_id = match source {
+        FieldValueSource::Library => "library",
+        FieldValueSource::Index => "index",
+    };
+    let mut a11y_label = format!("Value {text} for {token}, {source_words}");
+    push_note(&mut a11y_label, note.as_deref());
+    FieldListRowVm {
+        element_id: format!(
+            "search-field-list-value-{}-{source_id}-{position}",
+            bare_token(token)
+        ),
+        kind: FieldListRowKind::Value {
+            field,
+            text: text.to_owned(),
+            source,
+        },
+        label: text.to_owned(),
+        values_text: None,
+        example_text: None,
+        mark: Some(FieldListMark::Source(source)),
+        note,
+        a11y_label,
+        action: FieldListRowAction::InsertText {
+            field,
+            text: text.to_owned(),
+        },
+        availability,
+        edit: value_edit.edit(&quote_field_value(text)),
+        selected: false,
+    }
+}
+
+/// The `MusicIndex` rows of `artist:` for the state of the request. A name
+/// whose key is the key of a Library row gives no row (packet 005 decision
+/// D4).
+fn index_rows(
+    field: QueryFieldName,
+    index: &IndexArtistValues,
+    library_keys: &[&str],
+    value_edit: &ValueEdit,
+    scope: QueryScope,
+    cursor: usize,
+) -> Vec<FieldListRowVm> {
+    let token = bare_token(field.info().token);
+    let empty_edit = FieldListEdit {
+        range: cursor..cursor,
+        text: String::new(),
+        cursor,
+    };
+    match index {
+        IndexArtistValues::NotRequested => Vec::new(),
+        IndexArtistValues::Loaded { names, .. } => names
+            .iter()
+            .filter(|name| !library_keys.contains(&name_sort_key(name).as_str()))
+            .enumerate()
+            .map(|(position, name)| {
+                text_value_row(
+                    field,
+                    name,
+                    FieldValueSource::Index,
+                    position,
+                    value_edit,
+                    scope,
+                )
+            })
+            .collect(),
+        IndexArtistValues::Loading { .. } => vec![FieldListRowVm {
+            element_id: format!("search-field-list-loading-{token}"),
+            kind: FieldListRowKind::Loading { field },
+            label: LOADING_LABEL.to_owned(),
+            values_text: None,
+            example_text: None,
+            mark: None,
+            note: None,
+            a11y_label: LOADING_A11Y_LABEL.to_owned(),
+            action: FieldListRowAction::Inert,
+            availability: FieldListRowAvailability::Unavailable(FieldListRowUnavailable::Loading),
+            edit: empty_edit,
+            selected: false,
+        }],
+        IndexArtistValues::Failed { .. } => vec![FieldListRowVm {
+            element_id: format!("search-field-list-index-error-{token}"),
+            kind: FieldListRowKind::IndexError { field },
+            label: INDEX_ERROR_LABEL.to_owned(),
+            values_text: None,
+            example_text: None,
+            mark: None,
+            note: Some(INDEX_ERROR_NOTE.to_owned()),
+            a11y_label: INDEX_ERROR_A11Y_LABEL.to_owned(),
+            action: FieldListRowAction::Inert,
+            availability: FieldListRowAvailability::Unavailable(
+                FieldListRowUnavailable::IndexError,
+            ),
+            edit: empty_edit,
+            selected: false,
+        }],
     }
 }
 
@@ -501,7 +729,10 @@ fn bare_token(token: &str) -> &str {
 /// The note of an unavailable row in this scope.
 fn unavailable_note(availability: FieldListRowAvailability, scope: QueryScope) -> Option<String> {
     match availability {
-        FieldListRowAvailability::Available => None,
+        FieldListRowAvailability::Available
+        | FieldListRowAvailability::Unavailable(
+            FieldListRowUnavailable::Loading | FieldListRowUnavailable::IndexError,
+        ) => None,
         FieldListRowAvailability::Unavailable(FieldListRowUnavailable::ScopeConflict) => {
             let note = if scope == QueryScope::IndexOnly {
                 NOTE_INDEX_SCOPE
@@ -577,6 +808,7 @@ impl FieldListEdit {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::view_models::search_field_values::LibraryFieldValues;
     use crate::view_models::search_query::QUERY_FIELDS;
 
     fn state(opening: FieldListOpening) -> FieldListState {
@@ -588,7 +820,12 @@ mod tests {
     }
 
     fn build_at(text: &str, cursor: usize, opening: FieldListOpening) -> Option<FieldListVm> {
-        FieldListVm::build(text, cursor..cursor, &state(opening))
+        FieldListVm::build(
+            text,
+            cursor..cursor,
+            &state(opening),
+            &FieldValueRows::EMPTY,
+        )
     }
 
     fn build_end(text: &str, opening: FieldListOpening) -> Option<FieldListVm> {
@@ -868,13 +1105,16 @@ mod tests {
 
         let mut state = state(FieldListOpening::Typing);
         state.apply(FieldListEvent::Escape);
-        assert_eq!(FieldListVm::build("ar", 2..2, &state), None);
+        assert_eq!(
+            FieldListVm::build("ar", 2..2, &state, &FieldValueRows::EMPTY),
+            None
+        );
         state.apply(FieldListEvent::Change);
-        assert!(FieldListVm::build("ar", 2..2, &state).is_some());
+        assert!(FieldListVm::build("ar", 2..2, &state, &FieldValueRows::EMPTY).is_some());
         state.apply(FieldListEvent::Escape);
         state.apply(FieldListEvent::Click);
         assert_eq!(state.opening, FieldListOpening::Requested);
-        assert!(FieldListVm::build("ar", 2..2, &state).is_some());
+        assert!(FieldListVm::build("ar", 2..2, &state, &FieldValueRows::EMPTY).is_some());
     }
 
     #[test]
@@ -921,7 +1161,7 @@ mod tests {
         for text in ["", "ar", "kind:", "haleen "] {
             for opening in [FieldListOpening::Requested, FieldListOpening::Typing] {
                 assert_eq!(
-                    FieldListVm::build(text, 0..2, &state(opening)),
+                    FieldListVm::build(text, 0..2, &state(opening), &FieldValueRows::EMPTY),
                     None,
                     "{text:?}"
                 );
@@ -938,10 +1178,10 @@ mod tests {
         );
         assert!(row(&vm, "is:").a11y_label.ends_with(", Library only"));
         for row in &vm.rows {
-            let FieldListRowKind::Field { field } = row.kind else {
+            let FieldListRowKind::Field { field } = &row.kind else {
                 panic!("each row is a field row");
             };
-            assert_eq!(row.action, FieldListRowAction::InsertField(field));
+            assert_eq!(row.action, FieldListRowAction::InsertField(*field));
             assert_eq!(row.availability, FieldListRowAvailability::Available);
         }
 
@@ -951,10 +1191,16 @@ mod tests {
             "Value single for kind:, A release with one track"
         );
         for row in &vm.rows {
-            let FieldListRowKind::FixedValue { field, word } = row.kind else {
+            let FieldListRowKind::FixedValue { field, word } = &row.kind else {
                 panic!("each row is a value row");
             };
-            assert_eq!(row.action, FieldListRowAction::InsertValue { field, word });
+            assert_eq!(
+                row.action,
+                FieldListRowAction::InsertValue {
+                    field: *field,
+                    word,
+                }
+            );
         }
 
         let vm = build_at("in:index ", 9, FieldListOpening::Requested).expect("the list shows");
@@ -994,5 +1240,264 @@ mod tests {
                 assert!(changed.is_char_boundary(row.edit.cursor), "{text:?}");
             }
         }
+    }
+
+    fn library_h() -> LibraryFieldValues {
+        LibraryFieldValues::from_texts(
+            &["Haleen", "Haleen Moss", "Shaleen", "jSmovie"],
+            &["Aged Friends"],
+            &["Friday show", "Monday mix"],
+        )
+    }
+
+    fn build_values(
+        text: &str,
+        cursor: usize,
+        library: &LibraryFieldValues,
+        index: &IndexArtistValues,
+    ) -> Option<FieldListVm> {
+        FieldListVm::build(
+            text,
+            cursor..cursor,
+            &state(FieldListOpening::Typing),
+            &FieldValueRows { library, index },
+        )
+    }
+
+    fn loaded(key: &str, names: &[&str]) -> IndexArtistValues {
+        IndexArtistValues::Loaded {
+            key: key.to_owned(),
+            names: names.iter().map(|&name| name.to_owned()).collect(),
+        }
+    }
+
+    fn sources(vm: &FieldListVm) -> Vec<Option<FieldValueSource>> {
+        vm.rows
+            .iter()
+            .map(|row| match &row.kind {
+                FieldListRowKind::Value { source, .. } => Some(*source),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// R87-5-03: the Library rows come first, then the `MusicIndex` rows,
+    /// each with its source mark in words.
+    #[test]
+    fn adr_0087_field_values_r87_5_03_library_rows_then_index_rows() {
+        let library = library_h();
+        let index = loaded("hal", &["Halo Child"]);
+        let vm = build_values("artist:hal", 10, &library, &index).expect("the list shows");
+        assert_eq!(
+            labels(&vm),
+            vec!["Haleen", "Haleen Moss", "Shaleen", "Halo Child"]
+        );
+        assert_eq!(
+            sources(&vm),
+            vec![
+                Some(FieldValueSource::Library),
+                Some(FieldValueSource::Library),
+                Some(FieldValueSource::Library),
+                Some(FieldValueSource::Index),
+            ]
+        );
+        let marks: Vec<&str> = vm
+            .rows
+            .iter()
+            .map(|row| row.mark.expect("each value row has a mark").label())
+            .collect();
+        assert_eq!(marks, vec!["Library", "Library", "Library", "MusicIndex"]);
+        assert_eq!(
+            vm.rows[0].element_id,
+            "search-field-list-value-artist-library-0"
+        );
+        assert_eq!(
+            vm.rows[3].element_id,
+            "search-field-list-value-artist-index-0"
+        );
+        assert_eq!(
+            vm.rows[3].a11y_label,
+            "Value Halo Child for artist:, from MusicIndex"
+        );
+        assert_eq!(
+            vm.rows[0].a11y_label,
+            "Value Haleen for artist:, from the Library"
+        );
+    }
+
+    /// R87-5-04: a name in the Library and in `MusicIndex` gives one row,
+    /// with the source `Library`.
+    #[test]
+    fn adr_0087_field_values_r87_5_04_shared_name_gives_one_library_row() {
+        let library = library_h();
+        let index = loaded("hal", &["haleen", "Halo Child"]);
+        let vm = build_values("artist:hal", 10, &library, &index).expect("the list shows");
+        let haleen: Vec<&FieldListRowVm> = vm
+            .rows
+            .iter()
+            .filter(|row| name_sort_key(&row.label) == "haleen")
+            .collect();
+        assert_eq!(haleen.len(), 1);
+        assert_eq!(
+            haleen[0].mark,
+            Some(FieldListMark::Source(FieldValueSource::Library))
+        );
+        assert_eq!(labels(&vm).last(), Some(&"Halo Child"));
+    }
+
+    /// R87-5-06: `release:` and `playlist:` show their Library values and
+    /// send no request.
+    #[test]
+    fn adr_0087_field_values_r87_5_06_release_and_playlist_values() {
+        let library = library_h();
+        let none = IndexArtistValues::NotRequested;
+        let vm = build_values("release:ag", 10, &library, &none).expect("the list shows");
+        assert_eq!(labels(&vm), vec!["Aged Friends"]);
+        assert_eq!(sources(&vm), vec![Some(FieldValueSource::Library)]);
+        let vm = build_values("playlist:fri", 12, &library, &none).expect("the list shows");
+        assert_eq!(labels(&vm), vec!["Friday show"]);
+        assert_eq!(artist_value_request_key("release:ag", 10), None);
+        assert_eq!(artist_value_request_key("playlist:fri", 12), None);
+    }
+
+    /// R87-5-10: Tab puts the quoted value and one space into the text. A
+    /// value before more text gets no new space.
+    #[test]
+    fn adr_0087_field_values_r87_5_10_tab_puts_the_quoted_value_into_the_text() {
+        let library = library_h();
+        let none = IndexArtistValues::NotRequested;
+        let vm = build_values("artist:hal", 10, &library, &none).expect("the list shows");
+        let vm = with_selected(vm, Some(1));
+        assert_eq!(
+            vm.rows[1].action,
+            FieldListRowAction::InsertText {
+                field: QueryFieldName::Artist,
+                text: "Haleen Moss".to_owned(),
+            }
+        );
+        let FieldListKeyOutcome::Apply(edit) = vm.key(FieldListKey::Tab) else {
+            panic!("Tab applies the row");
+        };
+        let changed = edit.apply("artist:hal");
+        assert_eq!(changed, "artist:\"Haleen Moss\" ");
+        assert_eq!(edit.cursor, changed.len());
+
+        let text = "artist:hal kind:single";
+        let vm = build_values(text, 10, &library, &none).expect("the list shows");
+        let vm = with_selected(vm, Some(0));
+        let FieldListKeyOutcome::Apply(edit) = vm.key(FieldListKey::Tab) else {
+            panic!("Tab applies the row");
+        };
+        assert_eq!(edit.apply(text), "artist:Haleen kind:single");
+        assert_eq!(edit.cursor, 13);
+
+        // A quoted value is one item. The edit replaces the quotes too.
+        let text = "artist:\"Haleen M";
+        let vm = build_values(text, text.len(), &library, &none).expect("the list shows");
+        assert_eq!(labels(&vm), vec!["Haleen Moss"]);
+        let edit = &vm.rows[0].edit;
+        assert_eq!(edit.apply(text), "artist:\"Haleen Moss\" ");
+    }
+
+    /// R87-5-11: the loading row follows the Library rows. It is not
+    /// available, so Down skips it.
+    #[test]
+    fn adr_0087_field_values_r87_5_11_loading_row() {
+        let library = library_h();
+        let index = IndexArtistValues::Loading {
+            key: "hal".to_owned(),
+        };
+        let vm = build_values("artist:hal", 10, &library, &index).expect("the list shows");
+        assert_eq!(vm.rows.len(), 4);
+        let row = &vm.rows[3];
+        assert_eq!(
+            row.kind,
+            FieldListRowKind::Loading {
+                field: QueryFieldName::Artist
+            }
+        );
+        assert_eq!(
+            row.availability,
+            FieldListRowAvailability::Unavailable(FieldListRowUnavailable::Loading)
+        );
+        assert_eq!(row.action, FieldListRowAction::Inert);
+        assert_eq!(row.label, "Loading names from MusicIndex");
+        assert_eq!(row.element_id, "search-field-list-loading-artist");
+        assert_eq!(row.edit.range, 10..10);
+        assert!(row.edit.text.is_empty());
+        let vm = with_selected(vm, Some(2));
+        assert_eq!(vm.key(FieldListKey::Down), FieldListKeyOutcome::Select(0));
+    }
+
+    /// R87-5-12: a failed request gives one error row, and the Library rows
+    /// stay.
+    #[test]
+    fn adr_0087_field_values_r87_5_12_error_row() {
+        let library = library_h();
+        let index = IndexArtistValues::Failed {
+            key: "hal".to_owned(),
+        };
+        let vm = build_values("artist:hal", 10, &library, &index).expect("the list shows");
+        assert_eq!(vm.rows.len(), 4);
+        let row = &vm.rows[3];
+        assert_eq!(
+            row.kind,
+            FieldListRowKind::IndexError {
+                field: QueryFieldName::Artist
+            }
+        );
+        assert_eq!(row.label, "Names from MusicIndex did not load");
+        assert_eq!(
+            row.note.as_deref(),
+            Some("The Library names show. The next change of the text tries again.")
+        );
+        assert_eq!(
+            row.availability,
+            FieldListRowAvailability::Unavailable(FieldListRowUnavailable::IndexError)
+        );
+        assert_eq!(row.action, FieldListRowAction::Inert);
+    }
+
+    /// R87-5-13: a state of another key gives no `MusicIndex` row. An empty
+    /// value gives the Library rows only.
+    #[test]
+    fn adr_0087_field_values_r87_5_13_state_of_another_key_gives_no_row() {
+        let library = library_h();
+        let index = loaded("hal", &["Halo Child"]);
+        let vm = build_values("artist:halo", 11, &library, &index);
+        assert!(vm.is_none_or(|vm| sources(&vm)
+            .iter()
+            .all(|source| *source == Some(FieldValueSource::Library))));
+        let loading = IndexArtistValues::Loading {
+            key: "hal".to_owned(),
+        };
+        let vm = build_values("artist:", 7, &library, &loading).expect("the list shows");
+        assert_eq!(vm.rows.len(), 4);
+        assert_eq!(sources(&vm), vec![Some(FieldValueSource::Library); 4]);
+    }
+
+    /// R87-5-15: with `in:index`, a `playlist:` value is not available.
+    #[test]
+    fn adr_0087_field_values_r87_5_15_playlist_value_conflicts_with_in_index() {
+        let library = library_h();
+        let none = IndexArtistValues::NotRequested;
+        let text = "in:index playlist:fri";
+        let vm = build_values(text, text.len(), &library, &none).expect("the list shows");
+        let row = row(&vm, "Friday show");
+        assert_eq!(
+            row.availability,
+            FieldListRowAvailability::Unavailable(FieldListRowUnavailable::ScopeConflict)
+        );
+        assert_eq!(row.note.as_deref(), Some("Not available with in:index"));
+    }
+
+    /// Packet 005 orchestrator decision: the fixed values read a quoted
+    /// prefix, and a quoted `kind:` value is one item.
+    #[test]
+    fn adr_0087_field_values_quoted_prefix_matches_a_fixed_value() {
+        let vm = build_end("kind:\"si", FieldListOpening::Typing).expect("the list shows");
+        assert_eq!(labels(&vm), vec!["single"]);
+        assert_eq!(vm.rows[0].edit.range, 5..8);
+        assert_eq!(tab_text("kind:\"si", 8), ("kind:single ".to_owned(), 12));
     }
 }

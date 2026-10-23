@@ -98,6 +98,7 @@ pub(crate) mod release_page;
 pub(crate) mod release_row_actions;
 pub(crate) mod role_words;
 pub(crate) mod search_field_list;
+pub(crate) mod search_field_values;
 pub mod search_query;
 pub mod search_results;
 pub(crate) mod selection_action_bar;

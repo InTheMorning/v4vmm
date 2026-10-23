@@ -9,6 +9,14 @@
 //! The view is its own entity. The input notifies on each caret blink, so
 //! the view compares the text and the selection, and draws again only on a
 //! change.
+//!
+//! In an `artist:` value, the view also keeps the state of the one
+//! `MusicIndex` name request (ADR 0087 Decision 3, packet 005). After each
+//! change, a new key arms the pause of `Motion::SearchPause` with a new run
+//! generation. When the pause ends, the view emits [`FieldValueRequest`].
+//! `TopApp` sends the request through `present_command`, so no code here
+//! calls `cx.spawn` (ADR 0040). An answer of an older generation or of
+//! another key changes nothing.
 
 #![warn(clippy::pedantic)]
 
@@ -16,35 +24,68 @@ use std::ops::Range;
 
 use gpui::Div;
 use gpui::{
-    prelude::*, App, Context, Empty, Entity, MouseButton, ScrollHandle, SharedString, Stateful,
-    Subscription, WeakEntity, Window,
+    prelude::*, App, Context, Empty, Entity, EventEmitter, MouseButton, ScrollHandle, SharedString,
+    Stateful, Subscription, WeakEntity, Window,
 };
 use gpui_component::input::{
     Enter, Escape, IndentInline, InputEvent, InputState, MoveDown, MoveUp,
 };
 
+use crate::api::ArtistNameRow;
+use crate::application::queries::name_lists::FetchArtistNameValues;
+use crate::application::CommandContext;
+use crate::library::LibraryApp;
+use crate::presentation::delayed_presenter::present_after;
+use crate::presentation::present_command;
 use crate::ui::composites::search_field_list::SearchFieldList;
+use crate::ui::tokens::Motion;
+use crate::view_models::live_run::{LiveRunGate, RunGeneration};
 use crate::view_models::search_field_list::{
     FieldListEdit, FieldListEvent, FieldListKey, FieldListKeyOutcome, FieldListState, FieldListVm,
 };
+use crate::view_models::search_field_values::{
+    artist_value_request_key, FieldValueRows, IndexArtistValues,
+};
+
+use super::TopApp;
+
+/// The request for the `MusicIndex` names of one `artist:` key. The view
+/// emits it when the pause of that key ends.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FieldValueRequest {
+    /// The sort key of the typed value.
+    pub(crate) key: String,
+    /// The run generation of the request.
+    pub(crate) generation: RunGeneration,
+}
 
 /// The field list under the toolbar search field.
 pub(crate) struct SearchFieldListView {
     input: Entity<InputState>,
+    /// The Library. The view reads its field values at each draw.
+    library: Entity<LibraryApp>,
     state: FieldListState,
+    /// The state of the `MusicIndex` name request.
+    index_values: IndexArtistValues,
+    /// The pause and the run generation of the name request.
+    gate: LiveRunGate,
     scroll: ScrollHandle,
     last_text: SharedString,
     last_selection: Range<usize>,
     /// The text at the last Enter that ran the search, until the next
     /// input event.
     submitted_text: Option<SharedString>,
-    _subscriptions: [Subscription; 2],
+    _subscriptions: [Subscription; 3],
 }
 
+impl EventEmitter<FieldValueRequest> for SearchFieldListView {}
+
 impl SearchFieldListView {
-    /// Makes the view for the search field `input`.
+    /// Makes the view for the search field `input`. `library` gives the
+    /// Library values of the fields.
     pub(crate) fn new(
         input: Entity<InputState>,
+        library: Entity<LibraryApp>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -68,6 +109,7 @@ impl SearchFieldListView {
                 }
             };
             this.state.apply(event);
+            this.refresh_index_request(cx);
             cx.notify();
         });
         let observer = cx.observe(&input, |this, input, cx| {
@@ -76,19 +118,92 @@ impl SearchFieldListView {
                 this.last_text = text;
                 this.last_selection = selection;
                 this.state.apply(FieldListEvent::CursorMoved);
+                this.refresh_index_request(cx);
                 cx.notify();
             }
         });
+        // A change of the Library values updates an open list in place.
+        let library_observer = cx.observe(&library, |_, _, cx| cx.notify());
         let (last_text, last_selection) = read_input(&input, cx);
         Self {
             input,
+            library,
             state: FieldListState::default(),
+            index_values: IndexArtistValues::NotRequested,
+            gate: LiveRunGate::default(),
             scroll: ScrollHandle::new(),
             last_text,
             last_selection,
             submitted_text: None,
-            _subscriptions: [events, observer],
+            _subscriptions: [events, observer, library_observer],
         }
+    }
+
+    /// Updates the `MusicIndex` name request for the text and the cursor
+    /// (packet 005 "The request").
+    ///
+    /// With no key, no request applies, and a new generation drops the
+    /// answer of a running request. The same key changes nothing. A new
+    /// key starts a new generation and the pause. When the pause ends with
+    /// the same generation, the view emits [`FieldValueRequest`].
+    fn refresh_index_request(&mut self, cx: &mut Context<Self>) {
+        let (text, selection) = read_input(&self.input, cx);
+        match artist_value_request_key(&text, selection.start) {
+            None => {
+                self.index_values = IndexArtistValues::NotRequested;
+                self.gate.next_run();
+            }
+            Some(key) if self.index_values.key() == Some(key.as_str()) => {}
+            Some(key) => {
+                let generation = self.gate.next_run();
+                self.index_values = IndexArtistValues::Loading { key: key.clone() };
+                let ticket = self.gate.text_changed();
+                present_after(Motion::SearchPause.duration(), cx, move |this, cx| {
+                    if this.gate.pause_ended(ticket) && this.gate.is_current(generation) {
+                        cx.emit(FieldValueRequest { key, generation });
+                    }
+                });
+            }
+        }
+    }
+
+    /// Puts the answer rows of the request for `key` into the list. An
+    /// answer of an older generation or of another key changes nothing.
+    pub(crate) fn apply_index_names(
+        &mut self,
+        generation: RunGeneration,
+        key: &str,
+        rows: &[ArtistNameRow],
+        cx: &mut Context<Self>,
+    ) {
+        if self.answer_is_current(generation, key) {
+            self.index_values = IndexArtistValues::loaded(key.to_owned(), rows);
+        }
+        cx.notify();
+    }
+
+    /// Shows the error row for the failed request for `key`. A failure of
+    /// an older generation or of another key changes nothing. The error
+    /// text does not go into the list, because it can hold endpoint
+    /// details.
+    pub(crate) fn apply_index_failure(
+        &mut self,
+        generation: RunGeneration,
+        key: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if self.answer_is_current(generation, key) {
+            self.index_values = IndexArtistValues::Failed {
+                key: key.to_owned(),
+            };
+        }
+        cx.notify();
+    }
+
+    /// `true` when `generation` is current and `key` is the key of the
+    /// request state (packet 005 decision D10).
+    fn answer_is_current(&self, generation: RunGeneration, key: &str) -> bool {
+        self.gate.is_current(generation) && self.index_values.key() == Some(key)
     }
 
     /// Acts on one list key. Returns `true` when the list used the key.
@@ -143,7 +258,12 @@ impl SearchFieldListView {
 
     fn view_model(&self, cx: &App) -> Option<FieldListVm> {
         let (text, selection) = read_input(&self.input, cx);
-        FieldListVm::build(&text, selection, &self.state)
+        let library = self.library.read(cx).search_field_values();
+        let values = FieldValueRows {
+            library: &library,
+            index: &self.index_values,
+        };
+        FieldListVm::build(&text, selection, &self.state, &values)
     }
 
     fn apply_edit(&mut self, edit: &FieldListEdit, window: &mut Window, cx: &mut Context<Self>) {
@@ -170,6 +290,44 @@ impl Render for SearchFieldListView {
                 let _ = view.update(cx, |view, cx| view.click_row(index, window, cx));
             })
             .into_any_element()
+    }
+}
+
+impl TopApp {
+    /// Sends the `MusicIndex` name request of the field list through the
+    /// command runner, with the current endpoint (packet 005 decision D15).
+    /// The answer goes back to the field list view with its generation and
+    /// its key.
+    pub(crate) fn dispatch_field_value_request(
+        &mut self,
+        request: &FieldValueRequest,
+        cx: &mut Context<Self>,
+    ) {
+        let command =
+            FetchArtistNameValues::new(self.musicindex_endpoint.clone(), request.key.clone());
+        let generation = request.generation;
+        let names_list = self.search_field_list.downgrade();
+        let failure_list = names_list.clone();
+        let names_key = request.key.clone();
+        let failure_key = request.key.clone();
+        present_command(
+            &self.command_runner,
+            command,
+            CommandContext::next(),
+            cx,
+            move |_, rows, cx| {
+                // The view is gone only when the window closes.
+                let _ = names_list.update(cx, |view, cx| {
+                    view.apply_index_names(generation, &names_key, &rows, cx);
+                });
+            },
+            move |_, _error, cx| {
+                // The view is gone only when the window closes.
+                let _ = failure_list.update(cx, |view, cx| {
+                    view.apply_index_failure(generation, &failure_key, cx);
+                });
+            },
+        );
     }
 }
 
@@ -267,7 +425,8 @@ mod tests {
         cx.update(gpui_component::init);
         let (root, cx) = cx.add_window_view(|window, cx| {
             let input = cx.new(|cx| InputState::new(window, cx));
-            let list = cx.new(|cx| SearchFieldListView::new(input.clone(), window, cx));
+            let library = cx.new(|cx| test_library(window, cx));
+            let list = cx.new(|cx| SearchFieldListView::new(input.clone(), library, window, cx));
             FieldRoot { input, list }
         });
         let (input, list) = cx.update(|_, cx| {
@@ -294,6 +453,37 @@ mod tests {
         });
         cx.run_until_parked();
         (input, list, enters, cx)
+    }
+
+    /// A Library over an empty database in memory, with no runtime.
+    fn test_library(window: &mut Window, cx: &mut Context<LibraryApp>) -> LibraryApp {
+        let conn = rusqlite::Connection::open_in_memory().expect("an in-memory database");
+        crate::db::init_schema(&conn).expect("the schema");
+        crate::db::migrate_schema(&conn).expect("the migrations");
+        let dir = std::env::temp_dir().join("v4vmm-search-field-list-test");
+        let services = crate::application::ApplicationServices::local_with_service_adapters()
+            .expect("the local services");
+        LibraryApp::new_with_content_view_mode(
+            std::sync::Arc::new(std::sync::Mutex::new(conn)),
+            crate::media::ImageCache::new(dir.join("cache")),
+            "http://127.0.0.1:9".into(),
+            dir,
+            std::sync::Arc::new(services),
+            None,
+            crate::view_models::workspace::ContentViewMode::default(),
+            window,
+            cx,
+        )
+    }
+
+    fn set_text(input: &Entity<InputState>, text: &str, cx: &mut VisualTestContext) {
+        cx.update(|window, cx| {
+            input.update(cx, |input, cx| {
+                input.set_value(text.to_owned(), window, cx);
+                input.set_selected_range(text.len()..text.len(), cx);
+            });
+        });
+        cx.run_until_parked();
     }
 
     fn text_and_cursor(
@@ -382,5 +572,79 @@ mod tests {
         });
         assert_eq!(text_and_cursor(&input, cx).0, "in:index ");
         assert!(input_focused(&input, cx));
+    }
+
+    /// R87-5-18 (ADR 0087 packet 005): an answer of an older generation
+    /// changes nothing, also for the same key. An answer of the current
+    /// generation gives `Loaded`.
+    #[gpui::test]
+    fn adr_0087_field_values_r87_5_18_old_generation_answer_is_dropped(cx: &mut TestAppContext) {
+        let (input, list, _, cx) = setup(cx);
+        let generation = |list: &Entity<SearchFieldListView>, cx: &mut VisualTestContext| {
+            cx.update(|_, cx| list.read(cx).gate.current_run())
+        };
+        let index_values = |list: &Entity<SearchFieldListView>, cx: &mut VisualTestContext| {
+            cx.update(|_, cx| list.read(cx).index_values.clone())
+        };
+        set_text(&input, "artist:ha", cx);
+        let first = generation(&list, cx);
+        assert_eq!(
+            index_values(&list, cx),
+            IndexArtistValues::Loading {
+                key: "ha".to_owned()
+            }
+        );
+        set_text(&input, "artist:hal", cx);
+        set_text(&input, "artist:ha", cx);
+        let current = generation(&list, cx);
+        assert!(first < current);
+
+        let rows = [ArtistNameRow {
+            kind: crate::api::ArtistNameKind::Name,
+            name: "Haleen".to_owned(),
+            ..ArtistNameRow::default()
+        }];
+        cx.update(|_, cx| {
+            list.update(cx, |view, cx| {
+                view.apply_index_names(first, "ha", &rows, cx);
+            });
+        });
+        assert_eq!(
+            index_values(&list, cx),
+            IndexArtistValues::Loading {
+                key: "ha".to_owned()
+            }
+        );
+        cx.update(|_, cx| {
+            list.update(cx, |view, cx| view.apply_index_failure(first, "ha", cx));
+        });
+        assert!(matches!(
+            index_values(&list, cx),
+            IndexArtistValues::Loading { .. }
+        ));
+        cx.update(|_, cx| {
+            list.update(cx, |view, cx| {
+                view.apply_index_names(current, "hal", &rows, cx);
+            });
+        });
+        assert!(matches!(
+            index_values(&list, cx),
+            IndexArtistValues::Loading { .. }
+        ));
+        cx.update(|_, cx| {
+            list.update(cx, |view, cx| {
+                view.apply_index_names(current, "ha", &rows, cx);
+            });
+        });
+        assert_eq!(
+            index_values(&list, cx),
+            IndexArtistValues::Loaded {
+                key: "ha".to_owned(),
+                names: vec!["Haleen".to_owned()],
+            }
+        );
+
+        set_text(&input, "title:x", cx);
+        assert_eq!(index_values(&list, cx), IndexArtistValues::NotRequested);
     }
 }

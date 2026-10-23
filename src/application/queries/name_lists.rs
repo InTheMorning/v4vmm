@@ -27,7 +27,8 @@ use crate::application::command_context::CommandContext;
 use crate::application::errors::command::CommandError;
 use crate::application::queries::PARALLEL_DETAIL_READS;
 use crate::application::request_profiles::{
-    INDEX_ARTIST_NAME_LIST, INDEX_FEED_SINGLES, INDEX_RELEASE_NAME_LIST,
+    INDEX_ARTIST_NAME_LIST, INDEX_FEED_SINGLES, INDEX_FIELD_LIST_ARTIST_NAMES,
+    INDEX_RELEASE_NAME_LIST,
 };
 use crate::view_models::index_feed_singles::{
     FeedReleaseList, FeedSinglesResult, ReleaseNamePageLoad,
@@ -47,6 +48,9 @@ pub(crate) const FEED_SINGLES_PAGE_LIMIT: i32 = 200;
 /// The most pages that the app reads for one feed (packet 026 decision
 /// D11).
 pub(crate) const FEED_SINGLES_MAX_PAGES: usize = 5;
+/// The row count of the `artist:` value request of the field list (ADR
+/// 0087 packet 005 decision D7). One name can give more than one row.
+pub(crate) const FIELD_LIST_ARTIST_NAME_LIMIT: i32 = 20;
 
 /// Fetches one page of `MusicIndex` music releases in name order, and the
 /// `MusicIndex` singles of each new artist feed of the singles on that
@@ -320,6 +324,46 @@ impl ApplicationCommand for FetchArtistNamePage {
     }
 }
 
+/// Fetches the `MusicIndex` artist names at and after one sort key, for
+/// the `artist:` values of the field list (ADR 0087 Decision 3, operator
+/// answer 1 of 2026-10-23). The view model keeps only the names that start
+/// with the key.
+#[derive(Clone, Debug)]
+pub(crate) struct FetchArtistNameValues {
+    endpoint: crate::config::MusicIndexEndpoint,
+    key: String,
+}
+
+impl FetchArtistNameValues {
+    /// Creates the command for the sort key `key`.
+    #[must_use]
+    pub(crate) fn new(endpoint: impl Into<crate::config::MusicIndexEndpoint>, key: String) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            key,
+        }
+    }
+}
+
+impl ApplicationCommand for FetchArtistNameValues {
+    type Output = Vec<ArtistNameRow>;
+
+    fn execute(self, context: &CommandContext) -> CommandResult<Self::Output> {
+        if context.cancellation().is_cancelled() {
+            return Err(CommandError::Cancelled);
+        }
+        let response = Client::new_with_base_url(self.endpoint)
+            .fetch_artist_names(
+                FIELD_LIST_ARTIST_NAME_LIMIT,
+                None,
+                Some(&self.key),
+                &INDEX_FIELD_LIST_ARTIST_NAMES,
+            )
+            .map_err(|error| CommandError::Query(format!("{error:#}")))?;
+        Ok(CommandOutcome::without_events(response.data))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -394,6 +438,48 @@ mod tests {
             *requests.lock().unwrap(),
             ["/v1/artist-names?limit=100&cursor=abc&include=link_facts"]
         );
+    }
+
+    /// R87-5-16 (ADR 0087 packet 005): the field list command sends one
+    /// request with `limit=20`, the include `link_facts` and `from`, and
+    /// decodes the rows. A body that does not decode gives an error.
+    #[test]
+    fn adr_0087_field_values_r87_5_16_value_request_sends_one_request() {
+        let body = serde_json::json!({
+            "data": [
+                {"kind": "name", "name": "Haleen", "sort_name": "haleen",
+                 "key": "haleen", "feed_guid": null, "image_url": null,
+                 "release_count": 2},
+                {"kind": "publisher", "name": "Halo Child", "sort_name": "halo child",
+                 "key": "halo-guid", "feed_guid": "halo-guid", "image_url": null,
+                 "release_count": 1, "agreed_roles": ["artist"],
+                 "first_named_count": 1}
+            ],
+            "pagination": {"cursor": null, "has_more": false}
+        })
+        .to_string();
+        let (endpoint, requests) = serve(body, 1);
+
+        let rows = FetchArtistNameValues::new(endpoint, "hal".to_owned())
+            .execute(&CommandContext::next())
+            .unwrap()
+            .into_parts()
+            .0;
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            rows[1].agreed_roles.as_deref(),
+            Some(&["artist".to_owned()][..])
+        );
+        assert_eq!(
+            *requests.lock().unwrap(),
+            ["/v1/artist-names?limit=20&include=link_facts&from=hal"]
+        );
+
+        let (endpoint, _) = serve("not json".to_owned(), 1);
+        let result =
+            FetchArtistNameValues::new(endpoint, "hal".to_owned()).execute(&CommandContext::next());
+        assert!(matches!(result, Err(CommandError::Query(_))));
     }
 
     /// R16-05: the release name command sends one request for a page, with

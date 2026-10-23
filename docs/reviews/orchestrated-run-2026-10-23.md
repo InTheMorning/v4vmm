@@ -69,6 +69,19 @@ Each entry names the step, the decision and the reason.
   - `LiveRunGate::current_run` and `run_generation()` are `#[cfg(test)]` until a production caller exists.
   - The test `adr_0084_search_list_rejected_query_retains_no_action` expects no retained action for `Cancelled` (D14).
   - Five guards name the moved or renamed code and keep their rules. `src/app/search_live.rs` is in `SCREEN_FILES`.
+- ADR 0087 packet 005 stopped on its stop condition for quoted values. Packet 001 gives a quoted field value a `value_range` and a `prefix` inside the quotes. Packet 005 needs both to start at the opening quote. The orchestrator decided:
+  - `cursor_term` gives a quoted value a `value_range` from the opening quote to after the closing quote, or to the end of the text. The `prefix` is the raw text from the opening quote to the cursor.
+  - The fixed-value match of packet 004 resolves the prefix with `unquote_field_value_prefix`, so `kind:"si` still matches `single`. A quoted `kind:` value is one item, and its commas do not split it.
+  - `FieldListRowKind` and `FieldListRowAction` lose `Copy`, because the new variants hold a `String`. The packet 004 tests borrow them.
+  - Reason: this follows the design of packet 005 and adds no name. No test of packet 001 asserts the range of a quoted value.
+- ADR 0087 packet 005. The orchestrator accepted these deviations:
+  - `in:index playlist:fri` has the scope `Conflict`, because the typed `playlist:` value is a correct Library-only field. A Library-only value row is unavailable with the note "Not available with in:index".
+  - `unquote_field_value_prefix` also stops at a closing quote with no backslash, so `"Haleen"` gives `Haleen`.
+  - `Quoted::content_end` is removed, because no code reads it now.
+  - `FieldValueRows::EMPTY` and its empty constant are `#[cfg(test)]`. `FieldListVm::build` is `pub(crate)`.
+  - The field list view also observes the Library entity, so an open list updates in place when the Library values change.
+  - Open concerns: when no MusicIndex endpoint is set, the `artist:` request fails and the error row shows. One test leaves a cache folder in the temporary folder.
+- The file `LICENSE` appeared untracked in the working tree during the run. The run did not make it and does not commit it.
 - Commit `d410e9f`, "docs: research request on shared search code", came from a different session during the run. It adds `docs/plans/research-search-request.md`. It changes no file of the run, and the run did not change it.
 
 ## Steps
@@ -84,8 +97,8 @@ Each entry names the step, the decision and the reason.
 | ADR 0087 packet 001: the query parser | Complete. No visual check | `93b2c79` |
 | ADR 0087 packet 002: Library fields and Index words | Implemented. V1 to V9 open | `ca8411a` |
 | ADR 0087 packet 004: the field list | Implemented. V1 to V9 open | `1ab7dff` |
-| ADR 0087 packet 003: live results | Implemented. V1 to V9 open | (this commit) |
-| ADR 0087 packet 005: the values of the field list | Ready | |
+| ADR 0087 packet 003: live results | Implemented. V1 to V9 open | `c4794d1` |
+| ADR 0087 packet 005: the values of the field list | Implemented. V1 to V7 open | (this commit) |
 
 ## Questions For The Operator
 

@@ -705,6 +705,56 @@ fn quote_phrase(phrase: &str) -> String {
     out
 }
 
+/// Writes `text` as one field value (ADR 0087 Decision 3, packet 005).
+///
+/// A text with a whitespace character or a quote gets double quotes.
+/// Inside the quotes, each backslash and each quote gets a backslash before
+/// it. Each other text does not change. The parser reads the result as the
+/// same text.
+#[must_use]
+pub fn quote_field_value(text: &str) -> String {
+    if text.chars().any(|ch| ch.is_whitespace() || ch == QUOTE) {
+        quote_phrase(text)
+    } else {
+        text.to_owned()
+    }
+}
+
+/// Gives the text of a value prefix that the curator types (ADR 0087
+/// packet 005).
+///
+/// When the prefix starts with a quote, the function removes that quote.
+/// After it, `\"` gives a quote and `\\` gives a backslash, as in the
+/// parser. A quote with no backslash before it closes the value, so the
+/// function stops there. A prefix with no quote at the start does not
+/// change.
+#[must_use]
+pub fn unquote_field_value_prefix(prefix: &str) -> String {
+    let Some(rest) = prefix.strip_prefix(QUOTE) else {
+        return prefix.to_owned();
+    };
+    let mut out = String::with_capacity(rest.len());
+    let mut chars = rest.chars();
+    while let Some(ch) = chars.next() {
+        if ch == QUOTE {
+            break;
+        }
+        if ch == BACKSLASH {
+            match chars.next() {
+                Some(next) if next == QUOTE || next == BACKSLASH => out.push(next),
+                Some(next) => {
+                    out.push(BACKSLASH);
+                    out.push(next);
+                }
+                None => out.push(BACKSLASH),
+            }
+            continue;
+        }
+        out.push(ch);
+    }
+    out
+}
+
 /// The term under the text cursor, for the field list.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CursorTerm {
@@ -724,7 +774,9 @@ pub enum CursorPartial {
     FieldName { prefix: String },
     /// The cursor is after the colon of a known field. `prefix` is the value
     /// text from the start of the value item to the cursor. `value_range` is
-    /// the byte range of that value item.
+    /// the byte range of that value item. A quoted value is one item: its
+    /// range starts at the opening quote and ends after the closing quote,
+    /// or at the text end, and its prefix is the raw text from the quote.
     FieldValue {
         field: QueryFieldName,
         prefix: String,
@@ -779,6 +831,7 @@ pub fn cursor_term(text: &str, cursor: usize) -> CursorTerm {
             name,
             colon,
             value_raw,
+            quoted,
             ..
         } => {
             if typed_end <= *colon {
@@ -787,7 +840,8 @@ pub fn cursor_term(text: &str, cursor: usize) -> CursorTerm {
                 }
             } else {
                 let typed = typed_end.clamp(value_raw.start, value_raw.end);
-                let (item_start, item_end) = if *name == QueryFieldName::Kind {
+                // A quoted value is one item. Its commas do not split it.
+                let (item_start, item_end) = if *name == QueryFieldName::Kind && !*quoted {
                     let item_start = text[value_raw.start..typed]
                         .rfind(',')
                         .map_or(value_raw.start, |comma| value_raw.start + comma + 1);
@@ -827,9 +881,12 @@ enum RawShape {
         name: QueryFieldName,
         /// The byte offset of the colon.
         colon: usize,
-        /// The byte range of the value text, inside the quotes when the
-        /// value has quotes.
+        /// The byte range of the value text. A quoted value starts at its
+        /// opening quote and ends after its closing quote, or at the text
+        /// end (ADR 0087 packet 005).
         value_raw: Range<usize>,
+        /// `true` when the value starts with a quote.
+        quoted: bool,
         /// The value text, with its escapes read.
         value: String,
     },
@@ -925,7 +982,8 @@ fn lex_body(text: &str, start: usize) -> (usize, RawShape) {
                     RawShape::Field {
                         name,
                         colon,
-                        value_raw: value_start + 1..quoted.content_end,
+                        value_raw: value_start..quoted.end,
+                        quoted: true,
                         value: quoted.content,
                     },
                 );
@@ -936,6 +994,7 @@ fn lex_body(text: &str, start: usize) -> (usize, RawShape) {
                     name,
                     colon,
                     value_raw: value_start..word_end,
+                    quoted: false,
                     value: text[value_start..word_end].to_owned(),
                 },
             );
@@ -955,8 +1014,6 @@ struct Quoted {
     content: String,
     /// The byte offset after the closing quote, or the text end.
     end: usize,
-    /// The byte offset of the closing quote, or the text end.
-    content_end: usize,
 }
 
 /// Reads a quoted text that starts with the quote at `quote_at`.
@@ -973,7 +1030,6 @@ fn read_quoted(text: &str, quote_at: usize) -> Quoted {
             return Quoted {
                 content,
                 end: base + offset + QUOTE.len_utf8(),
-                content_end: base + offset,
             };
         }
         if ch == BACKSLASH {
@@ -992,7 +1048,6 @@ fn read_quoted(text: &str, quote_at: usize) -> Quoted {
     Quoted {
         content,
         end: text.len(),
-        content_end: text.len(),
     }
 }
 
@@ -1810,5 +1865,68 @@ mod tests {
                 matches!(&term.kind, TermKind::Field(field) if field.name.info().token == token)
             );
         }
+    }
+
+    /// Packet 005: a quoted field value is one item. Its range starts at
+    /// the opening quote, and its prefix is the raw text from the quote.
+    #[test]
+    fn adr_0087_query_parser_r87_1_31_quoted_value_range_holds_its_quotes() {
+        let text = r#"artist:"Haleen M"#;
+        assert_eq!(
+            cursor_term(text, text.len()).partial,
+            CursorPartial::FieldValue {
+                field: QueryFieldName::Artist,
+                prefix: r#""Haleen M"#.to_owned(),
+                value_range: 7..16,
+            }
+        );
+        let text = r#"artist:"a \"b" x"#;
+        assert_eq!(
+            cursor_term(text, 12).partial,
+            CursorPartial::FieldValue {
+                field: QueryFieldName::Artist,
+                prefix: r#""a \""#.to_owned(),
+                value_range: 7..14,
+            }
+        );
+        assert_eq!(
+            cursor_term(r#"kind:"si,ep"#, 8).partial,
+            CursorPartial::FieldValue {
+                field: QueryFieldName::Kind,
+                prefix: r#""si"#.to_owned(),
+                value_range: 5..11,
+            }
+        );
+        assert_eq!(
+            cursor_term(r#"artist:"x""#, 7).partial,
+            CursorPartial::FieldValue {
+                field: QueryFieldName::Artist,
+                prefix: String::new(),
+                value_range: 7..10,
+            }
+        );
+    }
+
+    /// R87-5-07: `quote_field_value` quotes a text with whitespace or a
+    /// quote, and the parser reads the result as the same text.
+    #[test]
+    fn adr_0087_field_values_r87_5_07_quote_field_value_round_trips() {
+        assert_eq!(quote_field_value("jsmovie"), "jsmovie");
+        assert_eq!(quote_field_value("aged friends"), r#""aged friends""#);
+        assert_eq!(quote_field_value(r#"a "b" \c"#), r#""a \"b\" \\c""#);
+        for text in ["jsmovie", "aged friends", r#"a "b" \c"#] {
+            let query = format!("artist:{}", quote_field_value(text));
+            assert_eq!(valid(&query), FieldValue::Text(text.to_owned()), "{text:?}");
+        }
+    }
+
+    /// R87-5-08: `unquote_field_value_prefix` removes the opening quote and
+    /// resolves the escapes after it.
+    #[test]
+    fn adr_0087_field_values_r87_5_08_unquote_a_value_prefix() {
+        assert_eq!(unquote_field_value_prefix(r#""aged fr"#), "aged fr");
+        assert_eq!(unquote_field_value_prefix(r#""a \"b"#), r#"a "b"#);
+        assert_eq!(unquote_field_value_prefix("hal"), "hal");
+        assert_eq!(unquote_field_value_prefix(r#""Haleen""#), "Haleen");
     }
 }

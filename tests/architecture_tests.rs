@@ -23967,6 +23967,84 @@ fn adr_0087_field_list_r87_4_19_list_keeps_focus_and_reads_view_model() {
     }
 }
 
+/// The violations of the field value rule of ADR 0087 Decision 3 (packet
+/// 005) in `files`, a map of each relative path to its source.
+fn field_values_violations(files: &BTreeMap<String, String>) -> Vec<String> {
+    const VALUES: &str = "src/view_models/search_field_values.rs";
+    const VIEW: &str = "src/app/search_field_list.rs";
+    const COMPOSITE: &str = "src/ui/composites/search_field_list.rs";
+    const QUERY: &str = "src/application/queries/name_lists.rs";
+    let mut violations = Vec::new();
+    let mut report = |file: &str, violation: &str| {
+        violations.push(format!(
+            "ADR 0087 Decision 3 (the field list shows the values of a field): {file} {violation}.\n\
+Build each value row in src/view_models/search_field_values.rs and search_field_list.rs,\n\
+quote it with quote_field_value, and send the MusicIndex request through present_command."
+        ));
+    };
+    let code = |file: &str| {
+        files
+            .get(file)
+            .map(|source| code_only(production_source(source)))
+            .unwrap_or_default()
+    };
+    for (file, forbidden) in [
+        (VALUES, "rusqlite"),
+        (VALUES, "Connection"),
+        (VALUES, "gpui"),
+        (VIEW, "cx.spawn("),
+        (VIEW, "fetch_artist_names("),
+        (COMPOSITE, "quote_field_value("),
+        (COMPOSITE, "name_sort_key("),
+    ] {
+        if !files.contains_key(file) {
+            report(file, "is absent");
+        } else if code(file).contains(forbidden) {
+            report(file, &format!("holds `{forbidden}`"));
+        }
+    }
+    if !code(QUERY).contains("INDEX_FIELD_LIST_ARTIST_NAMES") {
+        report(QUERY, "does not hold `INDEX_FIELD_LIST_ARTIST_NAMES`");
+    }
+    violations
+}
+
+/// R87-5-19, situational ADR 0087 Decision 3. The value model has no SQL
+/// and no GPUI type, the view sends the MusicIndex request only through
+/// `TopApp` and `present_command`, and the composite reads no field
+/// syntax. Delete this guard when ADR 0087 Decision 3 is superseded.
+#[test]
+fn adr_0087_field_values_r87_5_19_values_come_from_the_value_model() {
+    let files: BTreeMap<String, String> = [
+        "src/view_models/search_field_values.rs",
+        "src/app/search_field_list.rs",
+        "src/ui/composites/search_field_list.rs",
+        "src/application/queries/name_lists.rs",
+    ]
+    .into_iter()
+    .map(|file| (file.to_owned(), read_source(&manifest_path(file))))
+    .collect();
+    let violations = field_values_violations(&files);
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+
+    // A copy of the view that calls `cx.spawn(` fails.
+    let view = &files["src/app/search_field_list.rs"];
+    let marker = "    fn refresh_index_request(&mut self, cx: &mut Context<Self>) {";
+    assert!(view.contains(marker));
+    let mut copy = files.clone();
+    copy.insert(
+        "src/app/search_field_list.rs".to_owned(),
+        view.replacen(
+            marker,
+            &format!("{marker}\n        cx.spawn(async move |_, _| {{}}).detach();"),
+            1,
+        ),
+    );
+    assert!(field_values_violations(&copy)
+        .iter()
+        .any(|violation| violation.contains("cx.spawn(")));
+}
+
 /// The violations of the live search rule of ADR 0087 Decision 4 in
 /// `files`, a map of each relative path to its source.
 fn live_results_violations(files: &BTreeMap<String, String>) -> Vec<String> {

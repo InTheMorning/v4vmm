@@ -109,6 +109,7 @@ use crate::view_models::release_row_actions::{
     ReleaseRowCommand, ReleaseRowMenuVm, ReleaseRowTarget,
 };
 use crate::view_models::releases_everything::ReleasesDownloadPlan;
+use crate::view_models::search_field_values::LibraryFieldValues;
 use crate::view_models::search_results::ArtistSearchFacts;
 use crate::view_models::selection_action_bar::{SelectionActionBarVm, SelectionActionKind};
 use crate::view_models::singles_group::{
@@ -826,6 +827,13 @@ impl LibraryApp {
                 .collect(),
             feed_images,
         }
+    }
+
+    /// The values of `artist:`, `release:` and `playlist:` for the field
+    /// list of the toolbar search field (ADR 0087 Decision 3, packet 005).
+    #[must_use]
+    pub(crate) fn search_field_values(&self) -> Arc<LibraryFieldValues> {
+        self.vm.field_values()
     }
 
     pub(crate) fn open_publisher_page(

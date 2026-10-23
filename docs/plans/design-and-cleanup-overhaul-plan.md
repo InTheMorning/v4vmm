@@ -240,6 +240,9 @@ The operator asked on 2026-10-08 for a later phase that tunes how fast the app r
 25. 2026-10-23: the Library search runs on the main thread while it holds the database lock. The `EXISTS` conditions and the `json_each` id sets of ADR 0087 packet 002 add time to each run. Packet 003 runs the search after each pause (`src/app/search_dispatch.rs`, `src/db/library_search.rs`). No measurement confirms a delay.
 26. 2026-10-23: `present_after` notifies its entity at the end of each timer, also when the ticket is old. Each typed character in the search field thus gives one more render of `TopApp`, one pause later (`src/presentation/delayed_presenter.rs`, ADR 0087 packet 003). No measurement confirms a delay.
 27. 2026-10-23: an Index search request that started cannot stop, because the HTTP client blocks. A run that is not current still sends its started request to MusicIndex (`src/application/queries/search.rs`, ADR 0087 packet 003).
+28. 2026-10-23: `replace_tree` and `replace_playlists` build the values of the field list on the main thread (`LibraryFieldValues` in `src/view_models/search_field_values.rs`, ADR 0087 packet 005). No measurement confirms a delay.
+29. 2026-10-23: `FieldListVm::build` matches the field values at each draw of the field list (`src/view_models/search_field_list.rs`, ADR 0087 packet 005). No measurement confirms a delay.
+30. 2026-10-23: the loading row of the MusicIndex artist names shows no progress on a slow MusicIndex node (`src/app/search_field_list.rs`, ADR 0087 packet 005).
 
 ## Visual Requirements Moved From Pending Checks - 2026-10-07
 

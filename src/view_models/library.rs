@@ -20,6 +20,7 @@
 use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::api::ArtistNameRow;
@@ -81,6 +82,7 @@ use crate::view_models::release_row_actions::{
 use crate::view_models::releases_everything::{
     self, loaded_index_release_title, LibraryReleaseEntry, ReleaseOrderKey, ReleasesDownloadPlan,
 };
+use crate::view_models::search_field_values::LibraryFieldValues;
 use crate::view_models::search_results::{
     saved_search_label, saved_search_row_a11y_label, saved_search_window_page, FeedResultDisplay,
     IndexDetailDisplay, SavedSearch, SavedSearchId, SearchLibraryLookup, SearchLibraryRelease,
@@ -3015,6 +3017,10 @@ pub(crate) struct LibraryViewModel {
     // Playlist creation.
     creating_playlist: bool,
     renaming_playlist_id: Option<i64>,
+    /// The values of `artist:`, `release:` and `playlist:` for the field
+    /// list (ADR 0087 Decision 3, packet 005). `replace_tree` and
+    /// `replace_playlists` build it again.
+    field_values: Arc<LibraryFieldValues>,
 }
 
 impl LibraryViewModel {
@@ -3048,6 +3054,7 @@ impl LibraryViewModel {
             library_loading: false,
             creating_playlist: false,
             renaming_playlist_id: None,
+            field_values: Arc::default(),
         }
     }
 
@@ -3072,8 +3079,25 @@ impl LibraryViewModel {
         self.content_list_page
             .replace_tree_rows(content_list_rows_from_tree(&tree));
         self.snapshot.tree = tree;
+        self.rebuild_field_values();
         self.mark_recent_library_releases();
         self.refresh_new_releases_layout();
+    }
+
+    /// Builds the values of the field list again from the tree and the
+    /// playlists (ADR 0087 packet 005 decision D2).
+    fn rebuild_field_values(&mut self) {
+        self.field_values = Arc::new(LibraryFieldValues::from_library(
+            &self.snapshot.tree,
+            &self.snapshot.playlists,
+        ));
+    }
+
+    /// The values of `artist:`, `release:` and `playlist:` for the field
+    /// list (ADR 0087 Decision 3).
+    #[must_use]
+    pub(crate) fn field_values(&self) -> Arc<LibraryFieldValues> {
+        Arc::clone(&self.field_values)
     }
 
     /// Makes the window groups of New releases again (ADR 0086 Decisions 1
@@ -3499,6 +3523,7 @@ impl LibraryViewModel {
     pub(crate) fn replace_playlists(&mut self, mut playlists: Vec<db::Playlist>) {
         Self::sort_playlists_by(self.playlist_sort, &mut playlists);
         self.snapshot.playlists = playlists;
+        self.rebuild_field_values();
     }
 
     /// Replaces the first four images of each playlist (ADR 0084

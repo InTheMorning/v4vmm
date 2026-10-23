@@ -78,7 +78,7 @@ mod tab_bar;
 pub use bootstrap::run_app;
 
 use search_dispatch::{RemoteCoverColorState, RemoteDetailThumbnailState};
-use search_field_list::SearchFieldListView;
+use search_field_list::{FieldValueRequest, SearchFieldListView};
 use search_selection::{SearchPageSlot, SearchRowClick};
 use settings::render_settings;
 use show::{build_live_status_strip, build_show_screen};
@@ -200,6 +200,7 @@ pub struct TopApp {
     settings_tab_focus: gpui::FocusHandle,
     _global_search_sub: gpui::Subscription,
     _library_sub: gpui::Subscription,
+    _field_value_sub: gpui::Subscription,
     _appearance_sub: gpui::Subscription,
     playback_owner: Option<Arc<Mutex<PlaybackOwner<ConfiguredPlaybackDriver>>>>,
     playback_polling: Option<PlaybackPollingHandle>,
@@ -357,8 +358,6 @@ impl TopApp {
         });
         let global_search_sub =
             cx.subscribe_in(&global_search_input, window, Self::on_global_search_event);
-        let search_field_list =
-            cx.new(|cx| SearchFieldListView::new(global_search_input.clone(), window, cx));
         let library = cx.new(|cx| {
             let mut library = LibraryApp::new_with_content_view_mode(
                 conn.clone(),
@@ -382,6 +381,18 @@ impl TopApp {
                 .require(crate::application::capability::Dependency::Playback);
             library
         });
+        let search_field_list = cx.new(|cx| {
+            SearchFieldListView::new(global_search_input.clone(), library.clone(), window, cx)
+        });
+        // ADR 0087 Decision 3, packet 005: the field list asks for the
+        // MusicIndex names of an `artist:` value, and the top app sends the
+        // request through the command runner.
+        let field_value_sub = cx.subscribe(
+            &search_field_list,
+            |this: &mut Self, _, request: &FieldValueRequest, cx| {
+                this.dispatch_field_value_request(request, cx);
+            },
+        );
         // ADR 0084 Decision 1: one view for each Music column, over the one
         // Library entity. Each observes the Library entity, so a Library
         // notify renders its column again.
@@ -532,6 +543,7 @@ impl TopApp {
             settings_tab_focus: cx.focus_handle(),
             _global_search_sub: global_search_sub,
             _library_sub: library_sub,
+            _field_value_sub: field_value_sub,
             _appearance_sub: appearance_sub,
             playback_owner,
             playback_polling: None,
