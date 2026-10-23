@@ -818,6 +818,9 @@ pub(super) fn index_feed_display(
     );
 
     if let Some(crate::api::EntityDetail::Feed(feed)) = detail {
+        // ADR 0086 Decision 1: keep the release date of the feed before
+        // `FeedView::from_api` takes the feed. `FeedView` has no field for it.
+        let newest_item_at = feed.newest_item_at;
         let remote_feed = crate::views::FeedView::from_api(feed.clone());
         let label = feed
             .title
@@ -840,7 +843,9 @@ pub(super) fn index_feed_display(
         if let Some(image_url) = non_empty_string(feed.image_url) {
             display = display.with_thumbnail_href(image_url);
         }
-        display = display.with_remote_feed(remote_feed);
+        display = display
+            .with_remote_feed(remote_feed)
+            .with_newest_item_at(newest_item_at);
     }
 
     display
@@ -926,6 +931,35 @@ mod tests {
                 ("feed", None, "t1", Some(-9.0)),
             ]
         );
+    }
+
+    /// R86-2-31: `index_feed_display` keeps `newest_item_at` of the feed
+    /// that it gets: the detail feed, or the list feed of a failed detail
+    /// read. With no feed, the value is `None`.
+    #[test]
+    fn adr_0086_window_groups_r31_index_feed_display_keeps_newest_item_at() {
+        let feed = |newest_item_at| crate::api::Feed {
+            feed_guid: Some("guid-a".to_owned()),
+            title: Some("Single A".to_owned()),
+            newest_item_at,
+            ..crate::api::Feed::default()
+        };
+        let detail = index_feed_display(
+            "guid-a",
+            Some(crate::api::EntityDetail::Feed(feed(Some(1_792_454_400)))),
+        );
+        assert_eq!(detail.newest_item_at, Some(1_792_454_400));
+        assert!(detail.remote_feed.is_some());
+
+        // A failed detail read gives the list feed, with no tracks and no
+        // `publisher` include, to the same function.
+        let list_feed = index_feed_display(
+            "guid-a",
+            Some(crate::api::EntityDetail::Feed(feed(Some(1_792_368_000)))),
+        );
+        assert_eq!(list_feed.newest_item_at, Some(1_792_368_000));
+
+        assert_eq!(index_feed_display("guid-a", None).newest_item_at, None);
     }
 
     fn setup_test_db() -> anyhow::Result<Connection> {

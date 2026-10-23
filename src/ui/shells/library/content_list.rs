@@ -36,17 +36,27 @@ use crate::ui::shells::library::content_list_row_actions::{
     content_list_row_menu, render_content_list_row_action,
 };
 use crate::ui::shells::library::content_list_scroll::attach_content_list_scroll;
+use crate::ui::shells::library::content_list_state::render_content_list_state;
+use crate::ui::shells::library::destination_lists::RowArts;
+use crate::ui::shells::library::window_groups::{
+    group_art, render_window_group_row, render_window_group_tile,
+};
 use crate::ui::tokens::{color, ArtworkShadow, FontSize, Radius, SemanticColor, Size, Spacing};
-use crate::view_models::detail_selection::{discover_rows_with_selection, DetailSelection};
+use crate::view_models::detail_selection::{discover_items_with_selection, DetailSelection};
 use crate::view_models::library::{
     ContentListEntityKind, ContentListLoadMoreDisplay, ContentListLoadingStateDisplay,
     ContentListPageStateDisplay, ContentListPageVm, ContentListRowDisplay,
     ContentListSelectionTarget,
 };
+use crate::view_models::window_groups::{ContentListItemVm, NewReleasesLayout};
 use crate::view_models::workspace::{ContentViewMode, ContentViewModeControlDisplay};
 
+/// The images of a content list: the cover of each row by row id, and the
+/// collection art of each group by element id (ADR 0086 Decision 3).
+pub(crate) type ContentListImages<'a> = (&'a BTreeMap<String, Option<Arc<Image>>>, &'a RowArts);
+
 struct ContentListRenderState {
-    visible_rows: Vec<ContentListRowDisplay>,
+    items: Vec<ContentListItemVm>,
     menu: Option<ContentListMenuContext>,
     loading_display: Option<ContentListLoadingStateDisplay>,
     state_display: Option<ContentListPageStateDisplay>,
@@ -54,21 +64,23 @@ struct ContentListRenderState {
     routing: (ContentListSelectionTarget, Option<AnyElement>),
 }
 
-/// Renders the Music content-list page. `rows` is the page's visible
-/// rows, with the Decision 10 checkbox facts of the selection that
-/// `routing` names. The focused row carries the scroll probe of `routing`.
-/// `menu` gives each row a menu cell. `None` gives no menu cell.
+/// Renders the Music content-list page. `items` is the page's visible
+/// rows and group tiles, with the Decision 10 checkbox facts of the
+/// selection that `routing` names. The focused item carries the scroll
+/// probe of `routing`. `thumbnails` gives the cover of each row and the
+/// art of each group. `menu` gives each row a menu cell. `None` gives no
+/// menu cell.
 pub(crate) fn render_library_content_list(
     page: &ContentListPageVm,
-    rows: Vec<ContentListRowDisplay>,
-    thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
+    items: Vec<ContentListItemVm>,
+    thumbnails: ContentListImages<'_>,
     scroll_handle: &ScrollHandle,
     routing: (ContentListSelectionTarget, Option<AnyElement>),
     menu: Option<ContentListMenuContext>,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
     let render_state = ContentListRenderState {
-        visible_rows: rows,
+        items,
         menu,
         routing,
         loading_display: page.loading_display(),
@@ -103,12 +115,14 @@ pub(crate) fn render_library_content_list(
 /// packet adds no new frame-chrome slot either. The content list below
 /// keeps its own scroll handle, so Back to this view keeps its scroll
 /// position. The rows carry the facts of the detail `selection`, and the
-/// focused row carries `probe` (packet 020).
+/// focused row carries `probe` (packet 020). `layout` gives the window
+/// groups, and `images` gives the art of each group (ADR 0086 Decision 2).
 pub(crate) fn render_discover_new_releases_detail(
     page: &ContentListPageVm,
+    layout: &NewReleasesLayout,
     (selection, probe): (&DetailSelection, AnyElement),
     view_mode: ContentViewModeControlDisplay,
-    thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
+    images: ContentListImages<'_>,
     scroll_handle: &ScrollHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
@@ -118,13 +132,13 @@ pub(crate) fn render_discover_new_releases_detail(
             this.request_content_view_mode(mode, cx);
         });
     });
-    let rows = discover_rows_with_selection(
+    let items = discover_items_with_selection(
         page.visible_rows().into_iter().cloned().collect(),
+        layout,
         selection,
     );
     let routing = (ContentListSelectionTarget::DetailColumn, Some(probe));
-    let body =
-        render_library_content_list(page, rows, thumbnails, scroll_handle, routing, None, cx);
+    let body = render_library_content_list(page, items, images, scroll_handle, routing, None, cx);
 
     div()
         .flex()
@@ -149,7 +163,7 @@ pub(crate) fn render_discover_new_releases_detail(
 fn render_content_list_rows(
     page: &ContentListPageVm,
     render_state: ContentListRenderState,
-    thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
+    (thumbnails, arts): ContentListImages<'_>,
     scroll_handle: &ScrollHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
@@ -169,16 +183,22 @@ fn render_content_list_rows(
         .gap(Spacing::XXS.scaled(cx))
         .px(Spacing::MD.scaled(cx))
         .pb(Spacing::MD.scaled(cx))
-        .children(render_state.visible_rows.into_iter().map(|row| {
-            let thumbnail = thumbnails.get(&row.id).cloned().flatten();
-            let probe = probe.take_if(|_| row.selection.focused);
-            render_content_list_row(
-                &row,
-                thumbnail,
-                (target, probe),
-                render_state.menu.as_ref(),
-                cx,
-            )
+        .children(render_state.items.into_iter().map(|item| match item {
+            ContentListItemVm::Row(row) => {
+                let thumbnail = thumbnails.get(&row.id).cloned().flatten();
+                let probe = probe.take_if(|_| row.selection.focused);
+                render_content_list_row(
+                    &row,
+                    thumbnail,
+                    (target, probe),
+                    render_state.menu.as_ref(),
+                    cx,
+                )
+            }
+            ContentListItemVm::WindowGroup(tile) => {
+                let probe = probe.take_if(|_| tile.selection.focused);
+                render_window_group_row(&tile, group_art(arts, &tile), (target, probe), cx)
+            }
         }))
         .children((0..pending_rows).map(|index| {
             SkeletonTrackRow::new(ContentListPageVm::skeleton_row_id(index))
@@ -204,7 +224,7 @@ fn render_content_list_rows(
 fn render_content_list_tiles(
     page: &ContentListPageVm,
     render_state: ContentListRenderState,
-    thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
+    (thumbnails, arts): ContentListImages<'_>,
     scroll_handle: &ScrollHandle,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
@@ -224,10 +244,16 @@ fn render_content_list_tiles(
             .flex_row()
             .flex_wrap()
             .gap(Spacing::MD.scaled(cx))
-            .children(render_state.visible_rows.into_iter().map(|row| {
-                let thumbnail = thumbnails.get(&row.id).cloned().flatten();
-                let probe = probe.take_if(|_| row.selection.focused);
-                render_content_list_tile(&row, thumbnail, (target, probe), cx)
+            .children(render_state.items.into_iter().map(|item| match item {
+                ContentListItemVm::Row(row) => {
+                    let thumbnail = thumbnails.get(&row.id).cloned().flatten();
+                    let probe = probe.take_if(|_| row.selection.focused);
+                    render_content_list_tile(&row, thumbnail, (target, probe), cx)
+                }
+                ContentListItemVm::WindowGroup(tile) => {
+                    let probe = probe.take_if(|_| tile.selection.focused);
+                    render_window_group_tile(&tile, group_art(arts, &tile), (target, probe), cx)
+                }
             }))
             .children((0..pending_tiles).map(|index| render_pending_content_tile(index, cx))),
     );
@@ -524,47 +550,6 @@ fn render_content_list_row_text(
     }));
 
     text.child(status).into_any_element()
-}
-
-fn render_content_list_state(display: ContentListPageStateDisplay, cx: &App) -> AnyElement {
-    match display {
-        ContentListPageStateDisplay::Loading(display) => div()
-            .text_center()
-            .p(Spacing::LG.scaled(cx))
-            .child(
-                Label::new(display.label)
-                    .size(FontSize::Caption)
-                    .color(SemanticColor::TertiaryLabel),
-            )
-            .into_any_element(),
-        ContentListPageStateDisplay::Empty(display) => render_content_list_message(
-            display.title,
-            display.secondary,
-            SemanticColor::TertiaryLabel,
-            cx,
-        ),
-        ContentListPageStateDisplay::Failed(display) => {
-            render_content_list_message(display.title, display.detail, SemanticColor::Danger, cx)
-        }
-    }
-}
-
-fn render_content_list_message(
-    title: impl Into<SharedString>,
-    detail: impl Into<SharedString>,
-    color: SemanticColor,
-    cx: &App,
-) -> AnyElement {
-    div()
-        .text_center()
-        .p(Spacing::XXL.scaled(cx))
-        .child(Label::new(title).size(FontSize::Caption).color(color))
-        .child(
-            Label::new(detail)
-                .size(FontSize::Micro)
-                .color(SemanticColor::TertiaryLabel),
-        )
-        .into_any_element()
 }
 
 fn render_content_list_load_more(

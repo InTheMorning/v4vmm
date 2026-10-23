@@ -18,13 +18,21 @@ This record is advisory. It states no rule. Each rule stays in its ADR.
 
 Each entry names the step, the decision and the reason.
 
+- ADR 0086 packet 002. The orchestrator accepted six deviations of the coding agent:
+  - The guard of ADR 0060 forbids each `dead_code` attribute. Names that only later packets call are thus `#[cfg(test)]` for now: `WindowLength::{MIN_DAYS, MAX_DAYS, from_days, days}`, `LibraryViewModel::{window_length, set_window_length}` and `NewReleasesLayout::any_window_open`. The packet that first calls a name removes its `#[cfg(test)]`.
+  - Guard R15-09 also lets `src/view_models/window_groups.rs` name `ReleaseKind::Single`. ADR 0086 Decision 1 groups singles only.
+  - The 500-line limit of a file moved the group renderers to `src/ui/shells/library/window_groups.rs`, and the list state messages to `content_list_state.rs`.
+  - The content list renderers take one tuple `ContentListImages`, because a guard needs the parameter name `thumbnails`.
+  - `ContentListItemVm` has `#[expect(clippy::large_enum_variant)]`.
+  - The layout keeps no `WindowGroup`. Thus the tile has no `anchor_date` and no `window_start`. Packet 004 adds them to the tile, because its `WindowGroupKey` needs them.
+
 ## Steps
 
 | Step | State | Commit |
 |---|---|---|
 | Planning documents of 2026-10-23 | Done | `e38b6e3`, Stophammer `97aa28e` |
-| ADR 0086 packet 001: parallel detail reads | Implemented. V1 to V4 open | (this commit) |
-| ADR 0086 packet 002: New releases window groups | Ready | |
+| ADR 0086 packet 001: parallel detail reads | Implemented. V1 to V4 open | `cdbabc4` |
+| ADR 0086 packet 002: New releases window groups | Implemented. V1 to V8 open | (this commit) |
 | ADR 0086 packet 003: the pager closes each window | Ready | |
 | ADR 0086 packet 004: the window group page | Ready | |
 | ADR 0086 packet 005: saved search window groups | Ready | |

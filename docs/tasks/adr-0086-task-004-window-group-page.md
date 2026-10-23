@@ -2,6 +2,8 @@
 
 Status: Ready - 2026-10-23.
 
+Orchestrator note - 2026-10-23: packet 002 is implemented. These names are `#[cfg(test)]` until a packet calls them: `WindowLength::{MIN_DAYS, MAX_DAYS, from_days, days}`, `LibraryViewModel::{window_length, set_window_length}` and `NewReleasesLayout::any_window_open`. Remove the `#[cfg(test)]` of each name that this packet calls. The group renderers are in `src/ui/shells/library/window_groups.rs`. The tile has no `anchor_date` and no `window_start`. Add them to `WindowGroupTileVm` from the `WindowGroup` of `NewReleasesLayout::build`.
+
 ## Goal
 
 A click on a group tile of New releases opens a window group page. The page is one page of ADR 0084 Decision 4. It goes into the navigation stack of ADR 0084 Decision 9. The breadcrumb shows it, for example "Discover › New releases › jSmovie · 9 singles".

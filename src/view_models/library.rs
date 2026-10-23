@@ -93,6 +93,7 @@ use crate::view_models::singles_group::{
 use crate::view_models::text_filter::contains_normalized;
 #[cfg(test)]
 use crate::view_models::text_filter::normalize;
+use crate::view_models::window_groups::{NewReleasesLayout, WindowLength};
 use crate::view_models::workspace::{
     ContentViewMode, ContentViewModeControlDisplay, DiscoverView, FrameHeaderActionDisplay,
     FrameNavigationEntry, MusicDestination, MusicSidebarPreference, MusicSidebarState,
@@ -102,7 +103,11 @@ use crate::view_models::ActionStatusMessageDisplay;
 use crate::views::{FeedMetadataFacts, LocalIdentityFacts, TrackRef};
 
 const UPDATE_AVAILABLE_LABEL: &str = "Update available";
-const NEW_RELEASE_LABEL: &str = "New";
+/// The state word of a release that the Library does not hold (ADR 0084
+/// Decision 8).
+pub(crate) const NEW_RELEASE_LABEL: &str = "New";
+/// The state word of a Library item (ADR 0084 Decision 8).
+pub(crate) const IN_LIBRARY_STATE_LABEL: &str = "In library";
 const BROADCAST_ROUTE_REPAIR_AVAILABLE_LABEL: &str = "Fix routes";
 const BROADCAST_ROUTE_REPAIR_WORKING_LABEL: &str = "Repairing\u{2026}";
 const BROADCAST_ROUTE_REPAIRING_STATE_LABEL: &str = "Repairing routes";
@@ -1097,7 +1102,7 @@ impl ContentListLibraryBadgeState {
     /// see.
     const fn label(self) -> Option<&'static str> {
         match self {
-            Self::InLibrary => Some("In library"),
+            Self::InLibrary => Some(IN_LIBRARY_STATE_LABEL),
             Self::NotInLibrary => None,
         }
     }
@@ -1321,7 +1326,7 @@ impl ContentListRowKind {
 /// The kind of a release result row (ADR 0084 Decision 5). A row with no
 /// loaded feed detail, for example a bare search fixture, resolves with
 /// no stated value and no loaded track, which gives Album.
-fn release_kind_of_feed_result(display: &FeedResultDisplay) -> ReleaseKind {
+pub(crate) fn release_kind_of_feed_result(display: &FeedResultDisplay) -> ReleaseKind {
     match &display.remote_feed {
         Some(feed) => ReleaseKind::resolve(feed.release_kind.as_deref(), feed.track_count()),
         None => ReleaseKind::resolve(None, 0),
@@ -2965,6 +2970,12 @@ pub(crate) struct LibraryViewModel {
     /// request of the group page or of the single page for each feed
     /// (ADR 0084 packet 026). They stay until the app stops.
     index_feed_singles: IndexFeedSingles,
+    /// The window groups of New releases (ADR 0086 Decisions 1 and 2).
+    /// `refresh_new_releases_layout` makes it again after each change of the
+    /// rows, the tree or the window length.
+    new_releases_layout: NewReleasesLayout,
+    /// The window length of the New releases groups (ADR 0086 Decision 7).
+    window_length: WindowLength,
     in_flight_broadcast_route_repairs: BTreeSet<i64>,
     library_removal: LibraryRemovalConfirmationState,
     status: String,
@@ -2997,6 +3008,8 @@ impl LibraryViewModel {
             hovered_thumb_url: None,
             busy: BusyItems::default(),
             index_feed_singles: IndexFeedSingles::default(),
+            new_releases_layout: NewReleasesLayout::default(),
+            window_length: WindowLength::DEFAULT,
             in_flight_broadcast_route_repairs: BTreeSet::new(),
             library_removal: LibraryRemovalConfirmationState::new(),
             status: String::new(),
@@ -3030,6 +3043,68 @@ impl LibraryViewModel {
             .replace_tree_rows(content_list_rows_from_tree(&tree));
         self.snapshot.tree = tree;
         self.mark_recent_library_releases();
+        self.refresh_new_releases_layout();
+    }
+
+    /// Makes the window groups of New releases again (ADR 0086 Decisions 1
+    /// and 2, packet 002 decision D11). Each method that changes the New
+    /// releases rows, the tree or the window length calls it last. When the
+    /// content list shows no New releases rows, the layout is empty.
+    fn refresh_new_releases_layout(&mut self) {
+        self.new_releases_layout =
+            if self.content_list_page.source == ContentListPageSource::RecentMusic {
+                NewReleasesLayout::build(
+                    &self.content_list_page.visible_rows(),
+                    &self.snapshot.tree,
+                    self.window_length,
+                )
+            } else {
+                NewReleasesLayout::default()
+            };
+    }
+
+    /// The window groups of New releases (ADR 0086 Decision 2). The render
+    /// and the handlers read this layout.
+    #[must_use]
+    pub(crate) fn new_releases_layout(&self) -> &NewReleasesLayout {
+        &self.new_releases_layout
+    }
+
+    /// The window length of the New releases groups (ADR 0086 Decision 7).
+    #[must_use]
+    #[cfg(test)]
+    pub(crate) const fn window_length(&self) -> WindowLength {
+        self.window_length
+    }
+
+    /// Sets the window length and makes the groups again in the mounted
+    /// view (ADR 0086 Decision 7).
+    #[cfg(test)]
+    pub(crate) fn set_window_length(&mut self, length: WindowLength) {
+        self.window_length = length;
+        self.refresh_new_releases_layout();
+    }
+
+    /// The selection rows of the Discover "New releases" view (packet 002
+    /// decisions D9 and D10). In `Normal`, they are the shown items: each
+    /// plain row and each anchor row, in item order. In `Selecting`, they
+    /// are each visible row.
+    #[must_use]
+    pub(crate) fn discover_selection_rows(
+        &self,
+        mode: SelectionMode,
+    ) -> Vec<&ContentListRowDisplay> {
+        let rows = self.content_list_page.visible_rows();
+        if mode.is_selecting() || self.new_releases_layout.items().is_empty() {
+            return rows;
+        }
+        let rows_by_id: BTreeMap<&str, &ContentListRowDisplay> =
+            rows.iter().map(|row| (row.id.as_str(), *row)).collect();
+        self.new_releases_layout
+            .shown_row_ids()
+            .into_iter()
+            .filter_map(|row_id| rows_by_id.get(row_id).copied())
+            .collect()
     }
 
     /// Gives each "New releases" row that the Library holds its state word
@@ -3051,6 +3126,7 @@ impl LibraryViewModel {
     pub(crate) fn show_tracks_destination(&mut self) {
         self.content_list_page
             .replace_rows(content_list_rows_from_tree(&self.snapshot.tree));
+        self.refresh_new_releases_layout();
     }
 
     #[must_use]
@@ -3082,6 +3158,7 @@ impl LibraryViewModel {
         self.needs_attention_count = report.problem_count();
         self.content_list_page
             .replace_broadcast_readiness_rows(self.broadcast_readiness_rows(report));
+        self.refresh_new_releases_layout();
     }
 
     /// Keeps the Needs attention count current at the ADR 0084 Decision 2
@@ -3095,6 +3172,7 @@ impl LibraryViewModel {
             self.content_list_page
                 .replace_broadcast_readiness_rows(self.broadcast_readiness_rows(report));
         }
+        self.refresh_new_releases_layout();
     }
 
     fn broadcast_readiness_rows(
@@ -3272,11 +3350,13 @@ impl LibraryViewModel {
 
     pub(crate) fn begin_recent_music_content_load(&mut self, append: bool) {
         self.content_list_page.begin_recent_music_load(append);
+        self.refresh_new_releases_layout();
     }
 
     pub(crate) fn replace_recent_music_content(&mut self, page: &RecentFeedsPageVm) {
         self.content_list_page.replace_recent_feeds_page(page);
         self.mark_recent_library_releases();
+        self.refresh_new_releases_layout();
     }
 
     #[must_use]
@@ -12482,5 +12562,339 @@ mod tests {
         nav.start_path(entry.clone(), None);
         assert_eq!(nav.path_entries(), vec![entry]);
         assert_eq!(nav.go_back().ok().cloned(), Some(release));
+    }
+}
+
+/// The window groups of New releases in the view model (ADR 0086 packet
+/// 002).
+#[cfg(test)]
+mod adr_0086_window_groups_tests {
+    use super::*;
+    use crate::view_models::detail_selection::{
+        discover_items_with_selection, discover_release_rows, DetailPageRows, DetailRowKey,
+        DetailSelection,
+    };
+    use crate::view_models::list_selection::FocusStep;
+    use crate::view_models::named_feeds::NamedFeed;
+    use crate::view_models::recent_feeds::RecentFeedsPageBatch;
+    use crate::view_models::window_groups::{ContentListItemVm, NewReleasesLayoutItem};
+    use crate::view_models::workspace::{DiscoverView, FrameNavigationEntry};
+    use crate::views::FeedView;
+
+    /// The UTC midnight of `date` in October 2026.
+    fn oct(date: u32) -> i64 {
+        chrono::NaiveDate::from_ymd_opt(2026, 10, date)
+            .and_then(|day| day.and_hms_opt(0, 0, 0))
+            .expect("a valid date")
+            .and_utc()
+            .timestamp()
+    }
+
+    fn artist_feed() -> NamedFeed {
+        NamedFeed {
+            feed_guid: "feed-jsmovie".to_owned(),
+            title: Some("jSmovie".to_owned()),
+            position: Some(0),
+            role: Some("artist".to_owned()),
+            role_agreement: Some("both".to_owned()),
+            feed_rel: None,
+            album_rel: None,
+            confirmed: true,
+            image_url: None,
+        }
+    }
+
+    /// One jSmovie single of New releases, as the detail read gives it.
+    fn single(guid: &str, date: i64) -> RecentFeedResultRow {
+        let feed = FeedView {
+            feed_guid: Some(guid.to_owned()),
+            artist: Some("jSmovie".to_owned()),
+            release_kind: Some("single".to_owned()),
+            named_feeds: vec![artist_feed()],
+            ..FeedView::default()
+        };
+        (
+            0,
+            FeedResultDisplay::new(
+                format!("index-feed:{guid}"),
+                format!("Single {guid}"),
+                SearchResultOrigin::Index,
+            )
+            .with_remote_feed(feed)
+            .with_newest_item_at(Some(date)),
+        )
+    }
+
+    /// One album of a different artist.
+    fn album(guid: &str, date: i64) -> RecentFeedResultRow {
+        let feed = FeedView {
+            feed_guid: Some(guid.to_owned()),
+            artist: Some("Rain".to_owned()),
+            release_kind: Some("album".to_owned()),
+            ..FeedView::default()
+        };
+        (
+            0,
+            FeedResultDisplay::new(
+                format!("index-feed:{guid}"),
+                format!("Album {guid}"),
+                SearchResultOrigin::Index,
+            )
+            .with_remote_feed(feed)
+            .with_newest_item_at(Some(date)),
+        )
+    }
+
+    fn batch(rows: Vec<RecentFeedResultRow>, has_more: bool) -> RecentFeedsPageBatch {
+        RecentFeedsPageBatch {
+            rows,
+            cursor: has_more.then(|| "next".to_owned()),
+            has_more,
+        }
+    }
+
+    /// A view model that shows New releases with `rows`.
+    fn view_model(
+        rows: Vec<RecentFeedResultRow>,
+        has_more: bool,
+    ) -> (LibraryViewModel, RecentFeedsPageVm) {
+        let mut vm = LibraryViewModel::new();
+        let mut page = RecentFeedsPageVm::loading();
+        let _ = page.begin_load(false);
+        vm.begin_recent_music_content_load(false);
+        page.finish_load(batch(rows, has_more), false);
+        vm.replace_recent_music_content(&page);
+        (vm, page)
+    }
+
+    fn group_counts(vm: &LibraryViewModel) -> Vec<usize> {
+        vm.new_releases_layout()
+            .items()
+            .iter()
+            .filter_map(|item| match item {
+                NewReleasesLayoutItem::WindowGroup(tile) => Some(tile.count),
+                NewReleasesLayoutItem::Release { .. } => None,
+            })
+            .collect()
+    }
+
+    fn ids(rows: &[&ContentListRowDisplay]) -> Vec<String> {
+        rows.iter().map(|row| row.id.clone()).collect()
+    }
+
+    /// The rows of R86-2-01 with an album between them.
+    fn r01_rows() -> Vec<RecentFeedResultRow> {
+        vec![
+            single("a", oct(20)),
+            album("rain", oct(18)),
+            single("b", oct(15)),
+            single("c", oct(8)),
+            single("d", oct(1)),
+        ]
+    }
+
+    /// R86-2-23: `open_row_id` is the anchor row. In `Normal`, the
+    /// selection rows are each plain row and each anchor row, in item
+    /// order.
+    #[test]
+    fn adr_0086_window_groups_r23_normal_selection_rows_are_the_items() {
+        let (vm, _) = view_model(r01_rows(), false);
+        let layout = vm.new_releases_layout();
+        let NewReleasesLayoutItem::WindowGroup(tile) = &layout.items()[0] else {
+            panic!("the first item is the group");
+        };
+        assert_eq!(tile.open_row_id, "index-feed:a");
+        assert_eq!(
+            ids(&vm.discover_selection_rows(SelectionMode::Normal)),
+            ["index-feed:a", "index-feed:rain", "index-feed:d"]
+        );
+        assert_eq!(
+            layout.shown_row_ids(),
+            ["index-feed:a", "index-feed:rain", "index-feed:d"]
+        );
+    }
+
+    /// R86-2-24 (the view model part): in `Selecting`, the selection rows
+    /// are each visible row.
+    #[test]
+    fn adr_0086_window_groups_r24_selecting_rows_are_each_row() {
+        let (vm, _) = view_model(r01_rows(), false);
+        assert_eq!(
+            ids(&vm.discover_selection_rows(SelectionMode::Selecting)),
+            [
+                "index-feed:a",
+                "index-feed:rain",
+                "index-feed:b",
+                "index-feed:c",
+                "index-feed:d"
+            ]
+        );
+    }
+
+    /// R86-2-28: an appended page that adds a single to a window changes
+    /// the group, with no other call.
+    #[test]
+    fn adr_0086_window_groups_r28_appended_page_changes_the_group() {
+        let (mut vm, mut page) = view_model(vec![single("a", oct(20))], true);
+        assert!(group_counts(&vm).is_empty());
+
+        let _ = page.begin_load(true);
+        vm.begin_recent_music_content_load(true);
+        page.finish_load(batch(vec![single("b", oct(15))], false), true);
+        vm.replace_recent_music_content(&page);
+        assert_eq!(group_counts(&vm), [2]);
+    }
+
+    /// R86-2-29: a tree that holds one member changes the Library
+    /// count, with no other call.
+    #[test]
+    fn adr_0086_window_groups_r29_tree_changes_the_library_count() {
+        let (mut vm, _) = view_model(r01_rows(), false);
+        let state = |vm: &LibraryViewModel| match &vm.new_releases_layout().items()[0] {
+            NewReleasesLayoutItem::WindowGroup(tile) => tile.state,
+            NewReleasesLayoutItem::Release { .. } => panic!("the first item is the group"),
+        };
+        assert_eq!(state(&vm).count_text(), None);
+
+        vm.replace_tree(LibraryTree {
+            artists: vec![ArtistNode {
+                name: "jSmovie".to_owned(),
+                albums: vec![AlbumNode {
+                    name: "Single b".to_owned(),
+                    feed_id: Some(7),
+                    feed_guid: Some("b".to_owned()),
+                    feed_url: None,
+                    language: None,
+                    description: None,
+                    image_href: None,
+                    named_feeds: vec![artist_feed()],
+                    identity_facts: LocalIdentityFacts::default(),
+                    metadata_facts: Box::new(FeedMetadataFacts::default()),
+                    stored_values: None,
+                    tracks: vec![TrackRow {
+                        pub_date: Some(oct(15)),
+                        is_in_library: true,
+                        ..TrackRow::default()
+                    }],
+                }],
+            }],
+        });
+        assert_eq!(state(&vm).count_text().as_deref(), Some("1 in library"));
+    }
+
+    /// R86-2-30: a window of 7 days divides the group of R86-2-01. Oct 20
+    /// and Oct 15 make one group. Oct 8 and Oct 1, 7 days apart,
+    /// make a second group.
+    #[test]
+    fn adr_0086_window_groups_r30_set_window_length_divides_the_group() {
+        let (mut vm, _) = view_model(r01_rows(), false);
+        assert_eq!(vm.window_length(), WindowLength::DEFAULT);
+        assert_eq!(group_counts(&vm), [3]);
+
+        let week = WindowLength::from_days(7).expect("7 is in the range");
+        vm.set_window_length(week);
+        assert_eq!(vm.window_length(), week);
+        assert_eq!(group_counts(&vm), [2, 2]);
+    }
+
+    /// The items of `vm` with the facts of `selection`.
+    fn items(vm: &LibraryViewModel, selection: &DetailSelection) -> Vec<ContentListItemVm> {
+        discover_items_with_selection(
+            vm.content_list_page()
+                .visible_rows()
+                .into_iter()
+                .cloned()
+                .collect(),
+            vm.new_releases_layout(),
+            selection,
+        )
+    }
+
+    fn discover_selection() -> DetailSelection {
+        let mut selection = DetailSelection::new();
+        selection.bind(&FrameNavigationEntry::DiscoverView(
+            DiscoverView::NewReleases,
+        ));
+        selection
+    }
+
+    /// The id of each item: the row id, or the element id of a group.
+    fn item_ids(items: &[ContentListItemVm]) -> Vec<String> {
+        items
+            .iter()
+            .map(|item| match item {
+                ContentListItemVm::Row(row) => row.id.clone(),
+                ContentListItemVm::WindowGroup(tile) => tile.element_id.clone(),
+            })
+            .collect()
+    }
+
+    /// R86-2-24 (the items part): in `Selecting`, the items are only rows,
+    /// each with a visible checkbox.
+    #[test]
+    fn adr_0086_window_groups_r24_selecting_items_are_rows_with_checkboxes() {
+        let (vm, _) = view_model(r01_rows(), false);
+        let mut selection = discover_selection();
+        selection.toggle_mode();
+        let items = items(&vm, &selection);
+        assert_eq!(items.len(), 5);
+        assert!(items.iter().all(|item| matches!(
+            item,
+            ContentListItemVm::Row(row) if row.selection.checkbox_visible
+        )));
+    }
+
+    /// R86-2-25: in `Normal`, the items give the groups. A group tile is
+    /// focused when its anchor key has the focus, and it has no visible
+    /// checkbox.
+    #[test]
+    fn adr_0086_window_groups_r25_group_tile_takes_the_anchor_focus() {
+        let (vm, _) = view_model(r01_rows(), false);
+        let mut selection = discover_selection();
+        let rows = DetailPageRows::Releases(discover_release_rows(
+            vm.discover_selection_rows(selection.mode()),
+            |_| None,
+        ));
+        let focused = selection.move_focus(FocusStep::Down, &rows.selection_rows());
+        assert_eq!(
+            focused,
+            Some(DetailRowKey::Release(ReleaseKey::FeedGuid("a".to_owned())))
+        );
+
+        let items = items(&vm, &selection);
+        assert_eq!(
+            item_ids(&items),
+            [
+                "music-window-group-index-feed:a",
+                "index-feed:rain",
+                "index-feed:d"
+            ]
+        );
+        let ContentListItemVm::WindowGroup(tile) = &items[0] else {
+            panic!("the first item is the group");
+        };
+        assert!(tile.selection.focused);
+        assert!(!tile.selection.checkbox_visible);
+    }
+
+    /// R86-2-26: the Tiles mode and the List mode give the same items.
+    #[test]
+    fn adr_0086_window_groups_r26_tiles_and_list_give_the_same_items() {
+        let (mut vm, _) = view_model(r01_rows(), false);
+        let selection = discover_selection();
+        vm.set_content_view_mode(ContentViewMode::Tiles);
+        let tiles = item_ids(&items(&vm, &selection));
+        vm.set_content_view_mode(ContentViewMode::List);
+        let list = item_ids(&items(&vm, &selection));
+        assert_eq!(tiles, list);
+        assert_eq!(tiles.len(), 3);
+    }
+
+    /// The layout is empty when the content list shows the Tracks rows.
+    #[test]
+    fn adr_0086_window_groups_tracks_destination_clears_the_layout() {
+        let (mut vm, _) = view_model(r01_rows(), false);
+        vm.show_tracks_destination();
+        assert!(vm.new_releases_layout().items().is_empty());
     }
 }

@@ -1,6 +1,6 @@
 # ADR 0086 Task 002: New Releases Window Groups
 
-Status: Ready - 2026-10-23.
+Status: Implemented - 2026-10-23. Cases R86-2-01 to R86-2-33 pass. Mechanical checks are Green. V1 to V8 are open, in the final walk of the run of 2026-10-23.
 
 ## Goal
 

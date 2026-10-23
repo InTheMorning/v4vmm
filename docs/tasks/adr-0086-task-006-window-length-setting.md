@@ -2,6 +2,8 @@
 
 Status: Ready - 2026-10-23. It waits for ADR 0069 task 002 and ADR 0086 task 002.
 
+Orchestrator note - 2026-10-23: packet 002 is implemented. These names are `#[cfg(test)]` until a packet calls them: `WindowLength::{MIN_DAYS, MAX_DAYS, from_days, days}`, `LibraryViewModel::{window_length, set_window_length}` and `NewReleasesLayout::any_window_open`. Remove the `#[cfg(test)]` of each name that this packet calls. The group renderers are in `src/ui/shells/library/window_groups.rs`.
+
 ## Goal
 
 The Library group of Settings has one row for the window length in days. The value is 1 to 60. The default is 14. No value turns the grouping off.

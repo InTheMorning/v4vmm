@@ -76,6 +76,7 @@ use crate::ui::style::color;
 use crate::ui::style::spacing;
 use crate::ui::tokens::Motion;
 use crate::view_models::artist_identity::{ArtistNameDestination, ArtistNameKey, NameFeedMatches};
+use crate::view_models::collection_art::CollectionArtVm;
 use crate::view_models::detail_selection::DetailSelection;
 use crate::view_models::entity_detail::TrackMetadataActionState;
 use crate::view_models::index_name_list::{IndexNameListPage, MusicListScope};
@@ -111,6 +112,7 @@ use crate::view_models::singles_group::{
     SinglesGroupKey, SinglesGroupPageEntryVm, SinglesGroupPageVm,
 };
 use crate::view_models::track_detail::TrackNameLinkTarget;
+use crate::view_models::window_groups::{ContentListItemVm, NewReleasesLayoutItem};
 use crate::view_models::workspace::{
     resolve_music_sidebar_state, toggle_music_sidebar_preference, ContentViewMode,
     ContentViewModeControlDisplay, DiscoverView, FrameHeaderActionDisplay, FrameNavigationEntry,
@@ -4824,10 +4826,13 @@ impl LibraryApp {
                     playlists: std::rc::Rc::new(playlist_options(self.vm.playlists())),
                     return_focus: self.list_column_focus.clone(),
                 };
+                // ADR 0086 packet 002: the list column shows no window
+                // group, so each of its rows is one item.
+                let items = rows.into_iter().map(ContentListItemVm::Row).collect();
                 let pane = render_library_content_list(
                     self.vm.content_list_page(),
-                    rows,
-                    &content_row_thumbs,
+                    items,
+                    (&content_row_thumbs, &RowArts::new()),
                     &self.recent_music_scroll,
                     (ContentListSelectionTarget::ListColumn, None),
                     Some(menu),
@@ -5070,13 +5075,37 @@ impl LibraryApp {
                     let img = self.thumbnail_for_url(Some(&url), false, cx);
                     content_row_thumbs.insert(row_id, img);
                 }
+                // ADR 0086 Decision 3, packet 002 decision D12: the art of
+                // each group is the anchor cover, in the size of the mode.
+                let art_size = match self.vm.content_view_mode() {
+                    ContentViewMode::Tiles => ThumbnailSize::Xl,
+                    ContentViewMode::List => ThumbnailSize::Sm,
+                };
+                let group_arts: Vec<(String, CollectionArtVm)> = self
+                    .vm
+                    .new_releases_layout()
+                    .items()
+                    .iter()
+                    .filter_map(|item| match item {
+                        NewReleasesLayoutItem::WindowGroup(tile) => {
+                            Some((tile.element_id.clone(), tile.art.clone()))
+                        }
+                        NewReleasesLayoutItem::Release { .. } => None,
+                    })
+                    .collect();
+                let mut arts = RowArts::new();
+                for (element_id, art) in group_arts {
+                    let image = collection_art_image(self, &art, art_size, cx);
+                    arts.insert(element_id, image);
+                }
                 let view_mode_display = self.vm.content_view_mode_control();
                 let probe = self.detail_scroll_reveal().probe();
                 render_discover_new_releases_detail(
                     self.vm.content_list_page(),
+                    self.vm.new_releases_layout(),
                     (&self.detail_selection, probe),
                     view_mode_display,
-                    &content_row_thumbs,
+                    (&content_row_thumbs, &arts),
                     &self.recent_music_scroll,
                     cx,
                 )

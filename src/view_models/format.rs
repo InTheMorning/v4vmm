@@ -29,6 +29,14 @@ pub fn fmt_date(ts: i64) -> Option<String> {
     chrono::DateTime::from_timestamp(ts, 0).map(|dt| dt.format("%b %-d, %Y").to_string())
 }
 
+/// Formats a Unix epoch timestamp as `"Mon D"`, for example `"Oct 8"`.
+/// The day is the calendar day in UTC, as in [`fmt_date`]. Returns `None`
+/// when the timestamp is out of range (ADR 0086 Decision 3).
+#[must_use]
+pub fn fmt_month_day(ts: i64) -> Option<String> {
+    chrono::DateTime::from_timestamp(ts, 0).map(|dt| dt.format("%b %-d").to_string())
+}
+
 /// Format a total-runtime in seconds as a clock-style label:
 ///
 /// - `"M:SS"` when the total is under one hour.
@@ -100,6 +108,13 @@ mod tests {
     fn fmt_date_renders_ymd() {
         // 2024-04-05T00:00:00 UTC
         assert_eq!(fmt_date(1_712_275_200).as_deref(), Some("Apr 5, 2024"));
+    }
+
+    #[test]
+    fn adr_0086_window_groups_fmt_month_day_gives_month_and_day() {
+        // 2024-04-05T00:00:00 UTC
+        assert_eq!(fmt_month_day(1_712_275_200).as_deref(), Some("Apr 5"));
+        assert_eq!(fmt_month_day(i64::MAX), None);
     }
 
     #[test]

@@ -2,6 +2,8 @@
 
 Status: Ready - 2026-10-23.
 
+Orchestrator note - 2026-10-23: packet 002 is implemented. These names are `#[cfg(test)]` until a packet calls them: `WindowLength::{MIN_DAYS, MAX_DAYS, from_days, days}`, `LibraryViewModel::{window_length, set_window_length}` and `NewReleasesLayout::any_window_open`. Remove the `#[cfg(test)]` of each name that this packet calls. The group renderers are in `src/ui/shells/library/window_groups.rs`.
+
 ## Goal
 
 After a New releases page arrives, the pager loads one more page while a window of a loaded group is open. It loads at most 5 extra pages, 100 feeds, for one page request. The pager keeps its loading state during the extra loads. The new tiles show when the loads stop.

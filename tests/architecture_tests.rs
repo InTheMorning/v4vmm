@@ -21881,7 +21881,10 @@ release_kind.rs and tests. Build the label from `ReleaseKind` instead.",
 /// Library singles, `singles_groups` in `src/view_models/singles_group.rs`.
 /// The Releases list, the group page and the single page link each use
 /// it. No other production code selects releases by
-/// `ReleaseKind::Single`, so two groupings cannot disagree.
+/// `ReleaseKind::Single`, so two groupings cannot disagree. ADR 0086
+/// Decision 1 adds the window groups of New releases, a different group
+/// with its own rule. Its one owner is `src/view_models/window_groups.rs`
+/// (packet 002 decision D1).
 #[test]
 fn adr_0084_singles_group_r15_09_only_the_owner_groups_singles() {
     let mut files = Vec::new();
@@ -21889,6 +21892,7 @@ fn adr_0084_singles_group_r15_09_only_the_owner_groups_singles() {
     let owners = [
         manifest_path("src/view_models/release_kind.rs"),
         manifest_path("src/view_models/singles_group.rs"),
+        manifest_path("src/view_models/window_groups.rs"),
     ];
     let mut violations = Vec::new();
     for file in files {
@@ -23280,4 +23284,66 @@ fn adr_0086_parallel_reads_r86_1_06_feed_detail_reads_use_the_shared_limit() {
          `PARALLEL_DETAIL_READS` in src/application/queries/mod.rs, the same limit as \
          `fetch_feed_singles_set` in src/application/queries/name_lists.rs."
     );
+}
+
+/// The violations of the rule that one function makes the New releases window groups (ADR
+/// 0086 packet 002 R86-2-27). `library` is the source of
+/// `src/view_models/library.rs`. `files` holds each other Rust file under
+/// `src/`, by its relative path.
+fn window_groups_built_once_violations(library: &str, files: &[(String, String)]) -> Vec<String> {
+    const BUILD: &str = "NewReleasesLayout::build(";
+    let mut violations = Vec::new();
+    let refresh = music_open_defects_fn_body(library, "refresh_new_releases_layout");
+    if library.matches(BUILD).count() != 1 || !refresh.is_some_and(|body| body.contains(BUILD)) {
+        violations.push(format!(
+            "src/view_models/library.rs: call `{BUILD}` one time, in `fn refresh_new_releases_layout`"
+        ));
+    }
+    for (file, source) in files {
+        let shell_or_app = ["src/ui/", "src/library/", "src/app/"]
+            .iter()
+            .any(|prefix| file.starts_with(prefix));
+        if shell_or_app {
+            for call in ["window_groups(", BUILD] {
+                if source.contains(call) {
+                    violations.push(format!("{file}: calls `{call}`"));
+                }
+            }
+        }
+        if file != "src/view_models/window_groups.rs" && source.contains("fn window_groups(") {
+            violations.push(format!("{file}: defines `fn window_groups(`"));
+        }
+    }
+    violations
+}
+
+/// R86-2-27 (ADR 0086 Task 002) situational guard: the New releases window
+/// groups are made one time for each change, in the view model (packet 002
+/// decision D11). Responsiveness items 16 and 18 of the overhaul plan
+/// record the cost of a list that the render makes again. Delete this
+/// guard when ADR 0086 Decision 2 is superseded.
+#[test]
+fn adr_0086_window_groups_built_once_in_the_view_model() {
+    const FIX: &str = "ADR 0086 §2 A Group Tile Takes The Place Of Its Newest Single: the New releases window groups are built only in `LibraryViewModel::refresh_new_releases_layout`.\nRead `LibraryViewModel::new_releases_layout()` in the render and in each handler. Do not build the groups again.";
+    let library = read_source(&manifest_path("src/view_models/library.rs"));
+    let files: Vec<(String, String)> = rust_files_under("src")
+        .into_iter()
+        .map(|path| (rel_path(&path), read_source(&path)))
+        .filter(|(file, _)| file != "src/view_models/library.rs")
+        .collect();
+    let violations = window_groups_built_once_violations(&library, &files);
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+
+    // A copy of library.rs that makes the groups two times fails.
+    let twice = format!(
+        "{library}\nfn build_again(rows: &[&Row], tree: &LibraryTree) {{ let _ = NewReleasesLayout::build(rows, tree, WindowLength::DEFAULT); }}\n"
+    );
+    assert!(!window_groups_built_once_violations(&twice, &files).is_empty());
+    // A shell that makes the groups fails.
+    let mut shell = files.clone();
+    shell.push((
+        "src/ui/shells/library/content_list.rs".to_owned(),
+        "let layout = NewReleasesLayout::build(&rows, tree, length);".to_owned(),
+    ));
+    assert!(!window_groups_built_once_violations(&library, &shell).is_empty());
 }

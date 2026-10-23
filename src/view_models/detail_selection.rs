@@ -15,7 +15,7 @@
 
 #![warn(clippy::pedantic)]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::db::{Playlist, PlaylistEdge, PlaylistEntryKey, TrackRow};
 use crate::view_models::library::ContentListRowDisplay;
@@ -33,6 +33,9 @@ use crate::view_models::selection_action_bar::{
     PlaylistSelectionCounts, SelectionActionBarVm, SelectionActionCounts,
 };
 use crate::view_models::singles_group::SinglesGroupPageEntryVm;
+use crate::view_models::window_groups::{
+    ContentListItemVm, NewReleasesLayout, NewReleasesLayoutItem,
+};
 use crate::view_models::workspace::{
     DiscoverView, FrameHeaderActionDisplay, FrameNavigationEntry, ReleaseKey, TrackKey,
 };
@@ -1052,18 +1055,47 @@ pub(crate) fn discover_release_rows<'a>(
         .collect()
 }
 
-/// The Discover rows with the selection facts of the detail column
-/// (packet 020). The row view and the tile view use these same rows. A row
-/// with no key gets [`RowSelectionVm::none`].
+/// The items of the Discover "New releases" view with the selection facts
+/// of the detail column (packet 020, ADR 0086 packet 002). The row view and
+/// the tile view use these same items.
+///
+/// - In `SelectionMode::Normal`, the items follow `layout`. A plain item
+///   gives its row. A group item gives its group tile, with the selection
+///   facts of the anchor key and no visible checkbox.
+/// - In `SelectionMode::Selecting`, each row gives its row, with its
+///   checkbox (packet 002 decision D9).
+/// - When `layout` has no item, for example when the content list shows no
+///   New releases rows, each row gives its row.
+///
+/// A row with no key gets [`RowSelectionVm::none`].
 #[must_use]
-pub(crate) fn discover_rows_with_selection(
+pub(crate) fn discover_items_with_selection(
     rows: Vec<ContentListRowDisplay>,
+    layout: &NewReleasesLayout,
     selection: &DetailSelection,
-) -> Vec<ContentListRowDisplay> {
-    rows.into_iter()
-        .map(|mut row| {
-            row.selection = selection.row_selection(discover_row_key(&row).as_ref(), row.title());
-            row
+) -> Vec<ContentListItemVm> {
+    let with_selection = |mut row: ContentListRowDisplay| {
+        row.selection = selection.row_selection(discover_row_key(&row).as_ref(), row.title());
+        ContentListItemVm::Row(row)
+    };
+    if selection.mode().is_selecting() || layout.items().is_empty() {
+        return rows.into_iter().map(with_selection).collect();
+    }
+    let mut rows_by_id: BTreeMap<String, ContentListRowDisplay> =
+        rows.into_iter().map(|row| (row.id.clone(), row)).collect();
+    layout
+        .items()
+        .iter()
+        .filter_map(|item| match item {
+            NewReleasesLayoutItem::Release { row_id } => {
+                rows_by_id.remove(row_id).map(with_selection)
+            }
+            NewReleasesLayoutItem::WindowGroup(tile) => {
+                let key = rows_by_id.get(&tile.open_row_id).and_then(discover_row_key);
+                let mut tile = tile.as_ref().clone();
+                tile.selection = selection.row_selection(key.as_ref(), &tile.title);
+                Some(ContentListItemVm::WindowGroup(Box::new(tile)))
+            }
         })
         .collect()
 }
@@ -1598,6 +1630,17 @@ mod tests {
         )
     }
 
+    /// The selection facts of each item, in item order.
+    fn item_selections(items: &[ContentListItemVm]) -> Vec<RowSelectionVm> {
+        items
+            .iter()
+            .map(|item| match item {
+                ContentListItemVm::Row(row) => row.selection.clone(),
+                ContentListItemVm::WindowGroup(tile) => tile.selection.clone(),
+            })
+            .collect()
+    }
+
     fn discover_entry() -> FrameNavigationEntry {
         FrameNavigationEntry::DiscoverView(DiscoverView::NewReleases)
     }
@@ -1634,10 +1677,14 @@ mod tests {
         let mut selection = DetailSelection::new();
         selection.bind(&discover_entry());
         selection.toggle_mode();
-        let rows = discover_rows_with_selection(rows, &selection);
-        assert!(rows[0].selection.checkbox_visible);
-        assert!(!rows[1].selection.checkbox_visible);
-        assert!(!rows[1].selection.focused);
+        let rows = item_selections(&discover_items_with_selection(
+            rows,
+            &NewReleasesLayout::default(),
+            &selection,
+        ));
+        assert!(rows[0].checkbox_visible);
+        assert!(!rows[1].checkbox_visible);
+        assert!(!rows[1].focused);
     }
 
     /// R20-03: the Discover bar counts follow packet 018 R18-06. "Download"
@@ -1693,15 +1740,21 @@ mod tests {
         ];
         let mut selection = DetailSelection::new();
         selection.bind(&discover_entry());
-        assert!(discover_rows_with_selection(rows.clone(), &selection)
-            .iter()
-            .all(|row| !row.selection.checkbox_visible));
+        let layout = NewReleasesLayout::default();
+        assert!(item_selections(&discover_items_with_selection(
+            rows.clone(),
+            &layout,
+            &selection
+        ))
+        .iter()
+        .all(|row| !row.checkbox_visible));
 
         selection.toggle_mode();
-        let shown: Vec<bool> = discover_rows_with_selection(rows, &selection)
-            .iter()
-            .map(|row| row.selection.checkbox_visible)
-            .collect();
+        let shown: Vec<bool> =
+            item_selections(&discover_items_with_selection(rows, &layout, &selection))
+                .iter()
+                .map(|row| row.checkbox_visible)
+                .collect();
         assert_eq!(shown, [true, true, false]);
     }
 

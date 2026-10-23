@@ -124,6 +124,11 @@ pub(crate) struct FeedResultDisplay {
     /// The kind that the row resolved from its own facts (ADR 0084
     /// Decision 5). The Library facts of the release replace it.
     pub(crate) kind: ReleaseKind,
+    /// The `newest_item_at` of the `MusicIndex` feed, in Unix seconds. New
+    /// releases uses it as the release date of an Index single and as
+    /// the order date of each row (ADR 0086 Decision 1). `None` when the
+    /// feed gives no value.
+    pub(crate) newest_item_at: Option<i64>,
 }
 
 impl SearchRowMergeKey for FeedResultDisplay {
@@ -163,6 +168,7 @@ impl FeedResultDisplay {
             remote_feed: None,
             key: None,
             kind: ReleaseKind::Album,
+            newest_item_at: None,
         }
     }
 
@@ -206,6 +212,14 @@ impl FeedResultDisplay {
     #[must_use]
     pub(crate) fn with_remote_feed(mut self, feed: FeedView) -> Self {
         self.remote_feed = Some(feed);
+        self
+    }
+
+    /// Returns this display with the `newest_item_at` of its `MusicIndex`
+    /// feed (ADR 0086 Decision 1).
+    #[must_use]
+    pub(crate) fn with_newest_item_at(mut self, value: Option<i64>) -> Self {
+        self.newest_item_at = value;
         self
     }
 }

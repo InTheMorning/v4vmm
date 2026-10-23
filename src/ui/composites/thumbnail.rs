@@ -1,7 +1,7 @@
 //! Thumbnail composite — square artwork tile with a two-letter type
 //! monogram fallback when no image is available (ADR 0083 Decision 4).
 //!
-//! Sizing is expressed as a semantic [`ThumbnailSize`] (`Sm` / `Md` / `Lg` / `XXl`) which
+//! Sizing is expressed as a semantic [`ThumbnailSize`] (`Sm` / `Md` / `Lg` / `Xl` / `XXl`) which
 //! resolves through the global scale, so a "Large" thumbnail in a
 //! detail header automatically grows when the user picks a larger UI scale.
 
@@ -28,6 +28,9 @@ pub enum ThumbnailSize {
     Md,
     /// 80 px — detail-view header.
     Lg,
+    /// 152 px — the content tile artwork, with the artwork shadow. It has
+    /// the footprint of `Size::ContentTileArtwork` (ADR 0086 Decision 3).
+    Xl,
     /// 200 px — the album page header cover, with the artwork shadow (ADR
     /// 0083 Decision 4).
     XXl,
@@ -39,6 +42,7 @@ impl ThumbnailSize {
             Self::Sm => 32.0,
             Self::Md => 48.0,
             Self::Lg => 80.0,
+            Self::Xl => 152.0,
             Self::XXl => 200.0,
         }
     }
@@ -51,6 +55,7 @@ impl ThumbnailSize {
             Self::Sm => ImageSize::Sm,
             Self::Md => ImageSize::Md,
             Self::Lg => ImageSize::Lg,
+            Self::Xl => ImageSize::Xl,
             Self::XXl => ImageSize::XXl,
         }
     }
@@ -80,7 +85,7 @@ impl ThumbnailSize {
     pub(crate) fn radius(self) -> Radius {
         match self {
             Self::Sm | Self::Md => Radius::SM,
-            Self::Lg => Radius::MD,
+            Self::Lg | Self::Xl => Radius::MD,
             Self::XXl => Radius::LG,
         }
     }
@@ -90,7 +95,7 @@ impl ThumbnailSize {
             Self::Sm => FontSize::Body,
             Self::Md => FontSize::Headline,
             Self::Lg => FontSize::Title2,
-            Self::XXl => FontSize::Display,
+            Self::Xl | Self::XXl => FontSize::Display,
         }
     }
 }
@@ -169,6 +174,7 @@ mod tests {
             (ThumbnailSize::Sm, 32.0),
             (ThumbnailSize::Md, 48.0),
             (ThumbnailSize::Lg, 80.0),
+            (ThumbnailSize::Xl, 152.0),
             (ThumbnailSize::XXl, 200.0),
         ] {
             assert!((size.base() - base).abs() < f32::EPSILON, "{size:?}");
@@ -177,6 +183,13 @@ mod tests {
                 "{size:?}"
             );
         }
+    }
+
+    /// R86-2-32: the 152 px tile size uses the `Xl` image size, so a group
+    /// tile has the footprint and the shadow of a release tile.
+    #[test]
+    fn adr_0086_window_groups_xl_thumbnail_uses_the_xl_image_size() {
+        assert_eq!(ThumbnailSize::Xl.image_size(), ImageSize::Xl);
     }
 
     /// R83-15: `Thumbnail` with no image produces the monogram of its kind.

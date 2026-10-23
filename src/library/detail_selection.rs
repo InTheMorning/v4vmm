@@ -238,8 +238,11 @@ impl LibraryApp {
                 )))
             }
             LibraryDetail::Discover(DiscoverView::NewReleases) if self.discover_is_open() => {
+                // ADR 0086 packet 002 decisions D9 and D10: in `Normal`,
+                // the selection rows are the shown items.
                 Some(DetailPageRows::Releases(discover_release_rows(
-                    self.vm.content_list_page().visible_rows(),
+                    self.vm
+                        .discover_selection_rows(self.detail_selection.mode()),
                     |key| self.vm.library_release_facts(key),
                 )))
             }
