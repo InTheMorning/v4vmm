@@ -33,6 +33,8 @@ Each entry names the step, the decision and the reason.
 
 Each entry names the packet, the result and the commit.
 
+1. ADR 0084 packet 035: implemented and Green on 2026-10-24, with no stop. A hydration after a download and the pass at start send a new feed request (`AlbumHydrationTrigger`). 2519 lib tests and 392 guards pass.
+
 ## Final Walk
 
 Open. The orchestrator writes the walk when each packet of the run is committed.

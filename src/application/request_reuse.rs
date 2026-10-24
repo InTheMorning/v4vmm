@@ -48,6 +48,11 @@ const TRACK_RESPONSE_CAPACITY: usize = 256;
 /// example `library::hydrate_album_identity_facts`, whose own local
 /// persistence follows a successful fetch — reads this value to tell a
 /// reused response from a fetched one.
+///
+/// ADR 0084 task 035: only a `RefreshIntent::Normal` request can get this
+/// value. The hydration thus sends `Explicit` for the triggers
+/// `AlbumHydrationTrigger::AfterDownload` and `Backfill`. A response that
+/// another caller kept, such as an Index read, then cannot skip its write.
 pub(crate) const REUSED_GENERATION: i64 = 0;
 
 /// One shared MusicIndex request identity: the endpoint, the scoped

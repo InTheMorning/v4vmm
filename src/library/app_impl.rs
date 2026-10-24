@@ -31,8 +31,8 @@ use crate::application::queries::broadcast::BroadcastReadinessReport;
 use crate::application::queries::feed::FetchRecentFeedsPage;
 use crate::application::queries::images::{FetchCoverColor, FetchThumbnail};
 use crate::application::queries::library::{
-    AlbumIdentityHydration, CompareLibraryTrack, FetchLibraryTrackContext, HydrateAlbumIdentity,
-    LibraryTrackCompare, LoadLibraryTracksTree,
+    AlbumHydrationTrigger, AlbumIdentityHydration, CompareLibraryTrack, FetchLibraryTrackContext,
+    HydrateAlbumIdentity, LibraryTrackCompare, LoadLibraryTracksTree,
 };
 use crate::application::{ApplicationServices, AsyncCommandRunner, CommandContext};
 use crate::db::{self, TrackRow};
@@ -2387,8 +2387,10 @@ impl LibraryApp {
     /// once-per-session backfill pass each call this one function, so
     /// they all apply a hydration result the same way.
     ///
-    /// `continue_backfill` is `true` only for the backfill pass
-    /// (`pump_album_identity_backfill`). Its own completion, success or
+    /// `trigger` names the caller and sets the request intent (ADR 0084
+    /// task 035). A download and the backfill pass send a new request, so
+    /// a kept Index response cannot skip the write of the feed links.
+    /// For `AlbumHydrationTrigger::Backfill`, the completion, success or
     /// failure, then starts the next queued release, so the pass runs
     /// at most `ALBUM_IDENTITY_BACKFILL_CONCURRENCY` commands at a time.
     /// Neither closure changes a `DownloadOutcome`: a hydration failure
@@ -2397,7 +2399,7 @@ impl LibraryApp {
         &mut self,
         feed_id: i64,
         feed_guid: String,
-        continue_backfill: bool,
+        trigger: AlbumHydrationTrigger,
         cx: &mut Context<Self>,
     ) {
         let command = HydrateAlbumIdentity::new(
@@ -2405,6 +2407,7 @@ impl LibraryApp {
             self.musicindex_endpoint.clone(),
             feed_id,
             feed_guid,
+            trigger,
         );
         present_command(
             &self.command_runner,
@@ -2413,14 +2416,14 @@ impl LibraryApp {
             cx,
             move |this, hydration, cx| {
                 apply_library_hydration_result(&mut this.vm, &mut this.detail, feed_id, hydration);
-                if continue_backfill {
+                if trigger == AlbumHydrationTrigger::Backfill {
                     this.pump_album_identity_backfill(cx);
                 }
                 cx.notify();
             },
             move |this, error, cx| {
                 retain_library_query_failure(&mut this.vm, &error);
-                if continue_backfill {
+                if trigger == AlbumHydrationTrigger::Backfill {
                     this.pump_album_identity_backfill(cx);
                 }
             },
@@ -2449,7 +2452,7 @@ impl LibraryApp {
         let Some(feed_id) = feed_id else {
             return;
         };
-        self.hydrate_album_identity(feed_id, feed_guid, false, cx);
+        self.hydrate_album_identity(feed_id, feed_guid, AlbumHydrationTrigger::AfterDownload, cx);
     }
 
     fn hydrate_album_identity_on_view(&mut self, album: &AlbumNode, cx: &mut Context<Self>) {
@@ -2462,7 +2465,7 @@ impl LibraryApp {
         let (Some(feed_id), Some(feed_guid)) = (album.feed_id, album.feed_guid.clone()) else {
             return;
         };
-        self.hydrate_album_identity(feed_id, feed_guid, false, cx);
+        self.hydrate_album_identity(feed_id, feed_guid, AlbumHydrationTrigger::PageView, cx);
     }
 
     /// The number of identity backfill commands that
@@ -2556,7 +2559,7 @@ impl LibraryApp {
         let Some((feed_id, feed_guid)) = self.album_identity_backfill_queue.pop_front() else {
             return;
         };
-        self.hydrate_album_identity(feed_id, feed_guid, true, cx);
+        self.hydrate_album_identity(feed_id, feed_guid, AlbumHydrationTrigger::Backfill, cx);
     }
 
     /// Synchronize LibraryApp detail state to match a navigation entry.
@@ -3078,7 +3081,12 @@ impl LibraryApp {
             cx,
             move |this, _result, cx| {
                 if let Some(feed_guid) = hydrate_feed_guid {
-                    this.hydrate_album_identity(feed_id, feed_guid, false, cx);
+                    this.hydrate_album_identity(
+                        feed_id,
+                        feed_guid,
+                        AlbumHydrationTrigger::AfterDownload,
+                        cx,
+                    );
                 }
                 this.refresh_origin_playlist_actor();
                 this.start_async_reload_preserving_detail(cx);
@@ -3273,7 +3281,12 @@ impl LibraryApp {
             cx,
             move |this, result, cx| {
                 if let (feed_id, Some(feed_guid)) = hydrate_feed {
-                    this.hydrate_album_identity(feed_id, feed_guid, false, cx);
+                    this.hydrate_album_identity(
+                        feed_id,
+                        feed_guid,
+                        AlbumHydrationTrigger::AfterDownload,
+                        cx,
+                    );
                 }
                 apply_track_subscription_to_album_detail(
                     &mut this.detail,

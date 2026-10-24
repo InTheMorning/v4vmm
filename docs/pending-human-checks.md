@@ -74,7 +74,7 @@ Open - the run closed on 2026-10-23. The Walk Log of the run record shows the ch
   - [ADR 0084 packet 012](tasks/adr-0084-task-012-saved-searches.md) V1 to V7
   - [ADR 0084 packet 028](tasks/adr-0084-task-028-search-open-defects.md) V1 to V4
   - [ADR 0084 packet 029](tasks/adr-0084-task-029-search-link-facts.md) V1 to V6
-  - [ADR 0084 packet 026](tasks/adr-0084-task-026-index-singles-groups.md) V2 (the "You Are Enough" row only), V6, V7, V9 and V10. V6 and V10 failed on 2026-10-23 (run record, question 2 and walk log)
+  - [ADR 0084 packet 026](tasks/adr-0084-task-026-index-singles-groups.md) V2 (the "You Are Enough" row only), V6, V7, V9 and V10. V6 and V10 failed on 2026-10-23 (run record, question 2 and walk log). Packet 035 V1 walks V6 again (section 7). The visual overhaul takes V10
   - [ADR 0084 packet 030](tasks/adr-0084-task-030-music-open-defects.md) V1 to V6
   - [ADR 0084 packet 031](tasks/adr-0084-task-031-release-row-actions-and-selection-drag.md) V1 to V9
   - [ADR 0084 packet 032](tasks/adr-0084-task-032-singles-group-rows.md) V1 to V7
@@ -206,3 +206,11 @@ Open - the run closed on 2026-10-24 before the end of its walk. Each check below
   - [ADR 0087 packet 004](tasks/adr-0087-task-004-field-list.md) V1, V6 and V9. V1 and V6 failed
   - [ADR 0087 packet 003](tasks/adr-0087-task-003-live-results.md) V2, V3, V6, V8 and V9. V3 and V6 failed
   - [ADR 0087 packet 005](tasks/adr-0087-task-005-field-list-values.md) V3, V6 and V7. V7 failed
+
+## 7. Final Walk Of The Run Of 2026-10-24
+
+Open - the run adds each packet when its mechanical checks are Green.
+
+- Owner: the [run record](reviews/orchestrated-run-2026-10-24.md#final-walk).
+- The packets of the run. Each item names its packet and its open checks:
+  - [ADR 0084 packet 035](tasks/adr-0084-task-035-download-stores-feed-links.md) V1 to V3. V1 walks packet 026 V6 again

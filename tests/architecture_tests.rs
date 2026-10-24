@@ -23156,12 +23156,14 @@ fn adr_0084_task_033_retired_state_word_types_stay_gone() {
 /// R34-04, R34-05 (ADR 0084 task 034, decision D1). Situational: delete
 /// this guard when that decision is superseded. The success path of a
 /// Library feed job and a Library track job must hydrate the downloaded
-/// feed, so a release joins its feed group with no page view.
+/// feed, so a release joins its feed group with no page view. ADR 0084
+/// task 035 D1: the call passes `AlbumHydrationTrigger::AfterDownload`.
 #[test]
 fn adr_0084_task_034_library_download_jobs_hydrate_their_feed() {
-    const FIX: &str = "ADR 0084 task 034, decision D1: a Library feed job and a Library track \
-job must call `hydrate_album_identity(` on their success path, so the downloaded release is \
-hydrated with no page view.";
+    const FIX: &str = "ADR 0084 task 034, decision D1, and task 035 D1: a Library feed job and \
+a Library track job must call `hydrate_album_identity(` with \
+`AlbumHydrationTrigger::AfterDownload` on their success path, so the downloaded release is \
+hydrated with no page view and with a new request.";
     let app = read_source(&manifest_path("src/library/app_impl.rs"));
     let feed_job = source_between(
         &app,
@@ -23169,24 +23171,35 @@ hydrated with no page view.";
         "pub(crate) fn remove_track_after_confirmation(",
     );
     assert!(feed_job.contains(".hydrate_album_identity("), "{FIX}");
+    assert!(
+        feed_job.contains("AlbumHydrationTrigger::AfterDownload"),
+        "{FIX}"
+    );
     let track_job = source_between(
         &app,
         "fn run_library_track_job(",
         "fn fail_library_track_job(",
     );
     assert!(track_job.contains(".hydrate_album_identity("), "{FIX}");
+    assert!(
+        track_job.contains("AlbumHydrationTrigger::AfterDownload"),
+        "{FIX}"
+    );
 }
 
 /// R34-06, R34-07 (ADR 0084 task 034, decision D1). Situational: delete
 /// this guard when that decision is superseded. The success path of an
 /// Index release job and an Index track job must hydrate the Library
 /// feed that the download just wrote, so a downloaded `MusicIndex`
-/// single joins its feed group with no page view.
+/// single joins its feed group with no page view. ADR 0084 task 035 D1:
+/// that function supplies `AlbumHydrationTrigger::AfterDownload`, so these
+/// jobs must not build a hydration of their own.
 #[test]
 fn adr_0084_task_034_index_download_jobs_hydrate_their_feed() {
-    const FIX: &str = "ADR 0084 task 034, decision D1: an Index release job and an Index track \
-job must call `this.hydrate_album_identity_by_feed_guid(` on their success path, so the \
-downloaded release is hydrated with no page view.";
+    const FIX: &str = "ADR 0084 task 034, decision D1, and task 035 D1: an Index release job \
+and an Index track job must call `this.hydrate_album_identity_by_feed_guid(` on their success \
+path, which supplies `AlbumHydrationTrigger::AfterDownload`. Do not call \
+`hydrate_album_identity(` with another trigger from these jobs.";
     let downloads = read_source(&manifest_path("src/library/downloads.rs"));
     let track_job = source_between(
         &downloads,
@@ -23206,17 +23219,22 @@ downloaded release is hydrated with no page view.";
         release_job.contains("this.hydrate_album_identity_by_feed_guid("),
         "{FIX}"
     );
+    for job in [track_job, release_job] {
+        assert!(!job.contains("AlbumHydrationTrigger::"), "{FIX}");
+    }
 }
 
 /// R34-08 (ADR 0084 task 034, decision D1). Situational: delete this
 /// guard when that decision is superseded. `hydrate_album_identity_by_feed_guid`
 /// must resolve the Library feed id of a feed GUID before it hydrates,
 /// and must return without sending a command when it has no feed GUID.
+/// ADR 0084 task 035 D1: it passes `AlbumHydrationTrigger::AfterDownload`.
 #[test]
 fn adr_0084_task_034_hydrate_by_feed_guid_resolves_the_feed_id_first() {
-    const FIX: &str = "ADR 0084 task 034, decision D1: `hydrate_album_identity_by_feed_guid` \
-must read the Library feed id with `find_feed_id_by_guid` before it calls \
-`self.hydrate_album_identity(`, and must return early when its argument is `None`.";
+    const FIX: &str = "ADR 0084 task 034, decision D1, and task 035 D1: \
+`hydrate_album_identity_by_feed_guid` must read the Library feed id with \
+`find_feed_id_by_guid` before it calls `self.hydrate_album_identity(` with \
+`AlbumHydrationTrigger::AfterDownload`, and must return early when its argument is `None`.";
     let app = read_source(&manifest_path("src/library/app_impl.rs"));
     let function = source_between(
         &app,
@@ -23233,6 +23251,11 @@ must read the Library feed id with `find_feed_id_by_guid` before it calls \
         matches!((find_at, hydrate_at), (Some(find_at), Some(hydrate_at)) if find_at < hydrate_at),
         "{FIX}"
     );
+    let trigger_at = function.find("AlbumHydrationTrigger::AfterDownload");
+    assert!(
+        matches!((hydrate_at, trigger_at), (Some(hydrate_at), Some(trigger_at)) if hydrate_at < trigger_at),
+        "{FIX}"
+    );
 }
 
 /// R34-10, R34-12, R34-13 (ADR 0084 task 034, decision D2 and D3).
@@ -23241,13 +23264,15 @@ must read the Library feed id with `find_feed_id_by_guid` before it calls \
 /// its queue, the Library tree load checks that flag before it starts
 /// the pass, the pass starts its queued commands inside its concurrency
 /// loop, and a hydration's own completion never turns into a download
-/// failure.
+/// failure. ADR 0084 task 035 D4: only the trigger
+/// `AlbumHydrationTrigger::Backfill` continues the pass.
 #[test]
 fn adr_0084_task_034_backfill_starts_once_and_hydration_failure_stays_separate() {
     const FIX: &str = "ADR 0084 task 034: decision D2 needs `album_identity_backfill_started` \
 set before the queue is built, and checked before `start_album_identity_backfill` runs again. \
 Decision D3 needs `hydrate_album_identity`'s failure closure to call \
-`retain_library_query_failure(` and never build a `DownloadOutcome`.";
+`retain_library_query_failure(` and never build a `DownloadOutcome`. Task 035 D4 needs each \
+closure to continue the pass only under `if trigger == AlbumHydrationTrigger::Backfill {`.";
     let app = read_source(&manifest_path("src/library/app_impl.rs"));
     let start = source_between(
         &app,
@@ -23294,6 +23319,62 @@ Decision D3 needs `hydrate_album_identity`'s failure closure to call \
         2,
         "{FIX}"
     );
+    assert_eq!(
+        shared
+            .matches("if trigger == AlbumHydrationTrigger::Backfill {")
+            .count(),
+        2,
+        "{FIX}"
+    );
+}
+
+/// R35-05 (ADR 0084 Decision 6, task 035 D1 and D2). Situational: delete
+/// this guard when ADR 0084 Decision 6 is superseded. Each hydration after
+/// a download passes `AlbumHydrationTrigger::AfterDownload`, and the pass
+/// at app start passes `AlbumHydrationTrigger::Backfill`. Both send a new
+/// request, so a kept Index response cannot skip the write of
+/// `feed_publisher_relationships`.
+#[test]
+fn adr_0084_task_035_download_and_backfill_hydrations_pass_their_trigger() {
+    const FIX: &str = "ADR 0084 Decision 6, task 035 D1: a hydration after a download must pass \
+AlbumHydrationTrigger::AfterDownload. A kept Index response would skip the write of \
+feed_publisher_relationships. Pass the trigger in this call.";
+    const BACKFILL_FIX: &str = "ADR 0084 Decision 6, task 035 D2: the pass at app start must \
+pass AlbumHydrationTrigger::Backfill. A kept Index response would skip the write of \
+feed_publisher_relationships. Pass the trigger in this call.";
+    let app = read_source(&manifest_path("src/library/app_impl.rs"));
+    let callers = [
+        (
+            "fn hydrate_album_identity_by_feed_guid(",
+            "fn hydrate_album_identity_on_view(",
+        ),
+        (
+            "fn run_library_feed_job(",
+            "pub(crate) fn remove_track_after_confirmation(",
+        ),
+        ("fn run_library_track_job(", "fn fail_library_track_job("),
+    ];
+    let mut violations = Vec::new();
+    for (start, end) in callers {
+        let body = compact_source(source_between(&app, start, end));
+        if !body.contains(
+            "hydrate_album_identity(feed_id,feed_guid,AlbumHydrationTrigger::AfterDownload,cx",
+        ) {
+            violations.push(format!("src/library/app_impl.rs: `{start}` {FIX}"));
+        }
+    }
+    let pump = compact_source(source_between(
+        &app,
+        "fn pump_album_identity_backfill(",
+        "fn hydrate_detail_from_nav(",
+    ));
+    if !pump.contains("hydrate_album_identity(feed_id,feed_guid,AlbumHydrationTrigger::Backfill,cx")
+    {
+        violations.push(format!(
+            "src/library/app_impl.rs: `fn pump_album_identity_backfill(` {BACKFILL_FIX}"
+        ));
+    }
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
 }
 
 /// R86-1-06 (ADR 0086 Task 001) situational guard: the New releases feed

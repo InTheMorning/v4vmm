@@ -160,13 +160,47 @@ impl ApplicationCommand for FetchLibraryTrackContext {
     }
 }
 
+/// The cause of one album identity hydration (ADR 0084 task 035).
+///
+/// The trigger sets the `RefreshIntent` of the feed request. A hydration
+/// after a download and the once-per-session pass send a new, observed
+/// request. Thus a kept response of another caller, such as an Index
+/// read, cannot skip the write of `feed_publisher_relationships`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum AlbumHydrationTrigger {
+    /// An album page view. It may reuse a kept response (decision D3).
+    PageView,
+    /// The success of a download job (decision D1).
+    AfterDownload,
+    /// The once-per-session pass at app start (decision D2).
+    Backfill,
+}
+
+impl AlbumHydrationTrigger {
+    /// The `RefreshIntent` that the hydration of this trigger sends.
+    #[must_use]
+    pub(crate) const fn refresh_intent(self) -> crate::application::request_reuse::RefreshIntent {
+        use crate::application::request_reuse::RefreshIntent;
+        match self {
+            Self::PageView => RefreshIntent::Normal,
+            Self::AfterDownload | Self::Backfill => RefreshIntent::Explicit,
+        }
+    }
+}
+
 /// Hydrates album identity facts from MusicIndex.
+///
+/// The `AlbumHydrationTrigger` sets the request intent. A `PageView`
+/// hydration can reuse a kept response and then skips its writes. An
+/// `AfterDownload` or `Backfill` hydration always sends a new request and
+/// writes its result (ADR 0084 task 035).
 #[derive(Clone, Debug)]
 pub(crate) struct HydrateAlbumIdentity {
     conn: SharedConnection,
     musicindex_endpoint: crate::config::MusicIndexEndpoint,
     feed_id: i64,
     feed_guid: String,
+    trigger: AlbumHydrationTrigger,
 }
 
 impl HydrateAlbumIdentity {
@@ -177,12 +211,14 @@ impl HydrateAlbumIdentity {
         musicindex_endpoint: impl Into<crate::config::MusicIndexEndpoint>,
         feed_id: i64,
         feed_guid: impl Into<String>,
+        trigger: AlbumHydrationTrigger,
     ) -> Self {
         Self {
             conn,
             musicindex_endpoint: musicindex_endpoint.into(),
             feed_id,
             feed_guid: feed_guid.into(),
+            trigger,
         }
     }
 }
@@ -199,6 +235,7 @@ impl ApplicationCommand for HydrateAlbumIdentity {
             &self.musicindex_endpoint,
             self.feed_id,
             &self.feed_guid,
+            self.trigger,
         )
         .map(CommandOutcome::without_events)
     }
@@ -591,8 +628,9 @@ fn hydrate_album_identity_facts(
     musicindex_endpoint: &crate::config::MusicIndexEndpoint,
     feed_id: i64,
     feed_guid: &str,
+    trigger: AlbumHydrationTrigger,
 ) -> Result<AlbumIdentityHydration, CommandError> {
-    use crate::application::request_reuse::{self, RefreshIntent, RequestKey, SharedFetchError};
+    use crate::application::request_reuse::{self, RequestKey, SharedFetchError};
     let recorder = Arc::new(ProviderObservationRecorder::new(Arc::clone(&conn)));
     let owner = request_reuse::shared();
     let provider_identity = musicindex_endpoint
@@ -617,8 +655,10 @@ fn hydrate_album_identity_facts(
         // own recorder right after the fetch, and every caller — the winner
         // and a caller that joins it — receives that one request's exact
         // receipts (R18A-05). No caller records a second observation.
+        // ADR 0084 task 035: the trigger sets the intent. Only a
+        // `PageView` hydration can reuse a kept response.
         let (fetch_result, generation) =
-            owner.fetch_feed_with_receipts(key, RefreshIntent::Normal, {
+            owner.fetch_feed_with_receipts(key, trigger.refresh_intent(), {
                 let recorder = Arc::clone(&recorder);
                 move || {
                     let feed = client.fetch_feed_with_profile(
@@ -646,7 +686,8 @@ fn hydrate_album_identity_facts(
         // local write cascade only belongs to a genuinely new response;
         // repeating it for a reused one would write the same facts again
         // for no new evidence (the packet's measurement target: zero row
-        // changes on a repeated, reused hydration).
+        // changes on a repeated, reused hydration). ADR 0084 task 035: only
+        // a `PageView` hydration can get a reused response here.
         if generation != crate::application::request_reuse::REUSED_GENERATION {
             if description.is_some() {
                 // ADR 0076 Decision 5: a held RSS description stays until
@@ -1090,6 +1131,9 @@ mod observation_tests {
         requests: Arc<Mutex<Vec<String>>>,
         commits: Arc<AtomicUsize>,
         held_response: Arc<Mutex<Option<(TcpStream, String)>>>,
+        /// True while `read_index_feed` runs. The Index read records no
+        /// observation, so its request has no pending slot.
+        unobserved: Arc<AtomicBool>,
         stop: Arc<AtomicBool>,
         worker: Option<std::thread::JoinHandle<()>>,
     }
@@ -1119,6 +1163,8 @@ mod observation_tests {
             let mode = Arc::new(AtomicUsize::new(0));
             let requests = Arc::new(Mutex::new(Vec::new()));
             let stop = Arc::new(AtomicBool::new(false));
+            let unobserved = Arc::new(AtomicBool::new(false));
+            let unobserved_read = Arc::clone(&unobserved);
             let held_response = Arc::new(Mutex::new(None));
             let held = Arc::clone(&held_response);
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1155,7 +1201,7 @@ mod observation_tests {
                             };
                             received.lock().unwrap().push(path.into());
                             let mode = selected.load(Ordering::SeqCst);
-                            if mode != 9 {
+                            if mode != 9 && !unobserved_read.load(Ordering::SeqCst) {
                                 // Unobserved compatibility requests have no slots.
                                 let database = db.lock().unwrap();
                                 let pending:i64=database.query_row("SELECT count(*) FROM metadata_request_slots WHERE state='pending' AND (resource_id IN (SELECT id FROM metadata_resources WHERE request_uri=?1))",[format!("{url}{path}")],|r|r.get(0)).unwrap();
@@ -1263,6 +1309,7 @@ mod observation_tests {
                 requests,
                 commits,
                 held_response,
+                unobserved,
                 stop,
                 worker: Some(worker),
             }
@@ -1316,9 +1363,33 @@ mod observation_tests {
             .map(|outcome| outcome.into_parts().0)
         }
         fn hydrate(&self) -> Result<AlbumIdentityHydration, CommandError> {
-            HydrateAlbumIdentity::new(Arc::clone(&self.conn), self.endpoint.clone(), 1, "f1")
-                .execute(&CommandContext::next())
-                .map(|outcome| outcome.into_parts().0)
+            self.hydrate_with(AlbumHydrationTrigger::PageView)
+        }
+        fn hydrate_with(
+            &self,
+            trigger: AlbumHydrationTrigger,
+        ) -> Result<AlbumIdentityHydration, CommandError> {
+            HydrateAlbumIdentity::new(
+                Arc::clone(&self.conn),
+                self.endpoint.clone(),
+                1,
+                "f1",
+                trigger,
+            )
+            .execute(&CommandContext::next())
+            .map(|outcome| outcome.into_parts().0)
+        }
+        /// Reads the feed `f1` as an Index release page does, so the shared
+        /// request owner keeps the response of `FetchIndexFeedDetail`.
+        fn read_index_feed(&self) {
+            self.unobserved.store(true, Ordering::SeqCst);
+            let result = crate::application::queries::search::FetchIndexFeedDetail::new(
+                self.endpoint.clone(),
+                "f1",
+            )
+            .execute(&CommandContext::next());
+            self.unobserved.store(false, Ordering::SeqCst);
+            result.unwrap();
         }
     }
     impl Drop for Fixture {
@@ -1631,6 +1702,115 @@ mod observation_tests {
         let conn = fixture.conn.lock().unwrap();
         let stored = db::publisher_relationships::named_feeds(&conn, 1).unwrap();
         assert_eq!(hydration.named_feeds, stored);
+    }
+
+    /// The feed requests that the fixture got, in order.
+    fn feed_requests(fixture: &Fixture) -> Vec<String> {
+        fixture
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|path| path.starts_with("/v1/feeds/f1?"))
+            .cloned()
+            .collect()
+    }
+
+    /// R35-01 (ADR 0084 task 035, decision D1): after an Index read of the
+    /// same feed, a hydration after a download still stores the feed links
+    /// and gives the named feeds.
+    #[test]
+    fn adr_0084_task_035_after_download_stores_links_after_an_index_read() {
+        let fixture = Fixture::start();
+        invalidate_hydration(&fixture);
+        fixture.set_mode(23);
+        fixture.read_index_feed();
+
+        let hydration = fixture
+            .hydrate_with(AlbumHydrationTrigger::AfterDownload)
+            .unwrap();
+
+        assert!(!relationship_rows(&fixture).is_empty());
+        assert!(!hydration.named_feeds.is_empty());
+    }
+
+    /// R35-02 (ADR 0084 task 035, decision D1): after an Index read of the
+    /// same feed, a hydration after a download sends a second feed request.
+    #[test]
+    fn adr_0084_task_035_after_download_sends_a_new_request() {
+        let fixture = Fixture::start();
+        invalidate_hydration(&fixture);
+        fixture.set_mode(23);
+        fixture.read_index_feed();
+        assert_eq!(feed_requests(&fixture).len(), 1);
+
+        fixture
+            .hydrate_with(AlbumHydrationTrigger::AfterDownload)
+            .unwrap();
+
+        assert_eq!(feed_requests(&fixture).len(), 2);
+    }
+
+    /// R35-03 (ADR 0084 task 035, decision D2): after an Index read of the
+    /// same feed, the pass at app start stores the feed links.
+    #[test]
+    fn adr_0084_task_035_backfill_stores_links_after_an_index_read() {
+        let fixture = Fixture::start();
+        invalidate_hydration(&fixture);
+        fixture.set_mode(23);
+        fixture.read_index_feed();
+
+        let hydration = fixture
+            .hydrate_with(AlbumHydrationTrigger::Backfill)
+            .unwrap();
+
+        assert!(!relationship_rows(&fixture).is_empty());
+        assert!(!hydration.named_feeds.is_empty());
+    }
+
+    /// R35-04 (ADR 0084 task 035, decision D3, packet 018 R18B-01): after
+    /// a hydration after a download, a page view hydration reuses the
+    /// response that the hydration wrote. It sends no request and changes
+    /// no row.
+    #[test]
+    fn adr_0084_task_035_page_view_after_download_sends_no_request() {
+        let fixture = Fixture::start();
+        invalidate_hydration(&fixture);
+        fixture.set_mode(23);
+        fixture
+            .hydrate_with(AlbumHydrationTrigger::AfterDownload)
+            .unwrap();
+        let rows = relationship_rows(&fixture);
+        fixture.requests.lock().unwrap().clear();
+        let before = fixture.conn.lock().unwrap().total_changes();
+
+        fixture
+            .hydrate_with(AlbumHydrationTrigger::PageView)
+            .unwrap();
+
+        assert!(fixture.requests.lock().unwrap().is_empty());
+        assert_eq!(fixture.conn.lock().unwrap().total_changes(), before);
+        assert_eq!(relationship_rows(&fixture), rows);
+    }
+
+    /// R35-06 (ADR 0084 task 035, decisions D1 to D3): a download and the
+    /// pass at app start send an explicit request. A page view sends a
+    /// normal request.
+    #[test]
+    fn adr_0084_task_035_trigger_gives_its_refresh_intent() {
+        use crate::application::request_reuse::RefreshIntent;
+        assert_eq!(
+            AlbumHydrationTrigger::AfterDownload.refresh_intent(),
+            RefreshIntent::Explicit
+        );
+        assert_eq!(
+            AlbumHydrationTrigger::Backfill.refresh_intent(),
+            RefreshIntent::Explicit
+        );
+        assert_eq!(
+            AlbumHydrationTrigger::PageView.refresh_intent(),
+            RefreshIntent::Normal
+        );
     }
 
     /// R85-3-07: the album hydration writes the position of each

@@ -47,7 +47,7 @@ regression checks.
 The run of 2026-10-23 implemented ADR 0086 packets 001 to 005 and ADR 0087 packets 001 to 005. It closed on 2026-10-24. Its unwalked checks stay open in
 [pending human checks](docs/pending-human-checks.md), and the [run record](docs/reviews/orchestrated-run-2026-10-23.md) lists them.
 
-Exception for the orchestrated run of 2026-10-24: one orchestrator session runs ADR 0084 packets 035 to 037 and ADR 0087 packets 007 and 008.
+Exception for the run of 2026-10-24: one orchestrator session runs ADR 0084 packets 035 to 037 and ADR 0087 packets 007 and 008.
 It also runs the live value URI packet. The operator decided this on 2026-10-24. The orchestrator commits each reviewed packet, and the operator walks the visual checks
 at the end. The [run record](docs/reviews/orchestrated-run-2026-10-24.md) holds the order, the decisions and the final walk.
 Delete this paragraph when the operator closes the run.

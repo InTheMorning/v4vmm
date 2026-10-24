@@ -1,6 +1,6 @@
 # ADR 0084 Task 035: A Download Stores The Feed Links Of Its Release
 
-Status: Ready - 2026-10-24. The orchestrator decided Q1 by its recommendation on 2026-10-24 (see "Orchestrator Answers").
+Status: Implemented - 2026-10-24. V1 to V3 are open, in the final walk of the run of 2026-10-24.
 
 ## Goal
 
@@ -317,3 +317,21 @@ are read-only and change nothing.
 ## Orchestrator Answers - 2026-10-24
 
 - Q1: yes, in a separate packet. This packet changes only the download and the pass at app start. The ADR 0084 phase plan records the skip of a `PageView` hydration as an open finding.
+
+## Implementation Notes - 2026-10-24
+
+- The test fixture of `src/application/queries/library.rs` has a new flag, `unobserved`. The
+  fixture server checks that each request has a pending observation slot. The Index read of
+  `FetchIndexFeedDetail` records no observation. Thus `read_index_feed` sets the flag for the
+  time of its request only.
+- The fixture method `hydrate` keeps the trigger `PageView`, so each earlier test keeps its
+  behavior. The new method `hydrate_with` takes a trigger.
+- R35-01 and R35-03 use the fixture mode 23. R35-03 also examines `named_feeds`.
+- R35-07 has no new test. The full suite runs the changed guards, the guard of packet 018
+  Part A and each test of `HydrateAlbumIdentity` and of `album_identity_backfill_order`.
+- The guard R34-06 and R34-07 also makes sure that an Index download job does not pass a
+  trigger of its own. `hydrate_album_identity_by_feed_guid` supplies the trigger.
+- The guard R34-12 also counts the two closures that continue the pass only for the trigger
+  `Backfill`.
+- A check with each trigger mapped to `RefreshIntent::Normal` made R35-01, R35-02, R35-03 and
+  R35-06 fail. Thus these tests detect the defect.
