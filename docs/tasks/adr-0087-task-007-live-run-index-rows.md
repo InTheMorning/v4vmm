@@ -1,6 +1,6 @@
 # ADR 0087 Task 007: A Live Run Shows The Index Rows
 
-Status: Ready - 2026-10-24. This packet adds the diagnostic (decision D6, operator answer of 2026-10-24).
+Status: Implemented - 2026-10-24. V1 to V4 are open, in the final walk of the run of 2026-10-24.
 
 The cause of the missing Index rows is not proved. "Candidates" lists the facts. Part A corrects a proved defect. Part B removes the candidate sites and adds tests for them. The walk of V1 and V3 decides the result.
 
@@ -215,18 +215,23 @@ keeps the rule of packet 003 D14.
   The walk of V1 and V3 decides.
 - **D6. The page states why it shows no Index rows.** The operator decided this on 2026-10-24.
   The packet adds no log line, because AGENTS.md "Logging" gives no log path for the interface.
-  The function of decision D4 gives each step a typed reason. When the page of the current run has
-  no Index result, and a result of the same query stopped at a step, the search page view model
-  gives one note with the query, the run generation, the page generation and the reason. A newer
-  run of a different query gives no note, because its page replaces the old page. A test reaches
-  each reason. If V1 fails, the note names the step.
+  The function of decision D4 gives each step a typed reason.
+
+  A result of the same query can stop at a step while the page of the current run has no Index
+  result. Then the search page view model gives one note. The note names the query, the run
+  generation, the page generation and the reason. A newer run of a different query gives no note,
+  because its page replaces the old page. A test reaches each reason. If V1 fails, the note names
+  the step.
 - **D7. The guard is situational.** It cites ADR 0087 Decision 4 and is deleted when that decision
   is replaced.
 
 ## Required Changes
 
 1. `src/view_models/search_results/mod.rs`: add `INDEX_PENDING_ROW_COUNT` and
-   `index_pending_row_count`. Remove `#[cfg(test)]` from `run_generation`.
+   `index_pending_row_count`. Remove `#[cfg(test)]` from `run_generation`. Add the note of
+   decision D6 as display state of the page: `record_index_result_stop` records it, and
+   `index_notice` and `empty_state` give it. `src/view_models/search_results/index_result_note.rs`
+   holds `IndexResultDiagnostic` and `IndexResultStopReason`.
 2. `src/ui/shells/search_results_inspector.rs`: `render_active_result_list` takes the count in
    place of `index_loading: bool`. It shows the result rows, then the loading rows, then the note.
 3. `src/app.rs`: split `restore_content_list_nav_entry` as "Part B: one generation for each run"
@@ -237,7 +242,8 @@ keeps the rule of packet 003 D14.
    `index_result_step`.
 6. `tests/architecture_tests.rs`: add the guard of case R87-7-08. Change the rule of guard R87-3-17
    that reads `restore_content_list_nav_entry` for `cancel_pause(`. It reads
-   `restore_content_list_page` now. The rule keeps its meaning.
+   `restore_content_list_page` now. The rule keeps its meaning. Change the three guards that
+   "Implementation Notes - 2026-10-24" names in the same way.
 
 ## Mechanical Acceptance Criteria
 
@@ -254,6 +260,7 @@ no test waits for a timer.
 | R87-7-05 | same | The live sequence: `text_changed` gives a ticket, and `pause_ended` gives `true`. `SearchSlotRuns::next_run` gives generation G. A page of `survival` with generation G calls `begin_index_run(G)`. `replace_index_cancel` keeps token T. Then `gate.is_current(G)` is `true`, T is not canceled, and `index_result_step` gives `Apply`. The page then holds the Index rows, and `index_pending_row_count()` gives 0 |
 | R87-7-06 | same | The Enter sequence after R87-7-05 with the same text: a second `next_run` gives H. T is canceled. A result of G gives `DropOlderRun`. A result of H gives `Apply` |
 | R87-7-07 | same | A page of `hal` with generation 1 is mounted. A run of `haleen` with generation 2 mounts its page. `index_result_step` for generation 2 and `haleen` gives `Apply`. The result of generation 1 for `hal` gives `DropOlderRun` |
+| R87-7-D6 | `src/view_models/search_results/tests.rs` and `src/app/search_live.rs` | `DropOlderRun` gives the reason `OlderRun`, and `DropPageGeneration` gives `PageGeneration`. Each other step gives no reason. A page of the same query with no Index result records one note for each reason, with the query, the two generations and the reason. An applied result and an Index error clear the note. A result of another query, a result after the Index rows show, and a new page give no note |
 | R87-7-08 | `tests/architecture_tests.rs` | The situational guard `adr_0087_live_index_rows_r87_7_08_one_generation_for_each_run` passes. It fails against a copy of `src/app/search_live.rs` with `next_search_run(` in `show_toolbar_search_run` |
 | R87-7-09 | all | Each test of packets 001 to 005 still passes, with R87-3-01 to R87-3-19. Each test of `src/view_models/search_results/tests.rs` and `src/view_models/workspace/tests.rs` still passes |
 
@@ -433,3 +440,52 @@ restores it.
 ## Operator Answers - 2026-10-24
 
 - The packet adds the diagnostic now, not in a later packet (decision D6).
+
+## Implementation Notes - 2026-10-24
+
+Orchestrator decisions of 2026-10-24. The implementing agent found that three guards outside
+R87-3-17 and R87-7-08 fail because of this packet. The orchestrator then decided these items:
+
+1. The guard `adr_0084_search_list_submit_restores_through_the_back_path` reads
+   `self.restore_content_list_page(content_list_id,&FrameNavigationEntry::Search(query),cx,);` in
+   `show_toolbar_search_run`. It also requires that `restore_content_list_nav_entry` calls
+   `restore_content_list_page`. Before this change, the guard required
+   `restore_content_list_nav_entry` in `show_toolbar_search_run`, and R87-7-08 forbids it.
+2. Guard R18-08 reads the body of `restore_content_list_page` for
+   `library.hydrate_detail_from_nav(entry, cx);`.
+3. The guard `adr_0048_index_search_is_async_and_vm_owned` requires
+   `fn index_pending_row_count(` in the view model and `vm.index_pending_row_count()` in the
+   renderer, in place of `is_index_loading`.
+4. `SearchSlotRuns::is_current_run` gives `current_run`. `index_search_result_is_current` is
+   now `index_result_entry_matches`, with the same body. The end marker of R87-3-17 reads
+   `fnindex_result_entry_matches(`.
+5. The note of decision D6 is `Option<(IndexResultDiagnostic, EmptyStateDisplay)>` on the page.
+   The reasons are `OlderRun` and `PageGeneration`. `DropOtherQuery` gives no reason, because
+   the page of another query does not record a note. A `Cancelled` error gives no note (packet
+   003 decision D14). The page records the note only when the result query is the page query and
+   the page shows no Index rows and no Index error.
+
+   An applied result, an Index error and a new page clear the note. The note shows after the rows
+   through `index_notice`. A page with no row and no loading shows it as its empty state. The text
+   is
+   `MusicIndex rows for "survival" did not show`, then one of these sentences:
+   - `OlderRun`: `The result came from search run 3, but a newer search run started. The page shows run 4.`
+   - `PageGeneration`: `The result came from search run 3, and the page shows run 4.`
+
+Deviations from "Do not touch":
+
+- `src/view_models/live_run.rs` gets `impl Display for RunGeneration`. The note must give the
+  run number, and the number is a private field of that module. The change adds no state and no
+  rule.
+
+Other changes:
+
+- `is_index_loading` and `index_result_diagnostic` are `#[cfg(test)]`, because no production
+  code calls them. The renderer reads `index_pending_row_count`.
+- A `MountPage` step on the saved-search slot changes nothing, as before this packet.
+- `docs/architecture/source-map.md` has a row for the Index result step and the note.
+
+The cause of the missing Index rows is not proved. The agent examined
+`present_command` (`session.accepts`), the dispatch of `AsyncCommandRunner`, `request_reuse`,
+the field list and each write of `search_results_detail`, and none of them is a cause. K4 and K5
+stay open for V1 and V3. If V1 fails, the note names the step that stopped the result.

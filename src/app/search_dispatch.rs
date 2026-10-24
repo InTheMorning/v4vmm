@@ -59,6 +59,7 @@ use crate::view_models::workspace::{
 };
 use crate::views::{FeedView, TrackView};
 
+use super::search_live::{index_result_step, IndexResultStep};
 use super::search_selection::SearchPageSlot;
 use super::{AppTab, TopApp};
 
@@ -438,10 +439,10 @@ impl TopApp {
         );
     }
 
-    /// Tells if an Index result for `query` can write the search page
-    /// `slot`. The toolbar page checks the active navigation entry. The
+    /// Tells if the navigation entry of the search page `slot` is of
+    /// `query`. The toolbar page checks the active navigation entry. The
     /// saved-search page checks the id and the query of the mounted page.
-    fn index_search_result_is_current(
+    fn index_result_entry_matches(
         &self,
         slot: SearchPageSlot,
         saved_id: Option<SavedSearchId>,
@@ -456,9 +457,52 @@ impl TopApp {
         }
     }
 
+    /// Applies the Index result step `step` before the result writes the
+    /// page `slot`. `MountPage` builds the toolbar page of `query` with
+    /// the generation of the run. A stopped result records the note of
+    /// packet 007 decision D6 on the page of its query. Gives `true` when
+    /// the result can write the page.
+    fn prepare_index_result_page(
+        &mut self,
+        slot: SearchPageSlot,
+        step: IndexResultStep,
+        generation: RunGeneration,
+        query: &str,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        match step {
+            IndexResultStep::Apply => true,
+            // The saved-search page builds its page when it opens, so a
+            // result with no page changes nothing.
+            IndexResultStep::MountPage => {
+                if slot != SearchPageSlot::ToolbarSearch {
+                    return false;
+                }
+                self.search_results_detail = Some(
+                    self.search_results_detail_for_run(&SearchRun::new(query), cx)
+                        .with_run_generation(generation),
+                );
+                true
+            }
+            IndexResultStep::DropOlderRun
+            | IndexResultStep::DropOtherQuery
+            | IndexResultStep::DropPageGeneration => {
+                if let Some(reason) = step.stop_reason() {
+                    if self.search_page_mut(slot).is_some_and(|detail| {
+                        detail.record_index_result_stop(query, generation, reason)
+                    }) {
+                        cx.notify();
+                    }
+                }
+                false
+            }
+        }
+    }
+
     /// Dispatches the Index request of the run `generation` (ADR 0087
-    /// Decision 4). A result of a run that is not the current run of the
-    /// slot changes nothing. A canceled request shows no error.
+    /// Decision 4). Each result goes through `index_result_step`, so a
+    /// result of a run that is not the current run of the slot changes
+    /// no rows. A canceled request shows no error.
     #[expect(
         clippy::too_many_arguments,
         reason = "each argument is one fact of the run; ADR 0087 packet 003 adds the generation and the context"
@@ -495,19 +539,16 @@ impl TopApp {
                         .succeed(id, "App completed the original Index search.".into());
                 }
                 // ADR 0087 Decision 4: a result of an older run changes
-                // nothing.
-                if !this.search_runs_mut(slot).gate.is_current(generation) {
+                // no rows (packet 007 decision D4).
+                let step = index_result_step(
+                    this.search_runs_mut(slot).is_current_run(generation),
+                    this.index_result_entry_matches(slot, saved_id, &success_query),
+                    this.search_page(slot),
+                    generation,
+                    &success_query,
+                );
+                if !this.prepare_index_result_page(slot, step, generation, &success_query, cx) {
                     return;
-                }
-                if !this.index_search_result_is_current(slot, saved_id, &success_query) {
-                    return;
-                }
-
-                if slot == SearchPageSlot::ToolbarSearch && this.search_results_detail.is_none() {
-                    this.search_results_detail = Some(
-                        this.search_results_detail_for_run(&SearchRun::new(&success_query), cx)
-                            .with_run_generation(generation),
-                    );
                 }
 
                 // Packet 010 "The stale results": a result for another
@@ -553,18 +594,15 @@ impl TopApp {
                         cx,
                     );
                 }
-                if !this.search_runs_mut(slot).gate.is_current(generation) {
+                let step = index_result_step(
+                    this.search_runs_mut(slot).is_current_run(generation),
+                    this.index_result_entry_matches(slot, saved_id, &error_query),
+                    this.search_page(slot),
+                    generation,
+                    &error_query,
+                );
+                if !this.prepare_index_result_page(slot, step, generation, &error_query, cx) {
                     return;
-                }
-                if !this.index_search_result_is_current(slot, saved_id, &error_query) {
-                    return;
-                }
-
-                if slot == SearchPageSlot::ToolbarSearch && this.search_results_detail.is_none() {
-                    this.search_results_detail = Some(
-                        this.search_results_detail_for_run(&SearchRun::new(&error_query), cx)
-                            .with_run_generation(generation),
-                    );
                 }
 
                 if this.search_page_mut(slot).is_some_and(|detail| {

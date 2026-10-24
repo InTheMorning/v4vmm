@@ -189,7 +189,13 @@ pub(crate) fn render_search_results_inspector(
     let body = if let Some(empty) = vm.empty_state() {
         render_empty_state(empty, slots.failure_action.as_ref(), cx)
     } else {
-        render_active_result_list(tab, vm.is_index_loading(), vm.index_notice(), slots, cx)
+        render_active_result_list(
+            tab,
+            vm.index_pending_row_count(),
+            vm.index_notice(),
+            slots,
+            cx,
+        )
     };
 
     div()
@@ -416,13 +422,13 @@ fn detail_metadata_row(label: &str, value: &str, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// The rows of the active tab. While the `MusicIndex` results load and the
-/// tab has no row, three rows wait. `index_notice` is the note of the
-/// Index part after the rows, when the view model gives one (walk of
-/// 2026-10-21).
+/// The rows of the active tab, then `pending_rows` loading rows while the
+/// `MusicIndex` results load (ADR 0087 packet 007 decision D2). The view
+/// model gives the count. `index_notice` is the note of the Index part
+/// after the rows, when the view model gives one (walk of 2026-10-21).
 fn render_active_result_list(
     tab: SearchResultsTab,
-    index_loading: bool,
+    pending_rows: usize,
     index_notice: Option<&EmptyStateDisplay>,
     slots: &SearchResultsInspectorSlots,
     cx: &App,
@@ -432,45 +438,38 @@ fn render_active_result_list(
         select: slots.result_select.as_ref(),
         toggle: slots.row_toggle.as_ref(),
     };
-    let children: Vec<AnyElement> = if index_loading && slots.items.is_empty() {
-        (0..3)
-            .map(|index| render_pending_result_row(tab, index))
-            .collect()
-    } else {
-        slots
-            .items
-            .iter()
-            .map(|item| {
-                let row = match item {
-                    SearchResultItemVm::Row(row) => row,
-                    SearchResultItemVm::WindowGroup(tile) => {
-                        let art = slots
-                            .arts
-                            .get(&tile.element_id)
-                            .cloned()
-                            .unwrap_or(CollectionArtImage::EntityColor);
-                        return render_window_group_result_row(tab, tile, art, handlers, cx);
-                    }
-                };
-                let leading = if let Some(art) = &row.art {
-                    SearchRowLeading::Collection {
-                        image: slots
-                            .arts
-                            .get(&row.id)
-                            .cloned()
-                            .unwrap_or(CollectionArtImage::EntityColor),
-                        kind: art.kind,
-                    }
-                } else {
-                    let href = row.thumbnail_href.as_deref();
-                    SearchRowLeading::Thumbnail(
-                        href.and_then(|href| slots.thumbnail_for_href(href)),
-                    )
-                };
-                render_result_row(tab, row.clone(), leading, handlers, cx)
-            })
-            .collect()
-    };
+    let children: Vec<AnyElement> = slots
+        .items
+        .iter()
+        .map(|item| {
+            let row = match item {
+                SearchResultItemVm::Row(row) => row,
+                SearchResultItemVm::WindowGroup(tile) => {
+                    let art = slots
+                        .arts
+                        .get(&tile.element_id)
+                        .cloned()
+                        .unwrap_or(CollectionArtImage::EntityColor);
+                    return render_window_group_result_row(tab, tile, art, handlers, cx);
+                }
+            };
+            let leading = if let Some(art) = &row.art {
+                SearchRowLeading::Collection {
+                    image: slots
+                        .arts
+                        .get(&row.id)
+                        .cloned()
+                        .unwrap_or(CollectionArtImage::EntityColor),
+                    kind: art.kind,
+                }
+            } else {
+                let href = row.thumbnail_href.as_deref();
+                SearchRowLeading::Thumbnail(href.and_then(|href| slots.thumbnail_for_href(href)))
+            };
+            render_result_row(tab, row.clone(), leading, handlers, cx)
+        })
+        .chain((0..pending_rows).map(|index| render_pending_result_row(tab, index)))
+        .collect();
     let notice = index_notice.map(|notice| {
         // The note is a child of the scroll container with the rows, so it
         // must not shrink under them (packet 028 review).
@@ -486,7 +485,8 @@ fn render_active_result_list(
     });
     // Packet 028 D2: each row is a direct child of the scroll container, in
     // the order of the view model rows. Thus `scroll_to_item` finds the
-    // focused row by its index. The note is after the rows. The right
+    // focused row by its index. The loading rows and the note are after
+    // the rows. The right
     // padding keeps the clearance of `page_scroll_content` and adds the
     // column inset.
     let container = page_scroll_content(cx)

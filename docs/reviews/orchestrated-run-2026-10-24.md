@@ -28,6 +28,7 @@ Each entry names the step, the decision and the reason.
 
 - Packet 008 Q2: the orchestrator decided A, by its recommendation, inside the operator answer of Q1.
 - Packet 035 Q1: a later packet changes the skip of a `PageView` hydration. The ADR 0084 phase plan records it as an open finding.
+- Packet 007 stop of 2026-10-24: three guards that the packet does not name require the old restore path and the old loading call. The orchestrator accepted the five recommendations of the coding agent. The guards read `restore_content_list_page` and `index_pending_row_count`, with the same meaning. The note of decision D6 is a typed view model value with one test for each reason. The packet records the five items in its Implementation Notes.
 
 ## Steps
 
@@ -35,6 +36,7 @@ Each entry names the packet, the result and the commit.
 
 1. ADR 0084 packet 035: implemented and Green on 2026-10-24, with no stop. A hydration after a download and the pass at start send a new feed request (`AlbumHydrationTrigger`). 2519 lib tests and 392 guards pass.
 2. ADR 0087 packet 008: implemented and Green on 2026-10-24, with no stop. An empty field name prefix shows the 11 fields in each open state, and a row that goes into the text keeps the list open. One state `Open` replaces `Requested` and `Typing`. 2523 lib tests and 392 guards pass.
+3. ADR 0087 packet 007: implemented and Green on 2026-10-24, after one stop (see Orchestrator Decisions). The loading rows follow the Library rows, each toolbar run keeps one generation, and `index_result_step` decides each Index result. A page note names the reason of a stopped result. The cause of the missing Index rows is not proved. The orchestrator accepted one change outside the packet list: `Display` for `RunGeneration` in `src/view_models/live_run.rs`, for the run number of the note. 2534 lib tests and 393 guards pass.
 
 ## Final Walk
 

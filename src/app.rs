@@ -854,14 +854,31 @@ impl TopApp {
     }
 
     /// Restores the page for a navigation entry that Back, Forward, a
-    /// breadcrumb segment, a new submit or `open_music_page` selected on
-    /// the content-list frame (ADR 0046 Task 015).
+    /// breadcrumb segment or `open_music_page` selected on the
+    /// content-list frame (ADR 0046 Task 015). A `Search` entry takes a new
+    /// run and starts its Index part (ADR 0087 packet 003 decision D4).
     ///
     /// This function does not touch the toolbar field. ADR 0084 task 030,
     /// decision D5, corrected in the review of 2026-10-21: each caller
     /// that is a history move records the toolbar text itself, so a new
     /// submit does not overwrite a query the operator is still typing.
     fn restore_content_list_nav_entry(
+        &mut self,
+        content_list_id: WorkspaceFrameId,
+        entry: &FrameNavigationEntry,
+        cx: &mut Context<Self>,
+    ) {
+        self.restore_content_list_page(content_list_id, entry, cx);
+        if let FrameNavigationEntry::Search(query) = entry {
+            let run = self.next_search_run(SearchPageSlot::ToolbarSearch, query);
+            self.start_index_search_for_run(SearchPageSlot::ToolbarSearch, &run, cx);
+        }
+    }
+
+    /// Restores the page for `entry` on the content-list frame, and starts
+    /// no Index part. A toolbar search run calls it, and then starts the
+    /// Index part with its own run (ADR 0087 packet 007 decision D3).
+    pub(super) fn restore_content_list_page(
         &mut self,
         content_list_id: WorkspaceFrameId,
         entry: &FrameNavigationEntry,
@@ -879,10 +896,6 @@ impl TopApp {
         self.restore_saved_search_page_for_nav(entry, cx);
         self.restore_release_page_source_for_nav(entry, cx);
         self.restore_track_page_source_for_nav(entry, cx);
-        if let FrameNavigationEntry::Search(query) = entry {
-            let run = self.next_search_run(SearchPageSlot::ToolbarSearch, query);
-            self.start_index_search_for_run(SearchPageSlot::ToolbarSearch, &run, cx);
-        }
         cx.notify();
     }
 

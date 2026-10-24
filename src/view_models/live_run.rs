@@ -22,6 +22,14 @@ pub(crate) struct PauseTicket(u64);
 #[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct RunGeneration(u64);
 
+/// The number of the run, for example `3`. The search page note of packet
+/// 007 decision D6 names the run with it.
+impl std::fmt::Display for RunGeneration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 /// The pause counter and the run counter of one search surface.
 #[derive(Debug, Default)]
 pub(crate) struct LiveRunGate {

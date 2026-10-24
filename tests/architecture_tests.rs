@@ -2918,9 +2918,10 @@ fn adr_0084_search_list_r10_08_feed_rows_open_the_feed_page() {
 /// submitted toolbar search clears the detail column. Before this fix, a
 /// new search kept the Library release page of the earlier search in the
 /// detail column. The submit restores the search page through
-/// `restore_content_list_nav_entry`, the function that Back uses, so the
-/// Library detail clears. No unit test can reach `TopApp`, so this guard
-/// pins the call.
+/// `restore_content_list_page`, the steps that Back uses through
+/// `restore_content_list_nav_entry`, so the Library detail clears. ADR 0087
+/// packet 007 moved the Index start out of these steps. No unit test can
+/// reach `TopApp`, so this guard pins the call.
 #[test]
 fn adr_0084_search_list_submit_restores_through_the_back_path() {
     // ADR 0087 packet 003: the submit and the live run open the page in
@@ -2940,11 +2941,23 @@ fn adr_0084_search_list_submit_restores_through_the_back_path() {
     );
     assert!(
         compact_source(open).contains(
-            "self.restore_content_list_nav_entry(content_list_id,&FrameNavigationEntry::Search(query),cx,);"
+            "self.restore_content_list_page(content_list_id,&FrameNavigationEntry::Search(query),cx,);"
         ),
-        "ADR 0084 Decision 9: `open_search_results_in_content_list` must restore the new search \
-         page through `restore_content_list_nav_entry`, so the detail column of the earlier \
-         search clears. Call it after the new search view model is set."
+        "ADR 0084 Decision 9: `show_toolbar_search_run` must restore the new search page through \
+         `restore_content_list_page`, the steps that Back uses, so the detail column of the \
+         earlier search clears. Call it after the new search view model is set."
+    );
+    let app = read_source(&manifest_path("src/app.rs"));
+    assert!(
+        source_between(
+            &app,
+            "fn restore_content_list_nav_entry(",
+            "pub(super) fn restore_content_list_page(",
+        )
+        .contains("self.restore_content_list_page(content_list_id, entry, cx);"),
+        "ADR 0084 Decision 9: `restore_content_list_nav_entry` must call \
+         `restore_content_list_page`, so Back and a new search restore a page through the same \
+         steps."
     );
 }
 
@@ -5243,7 +5256,9 @@ key to both columns from `src/app/keyboard.rs`.\n{}",
 /// `TopApp` or `LibraryApp` clears the detail selection and sets `Normal`.
 /// `LibraryApp::hydrate_detail_from_nav` resets it, Back, Forward, a
 /// breadcrumb and an opened page reach that reset through
-/// `restore_content_list_nav_entry`, and each render of the top app binds
+/// `restore_content_list_nav_entry` and `restore_content_list_page`, a
+/// toolbar search reaches it through `restore_content_list_page`, and each
+/// render of the top app binds
 /// the selection to the open page. The test
 /// `adr_0084_detail_selection_r18_01_a_page_change_clears_the_selection`
 /// proves that a reset and a bind to another page give an empty selection
@@ -5271,11 +5286,12 @@ fn adr_0084_detail_selection_r18_08_a_page_change_clears_the_detail_selection() 
         );
     }
     let app = read_source(&manifest_path("src/app.rs"));
-    let restore = adr_0084_detail_selection_fn_body(&app, "fn restore_content_list_nav_entry(");
+    let restore = adr_0084_detail_selection_fn_body(&app, "fn restore_content_list_page(");
     if !restore.contains("library.hydrate_detail_from_nav(entry, cx);") {
         violations.push(
-            "src/app.rs: `restore_content_list_nav_entry` must call \
-`library.hydrate_detail_from_nav(entry, cx);` for each page."
+            "src/app.rs: `restore_content_list_page` must call \
+`library.hydrate_detail_from_nav(entry, cx);` for each page. `restore_content_list_nav_entry` \
+and `show_toolbar_search_run` reach it (ADR 0087 packet 007)."
                 .to_owned(),
         );
     }
@@ -11572,7 +11588,7 @@ fn adr_0048_index_search_is_async_and_vm_owned() {
         "fn mark_index_loading(",
         "fn replace_index_results(",
         "fn set_index_error(",
-        "fn is_index_loading(",
+        "fn index_pending_row_count(",
     ] {
         assert!(
             search_results_vm_source.contains(required),
@@ -11617,9 +11633,12 @@ fn adr_0048_index_search_is_async_and_vm_owned() {
     }
 
     assert!(
-        inspector_source.contains("vm.is_index_loading()")
+        inspector_source.contains("vm.index_pending_row_count()")
             && inspector_source.contains("render_pending_result_row(tab, index)"),
-        "SearchResultsInspector renderer must expose VM-owned loading via pending rows"
+        "ADR 0048 and ADR 0087 packet 007 decision D2: the SearchResultsInspector renderer must \
+         show VM-owned loading through pending rows. Read the count with \
+         `vm.index_pending_row_count()` and render each row with \
+         `render_pending_result_row(tab, index)`."
     );
 }
 
@@ -24246,15 +24265,15 @@ FetchIndexSearchResults through start_index_search_for_run."
         None => report(APP, "has no `apply_pending_toolbar_search`"),
     }
     match section(
-        "fn restore_content_list_nav_entry(",
+        "fn restore_content_list_page(",
         "fn apply_pending_toolbar_search(",
     ) {
         Some(body) if body.contains("cancel_pause(") => {}
         Some(_) => report(
             APP,
-            "restore_content_list_nav_entry does not call `cancel_pause(`",
+            "restore_content_list_page does not call `cancel_pause(`",
         ),
-        None => report(APP, "has no `restore_content_list_nav_entry`"),
+        None => report(APP, "has no `restore_content_list_page`"),
     }
 
     let dispatch = compact_source(&code(DISPATCH));
@@ -24269,7 +24288,7 @@ FetchIndexSearchResults through start_index_search_for_run."
     let total = dispatch.matches(new_call).count();
     let in_retry = dispatch_section(
         "pub(super)fnretry_index_search(",
-        "fnindex_search_result_is_current(",
+        "fnindex_result_entry_matches(",
     )
     .matches(new_call)
     .count();
@@ -24326,4 +24345,164 @@ fn adr_0087_live_results_r87_3_17_pause_token_and_no_screen_timer() {
     assert_ne!(&bad, live);
     *live = bad;
     assert!(!live_results_violations(&literal).is_empty());
+}
+
+/// The violations of the one-generation rule of ADR 0087 Decision 4
+/// (packet 007) in `files`, a map of each relative path to its source.
+fn live_index_rows_violations(files: &BTreeMap<String, String>) -> Vec<String> {
+    const LIVE: &str = "src/app/search_live.rs";
+    const APP: &str = "src/app.rs";
+    const DISPATCH: &str = "src/app/search_dispatch.rs";
+    const INSPECTOR: &str = "src/ui/shells/search_results_inspector.rs";
+    let mut violations = Vec::new();
+    let mut report = |file: &str, violation: &str| {
+        violations.push(format!(
+            "ADR 0087 Decision 4 (results show while the curator types): {file} {violation}. A toolbar run\n\
+keeps one generation from its start to its Index result. show_toolbar_search_run starts the\n\
+Index part with its own run. Only restore_content_list_nav_entry takes a new run, for Back,\n\
+Forward and a page open. Each Index result goes through index_result_step. The renderer reads\n\
+the loading row count from the view model."
+        ));
+    };
+    let code = |file: &str| {
+        files
+            .get(file)
+            .map(|source| production_source(&code_only(source)).to_owned())
+            .unwrap_or_default()
+    };
+    // The body of the function at `signature`, up to the next function or
+    // the end of the `impl` block.
+    let body = |source: &str, signature: &str| -> Option<String> {
+        let begin = source.find(signature)?;
+        let rest = &source[begin + signature.len()..];
+        let end = [
+            "\n    pub(crate) fn ",
+            "\n    pub(super) fn ",
+            "\n    fn ",
+            "\n}\n",
+        ]
+        .iter()
+        .filter_map(|marker| rest.find(marker))
+        .min()
+        .unwrap_or(rest.len());
+        Some(rest[..end].to_owned())
+    };
+
+    let live = code(LIVE);
+    match body(&live, "pub(super) fn show_toolbar_search_run(") {
+        Some(run) => {
+            for required in ["start_index_search_for_run(", "restore_content_list_page("] {
+                if !run.contains(required) {
+                    report(
+                        LIVE,
+                        &format!("show_toolbar_search_run does not call `{required}`"),
+                    );
+                }
+            }
+            for forbidden in [
+                "next_search_run(",
+                "next_run(",
+                "restore_content_list_nav_entry(",
+            ] {
+                if run.contains(forbidden) {
+                    report(
+                        LIVE,
+                        &format!("show_toolbar_search_run calls `{forbidden}`"),
+                    );
+                }
+            }
+        }
+        None => report(LIVE, "has no `show_toolbar_search_run`"),
+    }
+
+    let app = code(APP);
+    match body(&app, "pub(super) fn restore_content_list_page(") {
+        Some(page) => {
+            if !page.contains("cancel_pause(") {
+                report(
+                    APP,
+                    "restore_content_list_page does not call `cancel_pause(`",
+                );
+            }
+            for forbidden in ["next_search_run(", "start_index_search_for_run("] {
+                if page.contains(forbidden) {
+                    report(
+                        APP,
+                        &format!("restore_content_list_page calls `{forbidden}`"),
+                    );
+                }
+            }
+        }
+        None => report(APP, "has no `restore_content_list_page`"),
+    }
+
+    let dispatch = code(DISPATCH);
+    match body(&dispatch, "fn dispatch_index_search<C>(") {
+        Some(result) => {
+            if result.matches("index_result_step(").count() != 2 {
+                report(
+                    DISPATCH,
+                    "dispatch_index_search does not call `index_result_step(` two times",
+                );
+            }
+            for forbidden in ["gate.is_current(", "index_search_result_is_current("] {
+                if result.contains(forbidden) {
+                    report(
+                        DISPATCH,
+                        &format!("dispatch_index_search holds `{forbidden}`"),
+                    );
+                }
+            }
+        }
+        None => report(DISPATCH, "has no `dispatch_index_search`"),
+    }
+
+    let inspector = code(INSPECTOR);
+    if !inspector.contains("index_pending_row_count()") {
+        report(INSPECTOR, "does not read `index_pending_row_count()`");
+    }
+    if inspector.contains("0..3") {
+        report(INSPECTOR, "holds the literal count `0..3`");
+    }
+    violations
+}
+
+/// R87-7-08, situational ADR 0087 Decision 4 (packet 007). A toolbar run
+/// keeps one generation from its start to its Index result, each Index
+/// result goes through `index_result_step`, and the renderer reads the
+/// loading row count from the view model. Delete this guard when ADR 0087
+/// Decision 4 is superseded.
+#[test]
+fn adr_0087_live_index_rows_r87_7_08_one_generation_for_each_run() {
+    let files: BTreeMap<String, String> = [
+        "src/app/search_live.rs",
+        "src/app.rs",
+        "src/app/search_dispatch.rs",
+        "src/ui/shells/search_results_inspector.rs",
+    ]
+    .into_iter()
+    .map(|file| (file.to_owned(), read_source(&manifest_path(file))))
+    .collect();
+    let violations = live_index_rows_violations(&files);
+    assert!(violations.is_empty(), "{}", violations.join("\n"));
+
+    // A copy of `src/app/search_live.rs` that takes a second run in
+    // `show_toolbar_search_run` fails.
+    let live = &files["src/app/search_live.rs"];
+    let marker = "self.scroll_search_page_to_top(SearchPageSlot::ToolbarSearch);";
+    assert!(live.contains(marker));
+    let mut copy = files.clone();
+    copy.insert(
+        "src/app/search_live.rs".to_owned(),
+        live.replacen(
+            marker,
+            &format!(
+                "{marker}\n                let run = &self.next_search_run(SearchPageSlot::ToolbarSearch, &query);"
+            ),
+            1,
+        ),
+    );
+    assert!(live_index_rows_violations(&copy)
+        .iter()
+        .any(|violation| violation.contains("next_search_run(")));
 }

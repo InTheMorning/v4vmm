@@ -1820,3 +1820,155 @@ fn adr_0087_live_results_r87_3_11_out_of_order_results_keep_the_newest_rows() {
     assert!(!vm.replace_index_results_for_run(generation[1], "hale", one_release_rows("second")));
     assert_eq!(row_ids(&vm), ["index-feed:third"]);
 }
+
+/// A page of `survival` with two Library release rows of two feeds.
+fn two_library_release_page() -> SearchResultsInspectorPageVm {
+    let local = [
+        local_guid_track(10, 7, "g-guide", "i1", "Survival Guide"),
+        local_guid_track(11, 8, "g-kit", "i2", "Survival Kit"),
+    ];
+    SearchResultsInspectorPageVm::from_local_library_tracks(
+        "survival",
+        &local,
+        &super::ArtistSearchFacts::default(),
+    )
+}
+
+/// R87-7-01: a page with Library rows shows the loading rows after them
+/// while the Index part loads. The Index rows of the same run end the
+/// loading rows.
+#[test]
+fn adr_0087_live_index_rows_r87_7_01_loading_rows_follow_library_rows() {
+    let generation = generations(1);
+    let mut vm = two_library_release_page();
+    assert_eq!(row_ids(&vm).len(), 2);
+    assert!(vm.begin_index_run(generation[0]));
+    assert_eq!(vm.index_pending_row_count(), super::INDEX_PENDING_ROW_COUNT);
+    assert_eq!(vm.index_pending_row_count(), 3);
+    assert_eq!(row_ids(&vm).len(), 2, "the Library rows stay");
+    assert!(vm.replace_index_results_for_run(generation[0], "survival", one_release_rows("fit")));
+    assert_eq!(vm.index_pending_row_count(), 0);
+}
+
+/// R87-7-02: a page with no row shows the loading rows and no empty
+/// state. An Index error of the same run ends the loading rows. A skipped
+/// Index part shows no loading row.
+#[test]
+fn adr_0087_live_index_rows_r87_7_02_loading_rows_on_an_empty_page() {
+    let generation = generations(1);
+    let mut vm = SearchResultsInspectorPageVm::new("fittest");
+    assert!(vm.begin_index_run(generation[0]));
+    assert_eq!(vm.index_pending_row_count(), 3);
+    assert!(vm.empty_state().is_none());
+    let error = crate::application::CommandError::Query("connection refused".to_owned());
+    let at = std::time::SystemTime::UNIX_EPOCH;
+    assert!(vm.set_index_error_for_run(generation[0], "fittest", &error, "http://index", at));
+    assert_eq!(vm.index_pending_row_count(), 0);
+
+    let mut skipped = SearchResultsInspectorPageVm::new("fittest");
+    skipped.set_index_skipped(&super::IndexSkip::LibraryOnly);
+    assert_eq!(skipped.index_pending_row_count(), 0);
+}
+
+/// Packet 007 decision D6, reason `OlderRun`: a page of the same query that
+/// shows no Index result records one note. The note names the query, the
+/// run of the result, the run of the page and the reason.
+#[test]
+fn adr_0087_live_index_rows_d6_older_run_note() {
+    let generation = generations(2);
+    let mut vm = two_library_release_page();
+    assert!(vm.begin_index_run(generation[1]));
+    assert!(vm.record_index_result_stop(
+        "survival",
+        generation[0],
+        super::IndexResultStopReason::OlderRun
+    ));
+    let diagnostic = vm
+        .index_result_diagnostic()
+        .expect("the page records a note");
+    assert_eq!(diagnostic.query, "survival");
+    assert_eq!(diagnostic.run_generation, generation[0]);
+    assert_eq!(diagnostic.page_generation, generation[1]);
+    assert_eq!(diagnostic.reason, super::IndexResultStopReason::OlderRun);
+    let note = vm.index_notice().expect("the note shows after the rows");
+    assert_eq!(note.title, "MusicIndex rows for \"survival\" did not show");
+    assert_eq!(
+        note.secondary,
+        "The result came from search run 1, but a newer search run started. The page shows run 2."
+    );
+    assert_eq!(
+        vm.index_pending_row_count(),
+        3,
+        "the run of the page still loads"
+    );
+
+    assert!(vm.replace_index_results_for_run(generation[1], "survival", one_release_rows("fit")));
+    assert!(
+        vm.index_result_diagnostic().is_none(),
+        "an applied result clears the note"
+    );
+    assert!(vm.index_notice().is_none());
+}
+
+/// Packet 007 decision D6, reason `PageGeneration`: a page with no row and
+/// no Index request shows the note as its empty state. An Index error
+/// clears the note.
+#[test]
+fn adr_0087_live_index_rows_d6_page_generation_note() {
+    let generation = generations(2);
+    let mut vm = SearchResultsInspectorPageVm::new("fittest").with_run_generation(generation[0]);
+    assert!(vm.record_index_result_stop(
+        "fittest",
+        generation[1],
+        super::IndexResultStopReason::PageGeneration
+    ));
+    let diagnostic = vm
+        .index_result_diagnostic()
+        .expect("the page records a note");
+    assert_eq!(
+        diagnostic.reason,
+        super::IndexResultStopReason::PageGeneration
+    );
+    let empty = vm.empty_state().expect("a page with no row shows the note");
+    assert_eq!(empty.title, "MusicIndex rows for \"fittest\" did not show");
+    assert_eq!(
+        empty.secondary,
+        "The result came from search run 2, and the page shows run 1."
+    );
+    assert!(vm.index_notice().is_none(), "the note shows one time");
+
+    let error = crate::application::CommandError::Query("connection refused".to_owned());
+    let at = std::time::SystemTime::UNIX_EPOCH;
+    assert!(vm.set_index_error_for_run(generation[0], "fittest", &error, "http://index", at));
+    assert!(
+        vm.index_result_diagnostic().is_none(),
+        "an Index error clears the note"
+    );
+}
+
+/// Packet 007 decision D6: a result of another query, or a result that
+/// comes after the page shows its Index rows, records no note. A new page
+/// has no note.
+#[test]
+fn adr_0087_live_index_rows_d6_no_note_for_another_query_or_a_shown_result() {
+    let generation = generations(2);
+    let mut vm = SearchResultsInspectorPageVm::new("survival");
+    assert!(!vm.record_index_result_stop(
+        "surviva",
+        generation[0],
+        super::IndexResultStopReason::OlderRun
+    ));
+    assert!(vm.index_result_diagnostic().is_none());
+
+    assert!(vm.begin_index_run(generation[1]));
+    assert!(vm.replace_index_results_for_run(generation[1], "survival", one_release_rows("fit")));
+    assert!(!vm.record_index_result_stop(
+        "survival",
+        generation[0],
+        super::IndexResultStopReason::OlderRun
+    ));
+    assert!(vm.index_result_diagnostic().is_none());
+    assert!(SearchResultsInspectorPageVm::new("survival")
+        .index_result_diagnostic()
+        .is_none());
+}

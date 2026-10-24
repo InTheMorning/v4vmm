@@ -22,6 +22,7 @@ use crate::view_models::workspace::{FrameHeaderActionDisplay, FrameNavigationEnt
 mod empty_state;
 mod failure;
 mod index_detail;
+mod index_result_note;
 mod paged_tab;
 mod results;
 mod rows;
@@ -35,6 +36,7 @@ mod tests;
 pub(crate) use empty_state::EmptyStateDisplay;
 pub(crate) use failure::{SearchFailureAction, SearchFailureAvailability};
 pub(crate) use index_detail::{IndexDetailDisplay, IndexDetailKind, IndexSearchResultRows};
+pub(crate) use index_result_note::{IndexResultDiagnostic, IndexResultStopReason};
 pub(crate) use paged_tab::SearchResultsPagedTab;
 pub(crate) use results::{
     artist_feed_result_display, index_track_row_id, ArtistResultDisplay, ArtistSearchFacts,
@@ -64,6 +66,10 @@ use self::results::local_library_result_rows;
 use self::saved_search_groups::{
     saved_search_window_items, window_group_selection_row, SavedSearchWindowItem,
 };
+
+/// The count of loading rows while the Index part of a run loads (ADR 0087
+/// packet 007 decision D2). The rows show after the rows of the active tab.
+pub(crate) const INDEX_PENDING_ROW_COUNT: usize = 3;
 
 /// GPUI-free page contract for the search results in the list column.
 #[derive(Debug)]
@@ -107,6 +113,12 @@ pub(crate) struct SearchResultsInspectorPageVm {
     /// The generation of the newest run of the page (ADR 0087 Decision 4,
     /// packet 003). A result of an older run does not change the page.
     run_generation: RunGeneration,
+    /// `true` when the page shows the Index rows or the Index error of its
+    /// run (packet 007 decision D6).
+    index_result_shown: bool,
+    /// The Index result of this query that the page did not show, and its
+    /// note (packet 007 decision D6).
+    index_result_stop: Option<(IndexResultDiagnostic, EmptyStateDisplay)>,
 }
 
 impl SearchResultsInspectorPageVm {
@@ -135,6 +147,8 @@ impl SearchResultsInspectorPageVm {
             feed_rows_partial: false,
             library_rows_partial: false,
             run_generation: RunGeneration::default(),
+            index_result_shown: false,
+            index_result_stop: None,
         };
         page.refresh_empty_state();
         page
@@ -177,8 +191,6 @@ impl SearchResultsInspectorPageVm {
     }
 
     /// The generation of the newest run of the page.
-    /// No production code calls it yet (ADR 0087 packet 003).
-    #[cfg(test)]
     #[must_use]
     pub(crate) const fn run_generation(&self) -> RunGeneration {
         self.run_generation
@@ -191,6 +203,55 @@ impl SearchResultsInspectorPageVm {
     #[must_use]
     pub(crate) fn is_newer_than(&self, current: Option<&Self>) -> bool {
         current.is_none_or(|current| self.run_generation >= current.run_generation)
+    }
+
+    /// Records that the app did not apply the Index result of the run
+    /// `generation` for `query`, because of `reason` (packet 007 decision
+    /// D6). The page records the note only when `query` is the page query
+    /// and the page shows no Index result. Gives `true` when the page
+    /// changed.
+    pub(crate) fn record_index_result_stop(
+        &mut self,
+        query: &str,
+        generation: RunGeneration,
+        reason: IndexResultStopReason,
+    ) -> bool {
+        if self.query != query || self.index_result_shown {
+            return false;
+        }
+        let diagnostic = IndexResultDiagnostic {
+            query: self.query.clone(),
+            run_generation: generation,
+            page_generation: self.run_generation,
+            reason,
+        };
+        let display = diagnostic.display();
+        self.index_result_stop = Some((diagnostic, display));
+        self.refresh_empty_state();
+        true
+    }
+
+    /// The Index result that the page did not show, or `None` (packet 007
+    /// decision D6). Production code reads the note through
+    /// [`Self::index_notice`] and [`Self::empty_state`].
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn index_result_diagnostic(&self) -> Option<&IndexResultDiagnostic> {
+        self.index_result_stop
+            .as_ref()
+            .map(|(diagnostic, _)| diagnostic)
+    }
+
+    /// The count of loading rows after the rows of the active tab (packet
+    /// 007 decision D2). It is [`INDEX_PENDING_ROW_COUNT`] while the Index
+    /// part loads, else 0. The rows of the active tab do not change it.
+    #[must_use]
+    pub(crate) const fn index_pending_row_count(&self) -> usize {
+        if self.index_loading {
+            INDEX_PENDING_ROW_COUNT
+        } else {
+            0
+        }
     }
 
     /// Starts the Index part of the run `generation`. An older generation
@@ -303,6 +364,7 @@ impl SearchResultsInspectorPageVm {
     /// Marks the async remote Index search as pending.
     pub(crate) fn mark_index_loading(&mut self) {
         self.index_loading = true;
+        self.index_result_shown = false;
         self.index_error = None;
         self.index_skip = None;
         self.index_skip_notice = None;
@@ -326,7 +388,10 @@ impl SearchResultsInspectorPageVm {
         self.refresh_empty_state();
     }
 
-    /// Returns whether the async remote Index search is pending.
+    /// Returns whether the async remote Index search is pending. The
+    /// renderer reads [`Self::index_pending_row_count`] (packet 007
+    /// decision D2).
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn is_index_loading(&self) -> bool {
         self.index_loading
@@ -338,6 +403,8 @@ impl SearchResultsInspectorPageVm {
     pub(crate) fn replace_index_results(&mut self, rows: IndexSearchResultRows) {
         self.index_loading = false;
         self.index_error = None;
+        self.index_result_shown = true;
+        self.index_result_stop = None;
         self.artists.replace_index_rows(rows.artists);
         self.releases.replace_index_rows(rows.feeds);
         self.tracks.replace_index_rows(rows.tracks);
@@ -371,6 +438,8 @@ impl SearchResultsInspectorPageVm {
         observed_at: std::time::SystemTime,
     ) {
         self.index_loading = false;
+        self.index_result_shown = true;
+        self.index_result_stop = None;
         // Walk of 2026-10-21: an HTTP `400` reply is a query error, not an
         // availability error.
         let (title, failure) =
@@ -478,7 +547,17 @@ impl SearchResultsInspectorPageVm {
     ///
     /// A skipped Index part shows the note of ADR 0087 Decision 5 when the
     /// Index cannot apply a term of the query.
+    ///
+    /// The note of an Index result that the page did not show comes first
+    /// (packet 007 decision D6). It also shows after the loading rows of a
+    /// tab with no rows. When the page shows it as the empty state, this
+    /// function does not give it again.
     pub(crate) fn index_notice(&self) -> Option<&EmptyStateDisplay> {
+        if let Some((_, note)) = &self.index_result_stop {
+            if self.empty_state.is_none() {
+                return Some(note);
+            }
+        }
         if self.is_empty(self.tab) {
             return None;
         }
@@ -843,6 +922,12 @@ impl SearchResultsInspectorPageVm {
         }
         if let Some(error) = &self.index_error {
             self.empty_state = Some(error.clone());
+            return;
+        }
+        // Packet 007 decision D6: a page with no rows tells why it shows
+        // no Index rows.
+        if let Some((_, note)) = &self.index_result_stop {
+            self.empty_state = Some(note.clone());
             return;
         }
         let empty = empty_state_for(self.tab, &self.query);

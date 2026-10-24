@@ -11,6 +11,10 @@
 //! The timer is `present_after`, so this module calls no `cx.spawn` (ADR
 //! 0040). A live run does not move the focus, so the caret stays in the
 //! field.
+//!
+//! Packet 007: a toolbar run keeps one generation from its start to its
+//! Index result. [`index_result_step`] decides if an Index result changes
+//! the page, and gives the reason of each result that it stops.
 
 #![warn(clippy::pedantic)]
 
@@ -20,7 +24,9 @@ use crate::application::CancellationToken;
 use crate::presentation::delayed_presenter::present_after;
 use crate::ui::tokens::Motion;
 use crate::view_models::live_run::{LiveRunGate, PauseTicket, RunGeneration};
-use crate::view_models::search_results::{live_run_step, LiveRunStep, SearchRun};
+use crate::view_models::search_results::{
+    live_run_step, IndexResultStopReason, LiveRunStep, SearchResultsInspectorPageVm, SearchRun,
+};
 use crate::view_models::workspace::{FrameNavigationEntry, FrameNavigationState};
 
 use super::search_selection::SearchPageSlot;
@@ -47,6 +53,13 @@ impl SearchSlotRuns {
         self.gate.next_run()
     }
 
+    /// `true` when `generation` is the current run of the slot (ADR 0087
+    /// Decision 4).
+    #[must_use]
+    pub(super) fn is_current_run(&self, generation: RunGeneration) -> bool {
+        self.gate.is_current(generation)
+    }
+
     /// Cancels the token of the Index request in flight, and keeps `token`
     /// as the token of the new request.
     pub(super) fn replace_index_cancel(&mut self, token: CancellationToken) {
@@ -54,6 +67,68 @@ impl SearchSlotRuns {
             older.cancel();
         }
     }
+}
+
+/// The step of one Index result (ADR 0087 Decision 4, packet 007 decision
+/// D4). Only `Apply` and `MountPage` change the page.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum IndexResultStep {
+    /// The result applies to the mounted page.
+    Apply,
+    /// No page is mounted. The app builds the page, then applies the
+    /// result.
+    MountPage,
+    /// The result is of a run that is not the current run of the slot.
+    DropOlderRun,
+    /// The navigation entry or the page is of another query.
+    DropOtherQuery,
+    /// The page shows another run of the same query.
+    DropPageGeneration,
+}
+
+impl IndexResultStep {
+    /// The typed reason of a stopped result for the page note of packet
+    /// 007 decision D6. A result of another query gives no note, because
+    /// the page of that query is not mounted.
+    #[must_use]
+    pub(super) const fn stop_reason(self) -> Option<IndexResultStopReason> {
+        match self {
+            Self::DropOlderRun => Some(IndexResultStopReason::OlderRun),
+            Self::DropPageGeneration => Some(IndexResultStopReason::PageGeneration),
+            Self::Apply | Self::MountPage | Self::DropOtherQuery => None,
+        }
+    }
+}
+
+/// Decides the step of the Index result of the run `generation` for
+/// `query` (packet 007 decision D4). `current_run` tells if the run is the
+/// current run of the slot. `entry_matches` tells if the navigation entry
+/// of the slot is of `query`. `page` is the mounted page of the slot. The
+/// first true row of the table of packet 007 gives the step.
+#[must_use]
+pub(super) fn index_result_step(
+    current_run: bool,
+    entry_matches: bool,
+    page: Option<&SearchResultsInspectorPageVm>,
+    generation: RunGeneration,
+    query: &str,
+) -> IndexResultStep {
+    if !current_run {
+        return IndexResultStep::DropOlderRun;
+    }
+    if !entry_matches {
+        return IndexResultStep::DropOtherQuery;
+    }
+    let Some(page) = page else {
+        return IndexResultStep::MountPage;
+    };
+    if page.query() != query {
+        return IndexResultStep::DropOtherQuery;
+    }
+    if page.run_generation() != generation {
+        return IndexResultStep::DropPageGeneration;
+    }
+    IndexResultStep::Apply
 }
 
 impl TopApp {
@@ -126,15 +201,17 @@ impl TopApp {
                 // Packet 028 review: a new query starts at the top of its list.
                 self.scroll_search_page_to_top(SearchPageSlot::ToolbarSearch);
                 // ADR 0084 Decision 9, walk of 2026-10-21: a search restores
-                // its page through the function that Back uses. The Library
+                // its page through the steps that Back uses. The Library
                 // detail of the earlier page thus clears. The earlier
-                // entries stay in the stack for Back. The restore also
-                // starts the MusicIndex search of the query.
-                self.restore_content_list_nav_entry(
+                // entries stay in the stack for Back.
+                self.restore_content_list_page(
                     content_list_id,
                     &FrameNavigationEntry::Search(query),
                     cx,
                 );
+                // Packet 007 decision D3: the Index part keeps the
+                // generation of this run.
+                self.start_index_search_for_run(SearchPageSlot::ToolbarSearch, run, cx);
             }
             Err(e) => {
                 self.settings_status = format!("Error opening search results: {e}");
@@ -152,6 +229,9 @@ mod tests {
     use gpui_component::input::{InputEvent, InputState};
 
     use super::*;
+    use crate::view_models::search_results::{
+        FeedResultDisplay, IndexSearchResultRows, SearchResultOrigin, SearchResultsTab,
+    };
 
     /// R87-3-14: `set_value` emits no `Change`. `replace` and `clean` each
     /// emit one `Change`. Thus a restored text arms no pause.
@@ -206,5 +286,189 @@ mod tests {
         let second = runs.next_run();
         assert!(first < second);
         assert!(runs.gate.is_current(second));
+    }
+
+    /// The generations 1 to `count` of one slot.
+    fn generations(count: usize) -> Vec<RunGeneration> {
+        let mut runs = SearchSlotRuns::default();
+        (0..count).map(|_| runs.next_run()).collect()
+    }
+
+    /// The page of `query` with the run generation `generation`.
+    fn page(query: &str, generation: RunGeneration) -> SearchResultsInspectorPageVm {
+        SearchResultsInspectorPageVm::new(query).with_run_generation(generation)
+    }
+
+    /// The Index rows of one release.
+    fn index_rows() -> IndexSearchResultRows {
+        IndexSearchResultRows {
+            feeds: vec![(
+                2_000_000_000,
+                FeedResultDisplay::new(
+                    "index-feed:g-fittest",
+                    "SURVIVAL OF THE FITTEST",
+                    SearchResultOrigin::Index,
+                ),
+            )],
+            ..Default::default()
+        }
+    }
+
+    /// R87-7-03: each row of the table of packet 007 gives its step.
+    #[test]
+    fn adr_0087_live_index_rows_r87_7_03_each_row_of_the_table() {
+        let generation = generations(2);
+        let mounted = page("survival", generation[1]);
+        let step =
+            |current, entry, page, run, query| index_result_step(current, entry, page, run, query);
+        assert_eq!(
+            step(false, true, Some(&mounted), generation[1], "survival"),
+            IndexResultStep::DropOlderRun
+        );
+        assert_eq!(
+            step(true, false, Some(&mounted), generation[1], "survival"),
+            IndexResultStep::DropOtherQuery
+        );
+        assert_eq!(
+            step(true, true, None, generation[1], "survival"),
+            IndexResultStep::MountPage
+        );
+        assert_eq!(
+            step(true, true, Some(&mounted), generation[1], "surviva"),
+            IndexResultStep::DropOtherQuery
+        );
+        assert_eq!(
+            step(true, true, Some(&mounted), generation[0], "survival"),
+            IndexResultStep::DropPageGeneration
+        );
+        assert_eq!(
+            step(true, true, Some(&mounted), generation[1], "survival"),
+            IndexResultStep::Apply
+        );
+    }
+
+    /// Packet 007 decision D6: each step that stops a result of the page
+    /// query gives its typed reason. The other steps give none.
+    #[test]
+    fn adr_0087_live_index_rows_d6_each_step_gives_its_reason() {
+        assert_eq!(
+            IndexResultStep::DropOlderRun.stop_reason(),
+            Some(IndexResultStopReason::OlderRun)
+        );
+        assert_eq!(
+            IndexResultStep::DropPageGeneration.stop_reason(),
+            Some(IndexResultStopReason::PageGeneration)
+        );
+        for step in [
+            IndexResultStep::Apply,
+            IndexResultStep::MountPage,
+            IndexResultStep::DropOtherQuery,
+        ] {
+            assert_eq!(step.stop_reason(), None, "{step:?}");
+        }
+    }
+
+    /// R87-7-04: a page of `survival` and generation 2 applies only the
+    /// result of generation 2 and `survival`.
+    #[test]
+    fn adr_0087_live_index_rows_r87_7_04_page_generation_and_query() {
+        let generation = generations(2);
+        let mounted = page("survival", generation[1]);
+        assert_eq!(
+            index_result_step(true, true, Some(&mounted), generation[1], "survival"),
+            IndexResultStep::Apply
+        );
+        assert_eq!(
+            index_result_step(true, true, Some(&mounted), generation[0], "survival"),
+            IndexResultStep::DropPageGeneration
+        );
+        assert_eq!(
+            index_result_step(true, true, Some(&mounted), generation[1], "surviva"),
+            IndexResultStep::DropOtherQuery
+        );
+    }
+
+    /// The live sequence of R87-7-05: the pause ends, the run takes G, the
+    /// page and the Index request keep G, and the result of G applies.
+    fn live_run_applies(runs: &mut SearchSlotRuns) -> (RunGeneration, CancellationToken) {
+        let ticket = runs.gate.text_changed();
+        assert!(runs.gate.pause_ended(ticket));
+        let g = runs.next_run();
+        let mut mounted = page("survival", g);
+        assert!(mounted.begin_index_run(g));
+        let t = CancellationToken::new();
+        runs.replace_index_cancel(t.clone());
+
+        assert!(runs.gate.is_current(g));
+        assert!(!t.is_cancelled());
+        assert_eq!(
+            index_result_step(runs.is_current_run(g), true, Some(&mounted), g, "survival"),
+            IndexResultStep::Apply
+        );
+        assert!(mounted.replace_index_results_for_run(g, "survival", index_rows()));
+        assert!(!mounted.is_empty(SearchResultsTab::Releases));
+        assert_eq!(mounted.index_pending_row_count(), 0);
+        (g, t)
+    }
+
+    /// R87-7-05: a live run keeps one generation from its start to its
+    /// Index result, and the result applies.
+    #[test]
+    fn adr_0087_live_index_rows_r87_7_05_live_run_applies_its_result() {
+        let mut runs = SearchSlotRuns::default();
+        live_run_applies(&mut runs);
+    }
+
+    /// R87-7-06: an Enter run of the same text after the live run takes H
+    /// and cancels T. The result of G stops, and the result of H applies.
+    #[test]
+    fn adr_0087_live_index_rows_r87_7_06_enter_after_the_live_run() {
+        let mut runs = SearchSlotRuns::default();
+        let (g, t) = live_run_applies(&mut runs);
+        let h = runs.next_run();
+        assert!(t.is_cancelled());
+        let mut mounted = page("survival", h);
+        assert!(mounted.begin_index_run(h));
+        assert_eq!(
+            index_result_step(runs.is_current_run(g), true, Some(&mounted), g, "survival"),
+            IndexResultStep::DropOlderRun
+        );
+        assert_eq!(
+            index_result_step(runs.is_current_run(h), true, Some(&mounted), h, "survival"),
+            IndexResultStep::Apply
+        );
+    }
+
+    /// R87-7-07: the run of `haleen` mounts its page over the page of
+    /// `hal`. The result of `haleen` applies, and the result of `hal`
+    /// stops.
+    #[test]
+    fn adr_0087_live_index_rows_r87_7_07_newer_query_replaces_the_page() {
+        let mut runs = SearchSlotRuns::default();
+        let first = runs.next_run();
+        let hal = page("hal", first);
+        let second = runs.next_run();
+        let haleen = page("haleen", second);
+        assert!(haleen.is_newer_than(Some(&hal)));
+        assert_eq!(
+            index_result_step(
+                runs.is_current_run(second),
+                true,
+                Some(&haleen),
+                second,
+                "haleen"
+            ),
+            IndexResultStep::Apply
+        );
+        assert_eq!(
+            index_result_step(
+                runs.is_current_run(first),
+                false,
+                Some(&haleen),
+                first,
+                "hal"
+            ),
+            IndexResultStep::DropOlderRun
+        );
     }
 }
