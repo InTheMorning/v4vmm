@@ -23,6 +23,7 @@ Phase 4A builds ADR 0084 in the packets of the
 [ADR 0084 phase plan](docs/plans/adr-0084-music-column-browser-phase-plan.md). Music has one navigation stack, one page
 for each item, three columns, the six destinations and Discover.
 Stophammer release 0.13.0 delivered request 9 on 2026-10-21, so packets 026 and 029 wait for nothing outside this repository.
+Stophammer release 0.14.0 of 2026-10-24 is deployed. It delivers item 1 of request 10 (Stophammer ADR 0078).
 
 Packets 001 to 009, 013 to 015, 018 and 019 are complete. Packets 010 to 012, 016, 017 and 020 to 034 are implemented,
 and so are ADR 0083 tasks 006 to 008. The run of 2026-10-20 closed on 2026-10-23. Its unwalked visual checks stay open in

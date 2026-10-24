@@ -13,6 +13,9 @@ ADR.
 The research examined v4vmm at commit `93b2c79`, and the work of ADR 0087
 packet 002 that was not in a commit on that day.
 
+Stophammer release 0.14.0 is deployed on 2026-10-24. Section 5 gives the
+changes for v4vmm.
+
 ## 1. Shared Search Code
 
 The website, v4vmm and musicindex-studio share no search code. Each has its own
@@ -73,3 +76,44 @@ in `sources/broadcast-audio/streaming/rivendell`. BUTT has no public Git
 repository. The research keeps its release archive 1.47.0, which was the
 latest release on 2026-10-23. The research index of broadcast audio gives the
 details.
+
+## 5. Stophammer Release 0.14.0
+
+Stophammer deployed release 0.14.0 on 2026-10-24. On that day, `GET
+/node/info` gave `git_revision` `499b301`, and `info.version` of
+`/openapi.json` gave `0.14.0`. The release delivers Stophammer ADR 0078 and
+ADR 0079.
+
+- The search index holds only the text that each entity has now (ADR 0078 §1).
+  This corrects the defect of section 3 (S1). A search no
+  longer finds a release by a title that it no longer has.
+- A retire deletes each index row of the feed. A publisher hit gives the
+  quality of its feed (ADR 0078 §3 and §4).
+- The node divides `q` into words, and it puts each word in quotation marks
+  (ADR 0078 §5). Each `q` with a word gives `200`, also with an apostrophe.
+  This delivers item 1 of open request 10. A query with `title:foo` is a
+  search for the words `title:foo`.
+  A `q` with no word gives `400`, and a `400` message gives no SQLite text.
+- A GUID that a retire with no block frees returns only through its last
+  source URL, until an operator releases the hold (ADR 0079). The ingest gives
+  the reason `retired_source_conflict`, and the admin route
+  `DELETE /v1/retired-source-holds/{guid}` is new. v4vmm sends no ingest request.
+
+Read-only checks on the live API on 2026-10-24:
+`GET /v1/search?q=haleen'&type=track` gave `200` with 3 rows, and
+`q=title:foo` gave `200` with no rows. The OpenAPI document lists
+`/v1/retired-source-holds/{guid}`.
+
+These items stay open for v4vmm:
+
+- `tests/fixtures/musicindex-openapi-0.13.0.json` is the stored contract. The
+  release changes no response field. It changes the description of `q`, and
+  it adds one admin route. ADR 0075 section 6 owns the replacement.
+- The test `adr_0084_search_list_http_400_is_a_rejected_query` in
+  `src/application/queries/search.rs` records an `fts5` error for `haleen'`.
+  Release 0.14.0 gives `200` for that text. The test continues to check the
+  `400` path.
+- Items 2 to 6 of open request 10, and request 11, have no Stophammer decision.
+  ADR 0087 packet 006 continues to wait for them.
+- The release has no prefix search and no request for all types. C1 to C4 need
+  no Stophammer change.

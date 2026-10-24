@@ -28,7 +28,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 7 | The named feed rank and the release kind facts in each publisher relationship entry | API field addition | Deployed in release 0.11.0 on 2026-10-18, without `remote_release_kind` |
 | 8 | Each list row and each search row is complete | API rule and field additions | Deployed in release 0.12.0 on 2026-10-18 |
 | 9 | A named feed entry states its confirmation | API field, filter and include additions | Deployed in release 0.13.0 on 2026-10-21 |
-| 10 | Search accepts words, phrases and field filters | Search correction and API parameter additions | Draft - 2026-10-23. The v4vmm operator reviews it first |
+| 10 | Search accepts words, phrases and field filters | Search correction and API parameter additions | Item 1: ADR 0078, deployed in release 0.14.0 on 2026-10-24. Items 2 to 6: draft - 2026-10-23. The v4vmm operator reviews them first |
 | 11 | A feed search hit gives its release date and its named feeds | API field and include additions | Draft - 2026-10-23. The v4vmm operator asked for it on 2026-10-23 |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
