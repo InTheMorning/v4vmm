@@ -50,7 +50,8 @@ The run of 2026-10-23 implemented ADR 0086 packets 001 to 005 and ADR 0087 packe
 Exception for the run of 2026-10-24: one orchestrator session runs ADR 0084 packets 035 to 037 and ADR 0087 packets 007 and 008.
 It also runs the live value URI packet. The operator decided this on 2026-10-24. The orchestrator commits each reviewed packet, and the operator walks the visual checks
 at the end. The [run record](docs/reviews/orchestrated-run-2026-10-24.md) holds the order, the decisions and the final walk.
-Delete this paragraph when the operator closes the run.
+
+Each packet of the run is implemented. The final walk is open. Delete these paragraphs when the operator closes the run.
 
 Ready packets include
 [ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md).

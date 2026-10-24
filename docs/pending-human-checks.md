@@ -209,7 +209,7 @@ Open - the run closed on 2026-10-24 before the end of its walk. Each check below
 
 ## 7. Final Walk Of The Run Of 2026-10-24
 
-Open - the run adds each packet when its mechanical checks are Green.
+Open - each packet of the run is committed. The run record gives the setup and the order of the walk.
 
 - Owner: the [run record](reviews/orchestrated-run-2026-10-24.md#final-walk).
 - The packets of the run. Each item names its packet and its open checks:

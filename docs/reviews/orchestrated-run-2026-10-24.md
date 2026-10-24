@@ -49,4 +49,40 @@ Each entry names the packet, the result and the commit.
 
 ## Final Walk
 
-Open. The orchestrator writes the walk when each packet of the run is committed.
+Open - 2026-10-24. Each packet of the run is committed. Section 7 of [pending human checks](../pending-human-checks.md) lists each open check. The "Operator Visual Check" section of each packet gives the steps.
+
+### Setup
+
+The run adds no migration and no configuration key, so no backup is necessary.
+
+1. Open a terminal in a desktop session.
+2. Build both binaries: `cd ~/build/v4vmm && cargo build --release && cargo build --bin v4vmm`.
+3. Confirm that the debug binary is a normal build: `nm -C target/debug/v4vmm | grep -c TestDispatcher` gives `0`.
+4. Start the app with `./target/release/v4vmm` for packet 037, and with either binary for the other packets.
+
+The checks need these states:
+
+- `https://api.musicindex.org` is reachable, except where a step says that it is not.
+- The Haleen singles group in Releases "Everything" has MusicIndex singles that are not in the Library.
+- For packet 019, the relay fixture of ADR 0059 task 016, as the packet says.
+
+### Order
+
+1. Packet 037 V1 to V7 in the release binary. The speed comes first, because each other check of Releases uses the list.
+2. Packet 036 V1 to V3. V1 walks packet 026 V1 again.
+3. Packet 035 V1 to V3. V1 walks packet 026 V6 again. Its steps download singles, and its cleanup removes them.
+4. Packet 008 V1 to V5. The script scenario `fieldlist2` of `~/.claude/scripts/v4vmm-shots.sh` takes the screenshots. Its click on `single` is at y 161 to 184.
+5. Packet 007 V1 to V4. The script scenario `live2` takes the screenshots of V1 to V3. V4 needs MusicIndex not reachable. If V1 fails, write down the text of the note under the rows.
+6. Packet 019 V1 to V4. V4 changes a podcast feed outside the app.
+
+### Record
+
+For each check, the operator says pass, fail or skip. The orchestrator records each result in the packet `Status:` line, the phase plan, section 7 of pending human checks and the Walk Log below.
+
+### Walk Log
+
+No check is walked yet.
+
+### Cleanup
+
+Each packet gives its own cleanup. Packet 035 removes the downloaded singles, if the operator does not keep them. Packet 019 restores the relay fixture.
