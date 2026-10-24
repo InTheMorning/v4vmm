@@ -192,7 +192,7 @@ Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 202
 
 ## 6. Final Walk Of The Run Of 2026-10-23
 
-Open - the run adds each packet when its mechanical checks are Green.
+Open - the run closed on 2026-10-24 before the end of its walk. Each check below stays open. The fix packets of the walk come first. Walk the checks of a changed screen after its fix packet.
 
 - Owner: the [run record](reviews/orchestrated-run-2026-10-23.md#final-walk).
 - The walk starts with ADR 0084 packet 026 (section 2). The operator passed its V1 to V5 and V8 on 2026-10-23, apart from the "You Are Enough" row of V2. The operator passed packet 020 V1 to V6 on 2026-10-23.

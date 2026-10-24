@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation complete - 2026-10-23. Each packet of the run is implemented and committed. The final walk is open.
+Closed - 2026-10-24. Each packet of the run is implemented and committed. The operator closed the run on 2026-10-24 before the end of the final walk. Each check that the operator did not walk stays open in section 6 of [pending human checks](../pending-human-checks.md). The fix packets of the walk come next in the [remaining order](../plans/design-and-cleanup-overhaul-plan.md#remaining-order---2026-10-23).
 
 This record is advisory. It states no rule. Each rule stays in its ADR.
 
@@ -115,6 +115,12 @@ Each entry names the step, the decision and the reason.
    On the same day, `GET /v1/feeds/{guid}?include=publisher` gave a `music_to_publisher` entry to `64569161` for "A Greater Call" (`67ae17fe`), the same as for "Whispers" (`09b1bf8b`). The MusicIndex answer is correct, so the defect is in the app: each download calls `hydrate_album_identity_by_feed_guid` (`src/library/downloads.rs`), but no link was stored. Its checks V1 to V4 stay open. A fix needs a packet, and V6 stays open until a person walks it again.
 
 3. 2026-10-23, from the operator during the walk: the operator plans a new overhaul of the visual design, because of the use of screen space and the size and color of the interface. That work needs its own decision record. It can retire the visual criteria of size and color in the open packets. The behavior criteria stay.
+
+## Operator Answers - 2026-10-24
+
+1. A group row in "Everything" takes the place of its artist name, the same as in "Library". This changes packet 026 decision D5 to option B. A fix packet implements it. By the count of packet 026 D5, a group row can then show above rows that already show, when a later page loads. The fix packet decides how this agrees with packet 016 decision D7.
+2. A fix packet corrects the feed links of a download from a singles group. It comes first in the remaining order, with the other behavior defects of the walk.
+3. The visual overhaul is Phase 7 of the overhaul plan. It comes after the behavior fixes and before each new screen. The operator writes its design rules in `../musicindex`. A v4vmm ADR adopts them. The visual fails of the walk go into Phase 7: ADR 0084 packet 026 V10, ADR 0087 packet 004 V1 and ADR 0087 packet 005 V7.
 
 ## Final Walk
 

@@ -233,7 +233,7 @@ The app reads the singles of a feed G before the rows of the page that needs G s
 ## Operator Answers - 2026-10-21
 
 - D4: option A. Before a page shows, the app reads each new artist feed of the singles on that page, at most 4 requests at a time.
-- D5: option A. A group row takes the place of its first single in title order.
+- D5: option A. A group row takes the place of its first single in title order. The operator changed this answer on 2026-10-24 (below).
 - D12: the group page is not scoped. It lists the Library and MusicIndex singles of the feed in each scope.
 - D13: option A. A Library single keeps its track row, and a MusicIndex single shows as a release row.
 - The orchestrator decided D6, D9 and D14 by their recommendations, by the operator rule of 2026-10-20 ("decide but keep a record"). D6: a MusicIndex single at the name level stays a release row. D9: a group row with no Library member shows no Library part. D14: a single page reads the singles of its feed when the app has no result yet.
@@ -585,3 +585,8 @@ Stop and report the problem, and do not guess, when:
 - A row needs a detail request to show its text or its group.
 - The command runner cannot run four requests at the same time inside one command.
 - A change needs a file in "Do not touch".
+
+## Operator Answers - 2026-10-24
+
+- D5: option B. A group row in "Everything" takes the place of its artist name, the same as in "Library". The row shows the artist name, so the order of its first title looked wrong in the walk of V1 ([run record](../reviews/orchestrated-run-2026-10-23.md#operator-answers---2026-10-24), question 1). A fix packet implements it and decides how it agrees with packet 016 decision D7.
+- V6 failed: a download from a group stores no feed links. A fix packet corrects it. V10 failed: the visual overhaul (Phase 7 of the overhaul plan) takes it.

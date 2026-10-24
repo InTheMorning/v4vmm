@@ -152,48 +152,68 @@ ADR 0069 and its task 002 continue. The grouped Settings keep each report and lo
 
 A separate ADR, after the Library work. The playback defect of one song that does not change is a separate early packet.
 
+### Phase 7: Visual Overhaul
+
+The operator asked for it on 2026-10-23. The use of screen space and the size and color of the interface do not satisfy the operator. The operator writes the design rules in `../musicindex`. A v4vmm ADR adopts them. The [remaining order](#remaining-order---2026-10-23) puts this phase before each new screen.
+
 ## Remaining Order - 2026-10-23
 
-The orchestrator wrote this order on 2026-10-23, from the operator answers on ADR 0086 of the same day. It replaces the phase numbers as the order of work. Each step is one session or more. A step starts only after the visual check of the step before it.
+The orchestrator wrote this order on 2026-10-23, from the operator answers on ADR 0086 of the same day. The operator revised it on 2026-10-24: the behavior fixes come first, then the visual overhaul, then each new screen. It replaces the phase numbers as the order of work. Each step is one session or more. A step starts only after the visual check of the step before it.
 
 The publisher show-log trigger of the [delivery order](broadcast-chain-delivery-order.md#current-delivery-order) stays first: when a real show is scheduled, publisher show-log task 001 comes before each step below.
 
+The [run of 2026-10-23](../reviews/orchestrated-run-2026-10-23.md) implemented [ADR 0086](adr-0086-new-releases-window-groups-phase-plan.md) packets 001 to 005 and [ADR 0087](adr-0087-search-fields-phase-plan.md) packets 001 to 005. ADR 0087 packet 006 waits for the Stophammer release of open request 10.
+
 ### Phase 4A: Close
 
-1. The operator accepted [ADR 0086](../adr/0086-new-releases-singles-window.md) on 2026-10-23.
-2. The operator walks the open checks of the surfaces that ADR 0086 changes: [packet 020](../tasks/adr-0084-task-020-discover-selection.md) V1 to V6 and [packet 026](../tasks/adr-0084-task-026-index-singles-groups.md) V1 to V10. A defect that these checks find is then not mixed with a defect of ADR 0086. The operator moved this walk to the start of the final walk of the [run of 2026-10-23](../reviews/orchestrated-run-2026-10-23.md).
-3. [ADR 0086 packets](adr-0086-new-releases-window-groups-phase-plan.md) 001 to 005, in register order. Before packet 005, the operator walks the open checks of [packet 012](../tasks/adr-0084-task-012-saved-searches.md).
-4. [ADR 0087 packets](adr-0087-search-fields-phase-plan.md) 001 to 005: the search fields, the field list and the live results (operator decision of 2026-10-23). Packet 006 waits for the Stophammer release of open request 10.
+1. The operator closed the run of 2026-10-23 on 2026-10-24. Each check that the operator did not walk stays open in [pending human checks](../pending-human-checks.md). The operator answered the three questions of the run record.
+2. Fix packets for the behavior defects of the final walk. The visual overhaul does not change these defects:
+   - ADR 0087 packet 003 V3: a live run shows no Index rows. Enter shows them.
+   - ADR 0087 packet 003 V6 and packet 004 V6: the field list closes after a value goes into the text, and after a trailing space.
+   - ADR 0084 packet 026 V6 and packet 034: a download from a singles group stores no feed links (question 2 of the run record).
+   - ADR 0084 packet 026 D5: a group row in "Everything" takes the place of its artist name (operator answer of 2026-10-24).
+   - Responsiveness item 31: about 500 ms for each frame in "Everything". It needs a virtual list and one merge for each frame. It comes before the responsiveness phase, because the list is not usable at that speed.
+
+### Ready Defects
+
+3. [The live value URI plan](livevalue-uri-is-a-url.md). It is Ready and small. It must be complete before the relay adoption of row 3 of the delivery order.
+
+### Phase 7: Visual Overhaul
+
+4. The operator plans a new visual design, because of the use of screen space and the size and color of the interface (question 3 of the run record). The operator writes the design rules in `../musicindex`. This step starts when the operator says that those rules are stable.
+   - First, a v4vmm ADR adopts the rules. It amends or supersedes [ADR 0083](../adr/0083-design-language.md) and the Phase 3 tokens. It names the `../musicindex` document as its source. A rule binds v4vmm only through this ADR.
+   - Then the new tokens in `src/ui/tokens.rs`.
+   - Then one packet for each surface.
+   - The visual defects of the final walk go into this step, with no separate fix: ADR 0084 packet 026 V10 (clipped titles), ADR 0087 packet 004 V1 (9 of 11 field rows show) and ADR 0087 packet 005 V7 (a long name overlaps the next row).
+   - The ADR replaces or keeps each open visual criterion of size and color, and each [visual requirement moved from pending checks](#visual-requirements-moved-from-pending-checks---2026-10-07). The behavior criteria stay.
 
 ### Phase 5: Settings
+
+The editor is a new interface. It comes after step 4, so that it is built one time, in the new design.
 
 5. [ADR 0069 task 002](../tasks/adr-0069-task-002-shared-guarded-editor.md), the shared guarded editor. It is Ready.
 6. ADR 0086 packet 006, the window length in Settings. It uses the editor of step 5.
 
-ADR 0069 phases 003 to 005 wait for the full ADR 0066 release (step 12).
-
-### Ready Defects
-
-7. [The live value URI plan](livevalue-uri-is-a-url.md). It is Ready and small. It must be complete before the relay adoption of row 3 of the delivery order.
+ADR 0069 phases 003 to 005 wait for the full ADR 0066 release (step 11).
 
 ### Phase 4: Remaining Library Work
 
-Each step needs its packet written first.
+Each step needs its packet written first. Each new screen uses the design of step 4.
 
-8. The download state of the release rows of the feed page and the name page: a count of a partial release, "Queued" and "Downloading" (open finding of ADR 0084 packet 033 D1).
-9. The inspection view of RSS, MusicIndex and file tags (ADR 0083 Decision 8). It includes the "Inspect sources" view of an Index track page and the contributors panel of an Index release page (open findings of the ADR 0084 phase plan).
-10. The `TYER` difference of an MP4 file in "Update n files" ([ADR 0080 plan](adr-0080-tag-frames-phase-plan.md)).
-11. The payment split bar for the track page and the release page.
+7. The download state of the release rows of the feed page and the name page: a count of a partial release, "Queued" and "Downloading" (open finding of ADR 0084 packet 033 D1).
+8. The inspection view of RSS, MusicIndex and file tags (ADR 0083 Decision 8). It includes the "Inspect sources" view of an Index track page and the contributors panel of an Index release page (open findings of the ADR 0084 phase plan).
+9. The `TYER` difference of an MP4 file in "Update n files" ([ADR 0080 plan](adr-0080-tag-frames-phase-plan.md)).
+10. The payment split bar for the track page and the release page.
 
 ### Phase 6: Player And Cue
 
-12. The operator decides [ADR 0068](../adr/0068-show-cue-and-audition-isolation.md), and an agent diagnoses the mpv IPC error. Then the playback defect of one song that does not change. Then the playback position after a move or a removal of playlist rows (open finding of the ADR 0084 phase plan). ADR 0066 task 004 can then pass, and the configuration-format gate opens for ADR 0069 phase 003 and deferred item 7.
+11. The operator decides [ADR 0068](../adr/0068-show-cue-and-audition-isolation.md), and an agent diagnoses the mpv IPC error. Then the playback defect of one song that does not change. Then the playback position after a move or a removal of playlist rows (open finding of the ADR 0084 phase plan). ADR 0066 task 004 can then pass, and the configuration-format gate opens for ADR 0069 phase 003 and deferred item 7.
 
 ### Later
 
-13. The responsiveness phase: the open items of "Throughout: Responsiveness And Background Feedback".
-14. The broadcast chain rows 3 to 6 of the [delivery order](broadcast-chain-delivery-order.md#current-delivery-order), in their order.
-15. Procedures for the visual requirements §8 and §9, which cannot run as written.
+12. The responsiveness phase: the open items of "Throughout: Responsiveness And Background Feedback".
+13. The broadcast chain rows 3 to 6 of the [delivery order](broadcast-chain-delivery-order.md#current-delivery-order), in their order.
+14. Procedures for the visual requirements §8 and §9, which cannot run as written.
 
 ### Throughout: Code Correctness
 
