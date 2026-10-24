@@ -6,24 +6,35 @@
 //! `GET /v1/feeds/by-name`, and the merge of the two in one name order.
 //! The merge is a pure function of the Library entries and the loaded
 //! pages, so a download changes a row in place.
+//!
+//! ADR 0084 task 037 adds the cache of the merge. [`ReleasesListCache`]
+//! builds the flat items of the list again only when its
+//! [`ReleasesListKey`] changes. [`item_id_runs`] gives the changes of the
+//! item ids, so the virtual list keeps its scroll position.
 
 #![warn(clippy::pedantic)]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::ops::Range;
+use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::api::Feed;
 use crate::view_models::download_progress::DownloadPhase;
 use crate::view_models::index_feed_singles::IndexFeedSingles;
 use crate::view_models::index_name_list::{
-    name_sort_key, watermark_shows, IndexNameListPage, MusicListScope,
+    name_sort_key, watermark_shows, IndexListStatusRowVm, IndexNameListPage, MusicListScope,
 };
 use crate::view_models::library::{
-    release_row_slug, DestinationListRowTarget, DestinationListRowVm, ReleasesListEntryVm,
-    ReleasesRowId,
+    release_row_slug, releases_selection_rows, DestinationListRowTarget, DestinationListRowVm,
+    ReleasesListEntryVm, ReleasesListItemVm, ReleasesRowId,
 };
-use crate::view_models::list_selection::{ListSelection, RowSelectionVm, SelectionMode};
+use crate::view_models::list_selection::{
+    ListSelection, RowSelectionVm, SelectionMode, SelectionRow,
+};
 use crate::view_models::release_download_state::ReleaseDownloadStateVm;
 use crate::view_models::release_kind::ReleaseKind;
+use crate::view_models::release_row_actions::{ReleaseRowMenuVm, ReleaseRowState};
 use crate::view_models::singles_group::SinglesGroupKey;
 use crate::view_models::workspace::ReleaseKey;
 
@@ -269,6 +280,270 @@ pub(crate) struct ReleasesDownloadPlan {
     /// The feed GUID and the title of each selected `MusicIndex` release.
     /// The title is `None` when no loaded page holds the release.
     pub(crate) index_releases: Vec<(String, Option<String>)>,
+}
+
+/// The source of each [`Revision`]. Each value comes one time only, so two
+/// inputs never share a revision, also after a new input replaces an old
+/// one.
+static NEXT_REVISION: AtomicU64 = AtomicU64::new(1);
+
+/// The revision of one input of the Releases list (ADR 0084 task 037,
+/// Design step 2). Each change of the input gives it a new, larger value.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Revision(u64);
+
+impl Revision {
+    fn next() -> Self {
+        Self(NEXT_REVISION.fetch_add(1, Ordering::Relaxed))
+    }
+
+    /// Records one change of the input.
+    pub(crate) fn bump(&mut self) {
+        *self = Self::next();
+    }
+}
+
+impl Default for Revision {
+    fn default() -> Self {
+        Self::next()
+    }
+}
+
+/// The inputs of one build of the Releases list (ADR 0084 task 037,
+/// decision D2). The key holds revisions, not copies of the inputs. The
+/// selection, the selection mode, the keyboard focus, the hover and the
+/// images are not in the key, so a change of one of them builds no merge
+/// (decision D3).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ReleasesListKey {
+    pub(crate) scope: MusicListScope,
+    /// The revision of the release name page.
+    pub(crate) page: Revision,
+    /// The revision of the loaded `MusicIndex` singles.
+    pub(crate) singles: Revision,
+    /// The revision of the Library tree and of the busy state.
+    pub(crate) library: Revision,
+    /// The open singles groups.
+    pub(crate) expanded: BTreeSet<SinglesGroupKey>,
+}
+
+/// One build of the Releases list (ADR 0084 task 037, Design step 3): the
+/// flat items, the selection rows and the row state of each row key.
+///
+/// The item order is the order of [`Self::selection_rows`], with a status
+/// row at the start or at the end. Each release row and each single row
+/// holds its menu for `Normal` mode.
+#[derive(Debug, Default)]
+pub(crate) struct ReleasesListRows {
+    items: Vec<ReleasesListItemVm>,
+    item_ids: Vec<String>,
+    selection_rows: Vec<SelectionRow<ReleasesRowId, ReleaseKey>>,
+    row_states: BTreeMap<ReleaseKey, ReleaseRowState>,
+}
+
+impl ReleasesListRows {
+    /// Builds the rows from the `entries` of `releases_list` and the status
+    /// row of the list. `row_state` gives the state of each row key, and
+    /// `row_menu` gives the `Normal` menu of each release row.
+    #[must_use]
+    pub(crate) fn new(
+        entries: Vec<ReleasesListEntryVm>,
+        status: Option<IndexListStatusRowVm>,
+        row_state: impl Fn(&ReleaseKey) -> Option<ReleaseRowState>,
+        row_menu: impl Fn(&DestinationListRowVm) -> Option<ReleaseRowMenuVm>,
+    ) -> Self {
+        let selection_rows = releases_selection_rows(&entries);
+        let row_states = selection_rows
+            .iter()
+            .flat_map(|row| row.members.iter())
+            .filter_map(|key| row_state(key).map(|state| (key.clone(), state)))
+            .collect();
+        let with_menu = |mut row: DestinationListRowVm| {
+            row.menu = row_menu(&row);
+            row
+        };
+        let (leading, trailing) = match status {
+            Some(row) if row.at_list_start() => (Some(row), None),
+            other => (None, other),
+        };
+        let mut items: Vec<ReleasesListItemVm> = leading
+            .map(ReleasesListItemVm::LeadingStatus)
+            .into_iter()
+            .collect();
+        for entry in entries {
+            match entry {
+                ReleasesListEntryVm::Release(row) => {
+                    items.push(ReleasesListItemVm::Release(with_menu(row)));
+                }
+                ReleasesListEntryVm::SinglesGroup(mut group) => {
+                    let singles = std::mem::take(&mut group.singles);
+                    items.push(ReleasesListItemVm::Group(group));
+                    items.extend(
+                        singles
+                            .into_iter()
+                            .map(|row| ReleasesListItemVm::Single(with_menu(row))),
+                    );
+                }
+            }
+        }
+        items.extend(trailing.map(ReleasesListItemVm::TrailingStatus));
+        let item_ids = items
+            .iter()
+            .map(|item| item.element_id().to_owned())
+            .collect();
+        Self {
+            items,
+            item_ids,
+            selection_rows,
+            row_states,
+        }
+    }
+
+    /// The flat items, in their render order.
+    #[must_use]
+    pub(crate) fn items(&self) -> &[ReleasesListItemVm] {
+        &self.items
+    }
+
+    /// The element id of each item, in the order of [`Self::items`].
+    #[must_use]
+    pub(crate) fn item_ids(&self) -> &[String] {
+        &self.item_ids
+    }
+
+    /// The selection rows, in their render order (ADR 0084 Decision 10).
+    #[must_use]
+    pub(crate) fn selection_rows(&self) -> &[SelectionRow<ReleasesRowId, ReleaseKey>] {
+        &self.selection_rows
+    }
+
+    /// The row state of `key`, when a row of the list holds it.
+    #[must_use]
+    pub(crate) fn row_state(&self, key: &ReleaseKey) -> Option<ReleaseRowState> {
+        self.row_states.get(key).copied()
+    }
+
+    /// 1 when a status row is the first item, else 0. The item index of
+    /// a selection row is its index plus this count.
+    #[must_use]
+    pub(crate) fn leading(&self) -> usize {
+        usize::from(matches!(
+            self.items.first(),
+            Some(ReleasesListItemVm::LeadingStatus(_))
+        ))
+    }
+}
+
+/// The last build of the Releases list and its key (ADR 0084 task 037,
+/// Design step 3). One frame can read the list more than one time, for
+/// the header action and for the rows. Only a new key builds the list
+/// again (overhaul plan, responsiveness items 16 and 31).
+#[derive(Debug, Default)]
+pub(crate) struct ReleasesListCache {
+    key: Option<ReleasesListKey>,
+    rows: Rc<ReleasesListRows>,
+    /// The count of builds, for the tests of task 037.
+    #[cfg(test)]
+    builds: usize,
+}
+
+impl ReleasesListCache {
+    /// The rows of `key`. `build` runs only when `key` is not the key of
+    /// the last build.
+    pub(crate) fn read(
+        &mut self,
+        key: ReleasesListKey,
+        build: impl FnOnce() -> ReleasesListRows,
+    ) -> Rc<ReleasesListRows> {
+        if self.key.as_ref() != Some(&key) {
+            self.rows = Rc::new(build());
+            self.key = Some(key);
+            #[cfg(test)]
+            {
+                self.builds += 1;
+            }
+        }
+        Rc::clone(&self.rows)
+    }
+
+    /// The count of builds since the cache was made.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) const fn builds(&self) -> usize {
+        self.builds
+    }
+}
+
+/// One change of a list of item ids (ADR 0084 task 037, Design step 8):
+/// the items in `old` are replaced by `new_count` new items.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ItemIdRun {
+    pub(crate) old: Range<usize>,
+    pub(crate) new_count: usize,
+}
+
+/// The runs of added or removed ids from `old` to `new`, in the order of
+/// `old`. An id in both lists, in the same relative order, is in no run,
+/// so its item keeps its measured size. The kept ids are the longest
+/// sequence of ids that both lists hold in the same order. Apply the runs
+/// from the last to the first, so each `old` range stays correct.
+#[must_use]
+pub(crate) fn item_id_runs(old: &[String], new: &[String]) -> Vec<ItemIdRun> {
+    let old_positions: HashMap<&str, usize> = old
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (id.as_str(), index))
+        .collect();
+    // Each new id that `old` holds, as (new index, old index).
+    let pairs: Vec<(usize, usize)> = new
+        .iter()
+        .enumerate()
+        .filter_map(|(index, id)| old_positions.get(id.as_str()).map(|&at| (index, at)))
+        .collect();
+    let kept = longest_increasing_pairs(&pairs);
+
+    let mut runs = Vec::new();
+    let (mut old_start, mut new_start) = (0, 0);
+    for (new_at, old_at) in kept
+        .into_iter()
+        .chain(std::iter::once((new.len(), old.len())))
+    {
+        if old_at > old_start || new_at > new_start {
+            runs.push(ItemIdRun {
+                old: old_start..old_at,
+                new_count: new_at - new_start,
+            });
+        }
+        old_start = old_at + 1;
+        new_start = new_at + 1;
+    }
+    runs
+}
+
+/// The longest sequence of `pairs` whose old indices increase. `pairs`
+/// comes in the order of its new indices.
+fn longest_increasing_pairs(pairs: &[(usize, usize)]) -> Vec<(usize, usize)> {
+    // `tails[length]` is the index in `pairs` of the smallest old index
+    // that ends a sequence of `length + 1` pairs.
+    let mut tails: Vec<usize> = Vec::new();
+    let mut previous: Vec<Option<usize>> = vec![None; pairs.len()];
+    for (index, &(_, old_at)) in pairs.iter().enumerate() {
+        let length = tails.partition_point(|&tail| pairs[tail].1 < old_at);
+        previous[index] = length.checked_sub(1).map(|before| tails[before]);
+        if length == tails.len() {
+            tails.push(index);
+        } else {
+            tails[length] = index;
+        }
+    }
+    let mut kept = Vec::with_capacity(tails.len());
+    let mut at = tails.last().copied();
+    while let Some(index) = at {
+        kept.push(pairs[index]);
+        at = previous[index];
+    }
+    kept.reverse();
+    kept
 }
 
 #[cfg(test)]
@@ -566,6 +841,103 @@ pub(crate) mod tests {
         assert_eq!(
             loaded_index_release_title(&page, &IndexFeedSingles::default(), "absent"),
             None
+        );
+    }
+
+    fn ids(ids: &[&str]) -> Vec<String> {
+        ids.iter().map(|id| (*id).to_owned()).collect()
+    }
+
+    /// R37-01 (ADR 0084 task 037, decision D2): two reads with the same key
+    /// give one build, as the header action and the rows of one frame do.
+    /// A new key builds again.
+    #[test]
+    fn adr_0084_task_037_r37_01_one_build_for_one_key() {
+        let key = ReleasesListKey {
+            scope: MusicListScope::Everything,
+            page: Revision::default(),
+            singles: Revision::default(),
+            library: Revision::default(),
+            expanded: BTreeSet::new(),
+        };
+        let mut cache = ReleasesListCache::default();
+        let header = cache.read(key.clone(), ReleasesListRows::default);
+        let rows = cache.read(key.clone(), || {
+            panic!("the second read of the same key must not build")
+        });
+        assert_eq!(cache.builds(), 1);
+        assert!(Rc::ptr_eq(&header, &rows));
+
+        let mut changed = key;
+        changed.page.bump();
+        let _ = cache.read(changed, ReleasesListRows::default);
+        assert_eq!(cache.builds(), 2);
+    }
+
+    /// R37-06 (ADR 0084 task 037, Design step 8): the id comparison gives
+    /// one run for one row added above, for the rows that "Load more" adds
+    /// at the end, for one row removed, and for the singles of an open
+    /// group. An item with the same id is in no run.
+    #[test]
+    fn adr_0084_task_037_r37_06_one_run_for_each_change() {
+        let old = ids(&["a", "b", "c", "load-more"]);
+        assert!(item_id_runs(&old, &old).is_empty());
+        assert_eq!(
+            item_id_runs(&old, &ids(&["group", "a", "b", "c", "load-more"])),
+            [ItemIdRun {
+                old: 0..0,
+                new_count: 1
+            }],
+            "one row added above"
+        );
+        assert_eq!(
+            item_id_runs(&old, &ids(&["a", "b", "c", "d", "e", "load-more"])),
+            [ItemIdRun {
+                old: 3..3,
+                new_count: 2
+            }],
+            "Load more adds rows at the end"
+        );
+        assert_eq!(
+            item_id_runs(&old, &ids(&["a", "c", "load-more"])),
+            [ItemIdRun {
+                old: 1..2,
+                new_count: 0
+            }],
+            "one row removed"
+        );
+        assert_eq!(
+            item_id_runs(
+                &ids(&["a", "group", "b"]),
+                &ids(&["a", "group", "single-1", "single-2", "b"])
+            ),
+            [ItemIdRun {
+                old: 2..2,
+                new_count: 2
+            }],
+            "an open group"
+        );
+        assert_eq!(
+            item_id_runs(&old, &ids(&["a", "b", "c", "error"])),
+            [ItemIdRun {
+                old: 3..4,
+                new_count: 1
+            }],
+            "a status row of another kind replaces the old one"
+        );
+        assert_eq!(
+            item_id_runs(&ids(&["a", "b", "c"]), &ids(&["c", "a", "b"])),
+            [
+                ItemIdRun {
+                    old: 0..0,
+                    new_count: 1
+                },
+                ItemIdRun {
+                    old: 2..3,
+                    new_count: 0
+                }
+            ],
+            "a moved row is removed and added, and the others keep their items"
         );
     }
 }

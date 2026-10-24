@@ -21851,7 +21851,8 @@ fn adr_0084_scrollbars_r14_01_music_columns_use_the_shared_helper() {
             violations.push(format!("{label}: calls `.overflow_y_scroll()` on its own."));
         }
         let uses_helper = combined.contains("music_column_scrollbar(")
-            || combined.contains("music_column_tracked_scrollbar(");
+            || combined.contains("music_column_tracked_scrollbar(")
+            || combined.contains("music_column_list_scrollbar(");
         if !uses_helper {
             violations.push(format!("{label}: calls neither shared helper function."));
         }
@@ -21860,11 +21861,87 @@ fn adr_0084_scrollbars_r14_01_music_columns_use_the_shared_helper() {
     assert!(
         violations.is_empty(),
         "ADR 0084 Decision 1, amended 2026-10-17: a Music column must scroll through \
-`music_column_scrollbar` or `music_column_tracked_scrollbar` in \
-`src/ui/composites/music_column_scroll.rs`, never through its own `.overflow_y_scroll()`. \
-Fix each named file.\n{}",
+`music_column_scrollbar`, `music_column_tracked_scrollbar` or, for a virtual list (task 037), \
+`music_column_list_scrollbar` in `src/ui/composites/music_column_scroll.rs`, never through its \
+own `.overflow_y_scroll()`. Fix each named file.\n{}",
         violations.join("\n")
     );
+}
+
+/// R37-12 (ADR 0084 Decision 8, packet 016 Design "The sort key and the
+/// merge", task 037). Situational: delete this guard when ADR 0084
+/// Decision 8 is superseded. Only the build of `ReleasesListCache` calls
+/// `releases_list(`. The header action and the list column read the rows
+/// through `LibraryApp::releases_rows`, whose key holds no view state. The
+/// Releases list renders through the virtual `list(` with
+/// `releases_list_state`.
+#[test]
+fn adr_0084_task_037_r37_12_releases_list_reads_the_cache() {
+    const FIX: &str = "ADR 0084 Decision 8, task 037 D2: the Releases list must read its rows \
+from\nLibraryApp::releases_rows. A second build of releases_list in one frame gave\nabout 500 ms \
+for each frame (overhaul plan item 31). Read the cache in this call.";
+    // `production_source` stops at the first `#[cfg(test)]`, and these
+    // files gate items with it before their test module.
+    let without_tests = |source: &str| -> String {
+        code_only(source.split("#[cfg(test)]\nmod ").next().unwrap_or(source))
+    };
+    let mut violations = Vec::new();
+    for file in rust_files_under("src") {
+        let path = rel_path(&file);
+        let code = without_tests(&read_source(&file));
+        // A call of the method: `vm.releases_list(` or
+        // `LibraryViewModel::releases_list(`. A longer name, for example
+        // `render_library_releases_list(`, is not a call of it.
+        let calls =
+            code.matches(".releases_list(").count() + code.matches("::releases_list(").count();
+        let allowed = if path == "src/view_models/library.rs" {
+            let build = source_between(&code, "fn releases_list_rows(", "\n    }\n");
+            usize::from(build.contains("self.releases_list("))
+        } else {
+            0
+        };
+        if calls != allowed || (path == "src/view_models/library.rs" && allowed != 1) {
+            violations.push(format!(
+                "{path}: calls `releases_list(` {calls} times; only `LibraryViewModel::releases_list_rows` calls it, one time."
+            ));
+        }
+    }
+    let app = without_tests(&read_source(&manifest_path("src/library/app_impl.rs")));
+    for function in [
+        "pub(crate) fn header_action_for_list_column(",
+        "pub(crate) fn render_list_column(",
+    ] {
+        if !source_between(&app, function, "\n    }\n").contains("releases_rows(") {
+            violations.push(format!(
+                "src/library/app_impl.rs: `{function}` must call `releases_rows(`."
+            ));
+        }
+    }
+    let render = source_between(&app, "pub(crate) fn render_list_column(", "\n    }\n");
+    if !compact_source(render).contains("render_library_releases_list(&self.releases_list_state,") {
+        violations.push("src/library/app_impl.rs: the Releases arm must render `render_library_releases_list(&self.releases_list_state, ..)`.".to_owned());
+    }
+    let scroll = without_tests(&read_source(&manifest_path(
+        "src/ui/shells/library/destination_list_scroll.rs",
+    )));
+    if !scroll.contains("list(list_state.state().clone(),") {
+        violations.push("src/ui/shells/library/destination_list_scroll.rs: the list must render through the virtual `list(list_state.state().clone(), ..)`.".to_owned());
+    }
+    let scopes = without_tests(&read_source(&manifest_path("src/library/music_scopes.rs")));
+    let rows = source_between(&scopes, "pub(crate) fn releases_rows(", "\n    }\n");
+    for view_state in [
+        "thumbnails",
+        "hovered",
+        "releases_selection",
+        "list_column_focus",
+    ] {
+        if rows.contains(view_state) {
+            violations.push(format!(
+                "src/library/music_scopes.rs: `releases_rows` reads `{view_state}`; view state is not an input of the cache key (task 037 decision D3)."
+            ));
+        }
+    }
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
 }
 
 /// Situational ADR 0084 Decision 1, amended 2026-10-17 (task 014 R14-03):
@@ -22474,15 +22551,15 @@ fn adr_0084_release_row_actions_r31_07_rows_with_no_menu() {
     let mut violations = Vec::new();
     let group_row = source_between(
         &lists,
-        "fn render_singles_group_rows(",
-        "for row in singles {",
+        "fn render_singles_group_row(",
+        "enum LeadingDisclosure",
     );
     if group_row.contains("menu_cell(") {
         violations.push("the singles group row must have no menu cell".to_owned());
     }
     let artists = source_between(
         &lists,
-        "pub(crate) fn render_library_destination_rows(",
+        "pub(crate) fn render_artists_list_item(",
         "pub(crate) fn render_library_releases_list(",
     );
     if !artists.contains("render_destination_list_row(row, art, LeadingDisclosure::None, None, cx)")

@@ -9,6 +9,7 @@
 
 #![warn(clippy::pedantic)]
 
+use crate::view_models::releases_everything::Revision;
 use crate::view_models::workspace::MusicDestination;
 
 /// The scope of the Releases list or the Artists list (ADR 0084 Decision
@@ -181,6 +182,8 @@ pub(crate) struct IndexNameListPage<Row> {
     /// another request of the page failed (ADR 0084 packet 026 decision
     /// D10). They show only after "Try again" gets each answer.
     pending: Option<IndexNameListBatch<Row>>,
+    /// Each change of the page gives a new revision (ADR 0084 task 037).
+    revision: Revision,
 }
 
 impl<Row> Default for IndexNameListPage<Row> {
@@ -192,11 +195,19 @@ impl<Row> Default for IndexNameListPage<Row> {
             state: IndexNameListLoadState::NotStarted,
             generation: 0,
             pending: None,
+            revision: Revision::default(),
         }
     }
 }
 
 impl<Row> IndexNameListPage<Row> {
+    /// The revision of the page (ADR 0084 task 037, Design step 2). Each
+    /// method that changes the page gives it a new revision.
+    #[must_use]
+    pub(crate) const fn revision(&self) -> Revision {
+        self.revision
+    }
+
     /// The loaded rows, in sort key order.
     #[must_use]
     pub(crate) fn rows(&self) -> &[Row] {
@@ -237,6 +248,7 @@ impl<Row> IndexNameListPage<Row> {
             }
             self.pending = None;
             self.state = IndexNameListLoadState::Loading { append: true };
+            self.revision.bump();
             return Some(IndexNameListLoadIntent {
                 cursor: self.cursor.clone(),
                 generation: self.generation,
@@ -248,6 +260,7 @@ impl<Row> IndexNameListPage<Row> {
         self.cursor = None;
         self.has_more = false;
         self.state = IndexNameListLoadState::Loading { append: false };
+        self.revision.bump();
         Some(IndexNameListLoadIntent {
             cursor: None,
             generation: self.generation,
@@ -264,6 +277,7 @@ impl<Row> IndexNameListPage<Row> {
         };
         let pending = self.pending.take()?;
         self.state = IndexNameListLoadState::Loading { append };
+        self.revision.bump();
         Some((pending, self.generation))
     }
 
@@ -294,6 +308,7 @@ impl<Row> IndexNameListPage<Row> {
         self.cursor = batch.cursor;
         self.has_more = batch.has_more;
         self.state = IndexNameListLoadState::Loaded;
+        self.revision.bump();
         true
     }
 
@@ -309,6 +324,7 @@ impl<Row> IndexNameListPage<Row> {
             detail: detail.into(),
             request: None,
         };
+        self.revision.bump();
         true
     }
 
@@ -333,6 +349,7 @@ impl<Row> IndexNameListPage<Row> {
             request: Some(request),
         };
         self.pending = Some(batch);
+        self.revision.bump();
         true
     }
 
@@ -487,6 +504,17 @@ impl IndexListStatusRowVm {
             Self::Loading { .. } => true,
             Self::Failed { first_page, .. } => *first_page,
             Self::LoadMore(_) => false,
+        }
+    }
+
+    /// The stable element id of the row. "Load more" uses the id of its
+    /// button. A virtual list keys the item of the row by this id (ADR
+    /// 0084 task 037, Design step 8).
+    #[must_use]
+    pub(crate) fn element_id(&self) -> &str {
+        match self {
+            Self::Loading { element_id, .. } | Self::Failed { element_id, .. } => element_id,
+            Self::LoadMore(action) => &action.id,
         }
     }
 }

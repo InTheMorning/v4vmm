@@ -9,6 +9,7 @@
     reason = "legacy screen module is being migrated incrementally under ADR 0023"
 )]
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -30,7 +31,7 @@ use crate::presentation::collection_art::{
 use crate::presentation::RuntimeHost;
 use crate::runtime::actor::ActorHandle;
 use crate::runtime::musicbrainz_feed_saga::MusicBrainzFeedSagaHandle;
-use crate::ui::composites::music_column_scroll::ScrollReveal;
+use crate::ui::composites::music_column_scroll::{MusicColumnList, ScrollReveal};
 use crate::view_models::detail_selection::DetailSelection;
 use crate::view_models::index_name_list::{IndexNameListPage, MusicListScope};
 use crate::view_models::library::{
@@ -42,6 +43,7 @@ use crate::view_models::library_removal::{
 };
 use crate::view_models::list_selection::{ListSelection, SelectionMode};
 use crate::view_models::recent_feeds::RecentFeedsPageVm;
+use crate::view_models::releases_everything::ReleasesListCache;
 use crate::view_models::singles_group::SinglesGroupKey;
 use crate::view_models::window_groups::WindowGroupKey;
 use crate::view_models::workspace::{
@@ -295,9 +297,17 @@ pub struct LibraryApp {
     /// Decision 10 Amendment, 2026-10-19), beside `track_selection`. A
     /// change of destination resets it to `Normal`.
     track_selection_mode: SelectionMode,
-    /// The Releases list's held scroll handle (ADR 0084 Decision 10), so
-    /// a keyboard focus move keeps the focused row in view.
-    releases_list_scroll: ScrollHandle,
+    /// The Releases list's held virtual list state (ADR 0084 Decision 10
+    /// and task 037), so a keyboard focus move keeps the focused row in
+    /// view.
+    releases_list_state: MusicColumnList,
+    /// The last build of the Releases list and its key (ADR 0084 task
+    /// 037). `TopApp::render` reads the header action through `&self`, so
+    /// the cache needs a `RefCell`.
+    releases_list_cache: RefCell<ReleasesListCache>,
+    /// The Artists list's virtual list state (ADR 0084 task 037, operator
+    /// answer Q1 option B). The Artists list keeps no cache of its merge.
+    artists_list_state: MusicColumnList,
     /// The Music list column's own focus handle (ADR 0084 Decision 10).
     /// The selection keyboard actions act only while it, or a row inside
     /// it, carries the keyboard focus.

@@ -17,6 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::api::Feed;
 use crate::view_models::index_name_list::{IndexNameListBatch, IndexNameListPage};
+use crate::view_models::releases_everything::Revision;
 use crate::view_models::singles_group::index_singles_of_feed;
 
 /// The releases that name one feed, from each page that the app read.
@@ -109,12 +110,22 @@ pub(crate) struct IndexFeedSingles {
     /// with no result.
     requests: BTreeMap<String, FeedRequest>,
     generation: u64,
+    /// Each change gives a new revision (ADR 0084 task 037).
+    revision: Revision,
 }
 
 impl IndexFeedSingles {
+    /// The revision of the loaded singles (ADR 0084 task 037, Design step
+    /// 2). Each method that changes them gives a new revision.
+    #[must_use]
+    pub(crate) const fn revision(&self) -> Revision {
+        self.revision
+    }
+
     /// Starts a new request and gives its generation.
     pub(crate) fn begin_request(&mut self) -> u64 {
         self.generation += 1;
+        self.revision.bump();
         self.generation
     }
 
@@ -165,6 +176,7 @@ impl IndexFeedSingles {
             },
         );
         self.requests.remove(feed_guid);
+        self.revision.bump();
         true
     }
 
@@ -201,6 +213,7 @@ impl IndexFeedSingles {
         let generation = self.begin_request();
         self.requests
             .insert(feed_guid.to_owned(), FeedRequest::Running(generation));
+        self.revision.bump();
         Some(generation)
     }
 
@@ -223,6 +236,7 @@ impl IndexFeedSingles {
             Err(detail) => {
                 self.requests
                     .insert(result.feed_guid, FeedRequest::Failed(detail));
+                self.revision.bump();
                 true
             }
         }

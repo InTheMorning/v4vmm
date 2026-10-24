@@ -6,6 +6,10 @@
 //! playlists; none of these owns a `ContentListPageVm`. Row labels and
 //! targets come from the view model; this shell owns only layout and
 //! interaction wiring.
+//!
+//! The Releases list and the Artists list are virtual lists (ADR 0084
+//! task 037). Each one renders one item at a time, so a frame does work
+//! only for the items in view.
 
 #![warn(clippy::pedantic)]
 
@@ -13,14 +17,14 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::*, AnyElement, ClickEvent, Context, FontWeight, Image, ScrollHandle,
-    SharedString, Styled,
+    div, prelude::*, AnyElement, App, ClickEvent, Context, FontWeight, Image, SharedString, Styled,
+    Window,
 };
 use gpui_component::input::Input;
 use gpui_component::Size;
 
 use crate::library::LibraryApp;
-use crate::ui::composites::music_column_scroll::music_column_scrollbar;
+use crate::ui::composites::music_column_scroll::{music_column_scrollbar, MusicColumnList};
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::release_download_state::render_release_download_state;
 use crate::ui::composites::release_row_menu::{release_row_menu, ReleaseRowMenuContext};
@@ -33,9 +37,7 @@ use crate::ui::composites::{
 use crate::ui::control_styles::ControlStyle;
 use crate::ui::primitives::primary_selection::PrimarySelectionExt as _;
 use crate::ui::primitives::{Button as UiButton, Checkbox, CheckboxState, Label};
-use crate::ui::shells::library::destination_list_scroll::{
-    render_destination_list_container, render_destination_list_container_tracked,
-};
+use crate::ui::shells::library::destination_list_scroll::render_destination_virtual_list;
 use crate::ui::shells::library::index_list_status::{
     render_index_list_status_row, IndexListActions,
 };
@@ -43,10 +45,9 @@ use crate::ui::sizable_bridge::SizableScaled;
 use crate::ui::style::spacing;
 use crate::ui::tokens::{FontSize, SemanticColor};
 use crate::view_models::collection_art::CollectionKind;
-use crate::view_models::index_name_list::IndexListStatusRowVm;
 use crate::view_models::library::{
-    DestinationListRowTarget, DestinationListRowVm, PlaylistSidebarRowVm, PlaylistSidebarVm,
-    ReleasesListEntryVm,
+    ArtistsListItemVm, DestinationListRowTarget, DestinationListRowVm, PlaylistSidebarRowVm,
+    PlaylistSidebarVm, ReleasesListItemVm,
 };
 use crate::view_models::list_selection::RowCheckState;
 use crate::view_models::singles_group::SinglesGroupRowVm;
@@ -69,7 +70,12 @@ pub(crate) type RowArts = BTreeMap<String, CollectionArtImage>;
 /// The logo frame of one collection row. A row with no loaded state shows
 /// the entity color.
 fn row_art(arts: &RowArts, element_id: &str, kind: CollectionKind) -> CollectionArt {
-    let image = arts.get(element_id).cloned();
+    collection_art(arts.get(element_id).cloned(), kind)
+}
+
+/// The logo frame of one collection row from its loaded `image`. A row
+/// with no loaded state shows the entity color.
+fn collection_art(image: Option<CollectionArtImage>, kind: CollectionKind) -> CollectionArt {
     CollectionArt::new(
         image.unwrap_or(CollectionArtImage::EntityColor),
         kind,
@@ -85,93 +91,98 @@ enum RowArt {
     Collection(CollectionArt),
 }
 
-/// Renders the status row of the scope "Everything" (ADR 0084 packet 016
-/// decision D8) before or after the item rows.
-fn split_status_row(
-    status: Option<(IndexListStatusRowVm, IndexListActions)>,
-    cx: &mut Context<LibraryApp>,
-) -> (Option<AnyElement>, Option<AnyElement>) {
-    match status {
-        Some((row, actions)) if row.at_list_start() => {
-            (Some(render_index_list_status_row(row, actions, cx)), None)
-        }
-        Some((row, actions)) => (None, Some(render_index_list_status_row(row, actions, cx))),
-        None => (None, None),
-    }
-}
-
-/// Renders the Artists destination list (ADR 0084 Decision 2).
-/// `empty_label` names the row kind for the empty-list message, for
-/// example "artists". `status` is the status row of the scope
-/// "Everything" (ADR 0084 packet 016 decision D8).
+/// Renders the Artists destination list (ADR 0084 Decision 2) as a
+/// virtual list (ADR 0084 task 037, operator answer Q1 option B).
+/// `item_count` is the count of [`ArtistsListItemVm`] items, and
+/// `render_item` renders one of them through
+/// [`render_artists_list_item`].
 pub(crate) fn render_library_destination_rows(
-    rows: Vec<DestinationListRowVm>,
-    status: Option<(IndexListStatusRowVm, IndexListActions)>,
-    empty_label: &'static str,
-    arts: &RowArts,
+    list_state: &MusicColumnList,
+    item_count: usize,
+    render_item: impl Fn(usize, &mut Window, &mut App) -> AnyElement + 'static,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let (leading, trailing) = split_status_row(status, cx);
-    let mut children: Vec<AnyElement> = leading.into_iter().collect();
-    children.extend(rows.into_iter().map(|row| {
-        let art = RowArt::Collection(row_art(arts, &row.element_id, CollectionKind::Artist));
-        // ADR 0084 task 031, decision D2: an Artists row has no menu.
-        render_destination_list_row(row, art, LeadingDisclosure::None, None, cx)
-    }));
-    children.extend(trailing);
-    render_destination_list_container(children, empty_label, cx)
+    render_destination_virtual_list(list_state, item_count, "artists", render_item, cx)
+}
+
+/// Renders one item of the Artists list: a row with the logo frame
+/// `art`, or the status row of the scope "Everything" (ADR 0084 packet
+/// 016 decision D8).
+pub(crate) fn render_artists_list_item(
+    item: ArtistsListItemVm,
+    art: Option<CollectionArtImage>,
+    actions: IndexListActions,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    match item {
+        ArtistsListItemVm::Row(row) => {
+            let art = RowArt::Collection(collection_art(art, CollectionKind::Artist));
+            // ADR 0084 task 031, decision D2: an Artists row has no menu.
+            render_destination_list_row(row, art, LeadingDisclosure::None, None, cx)
+        }
+        ArtistsListItemVm::Status(row) => render_index_list_status_row(row, actions, cx),
+    }
 }
 
 /// Renders the Releases destination list (ADR 0084 Decisions 2, 6 and
-/// 10): a release row for each release that is not in a group, and a
-/// group row for each Library singles group. An open group row shows
-/// each of its singles below it, indented. `scroll_handle` is the held
-/// handle of ADR 0084 Decision 10, so a keyboard focus move keeps the
-/// focused row in view. `menu` gives each release row its "⋯" menu and
-/// its right-click menu (ADR 0084 task 031).
+/// 10) as a virtual list (ADR 0084 task 037). `item_count` is the count of
+/// [`ReleasesListItemVm`] items, and `render_item` renders one of them
+/// through [`render_releases_list_item`]. `list_state` is the held state
+/// of ADR 0084 Decision 10, so a keyboard focus move keeps the focused
+/// row in view.
 pub(crate) fn render_library_releases_list(
-    entries: Vec<ReleasesListEntryVm>,
-    status: Option<(IndexListStatusRowVm, IndexListActions)>,
-    thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
-    arts: &RowArts,
-    scroll_handle: &ScrollHandle,
+    list_state: &MusicColumnList,
+    item_count: usize,
+    render_item: impl Fn(usize, &mut Window, &mut App) -> AnyElement + 'static,
+    cx: &mut Context<LibraryApp>,
+) -> AnyElement {
+    render_destination_virtual_list(list_state, item_count, "releases", render_item, cx)
+}
+
+/// Renders one item of the Releases list: a release row, a singles group
+/// row, the indented row of a single of an open group, or a status row
+/// (ADR 0084 Decision 6, packet 016 decision D8). `thumbnail` is the
+/// cover of a release row or of a single row, and `art` is the logo frame
+/// of a group row. `menu` gives each release row its "⋯" menu and its
+/// right-click menu (ADR 0084 task 031).
+pub(crate) fn render_releases_list_item(
+    item: ReleasesListItemVm,
+    thumbnail: Option<Arc<Image>>,
+    art: Option<CollectionArtImage>,
+    actions: IndexListActions,
     menu: &ReleaseRowMenuContext,
     cx: &mut Context<LibraryApp>,
 ) -> AnyElement {
-    let (leading, trailing) = split_status_row(status, cx);
-    let mut children: Vec<AnyElement> = leading.into_iter().collect();
-    for entry in entries {
-        match entry {
-            ReleasesListEntryVm::Release(row) => {
-                let thumbnail = thumbnails.get(&row.element_id).cloned().flatten();
-                children.push(render_destination_list_row(
-                    row,
-                    RowArt::Cover(thumbnail),
-                    LeadingDisclosure::Empty,
-                    Some(menu),
-                    cx,
-                ));
-            }
-            ReleasesListEntryVm::SinglesGroup(group) => {
-                render_singles_group_rows(group, thumbnails, arts, menu, cx, &mut children);
-            }
+    match item {
+        ReleasesListItemVm::LeadingStatus(row) | ReleasesListItemVm::TrailingStatus(row) => {
+            render_index_list_status_row(row, actions, cx)
         }
+        ReleasesListItemVm::Release(row) => render_destination_list_row(
+            row,
+            RowArt::Cover(thumbnail),
+            LeadingDisclosure::Empty,
+            Some(menu),
+            cx,
+        ),
+        ReleasesListItemVm::Group(group) => render_singles_group_row(group, art, cx),
+        ReleasesListItemVm::Single(row) => render_destination_list_row(
+            row,
+            RowArt::Cover(thumbnail),
+            LeadingDisclosure::Indented,
+            Some(menu),
+            cx,
+        ),
     }
-    children.extend(trailing);
-    render_destination_list_container_tracked(children, "releases", scroll_handle, cx)
 }
 
-/// Renders one singles group row and, when it is open, the indented row of
-/// each single (ADR 0084 Decision 6). The chevron opens and closes the row
-/// in place. A click on the row body opens the group page.
-fn render_singles_group_rows(
+/// Renders one singles group row (ADR 0084 Decision 6). The chevron opens
+/// and closes the row in place. A click on the row body opens the group
+/// page. The singles of an open group are their own items.
+fn render_singles_group_row(
     group: SinglesGroupRowVm,
-    thumbnails: &BTreeMap<String, Option<Arc<Image>>>,
-    arts: &RowArts,
-    menu: &ReleaseRowMenuContext,
+    art: Option<CollectionArtImage>,
     cx: &mut Context<LibraryApp>,
-    children: &mut Vec<AnyElement>,
-) {
+) -> AnyElement {
     let SinglesGroupRowVm {
         element_id,
         label,
@@ -183,11 +194,11 @@ fn render_singles_group_rows(
         expanded,
         disclosure_element_id,
         disclosure_a11y_label,
-        singles,
+        singles: _,
         single_keys,
         selection,
     } = group;
-    let art = row_art(arts, &element_id, CollectionKind::SinglesGroup);
+    let art = collection_art(art, CollectionKind::SinglesGroup);
     let open_key = open.clone();
     let toggle_key = open;
 
@@ -239,51 +250,38 @@ fn render_singles_group_rows(
         );
     }
 
-    children.push(
-        group_row
-            .on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
-                this.click_singles_group_row(&open_key, &single_keys, event.modifiers(), cx);
-            }))
-            .child(disclosure)
-            .child(art)
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .child(
-                        Label::new(label)
-                            .size(FontSize::Micro)
-                            .weight(FontWeight::MEDIUM)
-                            .truncated(),
-                    )
-                    .child(
-                        Label::new(secondary_text)
-                            .size(FontSize::Micro)
-                            .color(SemanticColor::TertiaryLabel)
-                            .truncated(),
-                    ),
-            )
-            // ADR 0083 Decision 6, amended 2026-10-22; ADR 0084 task 033:
-            // the group row's own download-state icon, from the count of
-            // its members that are in the Library.
-            .child(render_release_download_state(
-                &download_state,
-                format!("{element_id}-download-state"),
-                cx,
-            ))
-            .into_any_element(),
-    );
-
-    for row in singles {
-        let thumbnail = thumbnails.get(&row.element_id).cloned().flatten();
-        children.push(render_destination_list_row(
-            row,
-            RowArt::Cover(thumbnail),
-            LeadingDisclosure::Indented,
-            Some(menu),
+    group_row
+        .on_click(cx.listener(move |this, event: &ClickEvent, _window, cx| {
+            this.click_singles_group_row(&open_key, &single_keys, event.modifiers(), cx);
+        }))
+        .child(disclosure)
+        .child(art)
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    Label::new(label)
+                        .size(FontSize::Micro)
+                        .weight(FontWeight::MEDIUM)
+                        .truncated(),
+                )
+                .child(
+                    Label::new(secondary_text)
+                        .size(FontSize::Micro)
+                        .color(SemanticColor::TertiaryLabel)
+                        .truncated(),
+                ),
+        )
+        // ADR 0083 Decision 6, amended 2026-10-22; ADR 0084 task 033:
+        // the group row's own download-state icon, from the count of
+        // its members that are in the Library.
+        .child(render_release_download_state(
+            &download_state,
+            format!("{element_id}-download-state"),
             cx,
-        ));
-    }
+        ))
+        .into_any_element()
 }
 
 /// The leading disclosure column of a destination row (ADR 0084 Decision

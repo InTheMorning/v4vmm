@@ -18,7 +18,7 @@ Open - 2026-10-24. This record is advisory. It states no rule. Each rule stays i
 3. [ADR 0087 packet 007](../tasks/adr-0087-task-007-live-run-index-rows.md): a live run shows the Index rows.
 4. [ADR 0084 packet 036](../tasks/adr-0084-task-036-group-row-at-artist-name.md): a group row at its artist name.
 5. [ADR 0084 packet 037](../tasks/adr-0084-task-037-releases-everything-frame-time.md): one cached merge and one virtual list.
-6. The live value URI packet. The orchestrator writes it from the plan before it starts.
+6. [ADR 0059 packet 019](../tasks/adr-0059-task-019-livevalue-uri-is-a-url.md): the liveValue URI is a URL, from the [live value URI plan](../plans/livevalue-uri-is-a-url.md).
 
 Each packet starts after the commit of the packet before it. Packets 008 and 007 both change the toolbar search, and packets 036 and 037 both change `src/view_models/releases_everything.rs`.
 
@@ -28,6 +28,7 @@ Each entry names the step, the decision and the reason.
 
 - Packet 008 Q2: the orchestrator decided A, by its recommendation, inside the operator answer of Q1.
 - Packet 035 Q1: a later packet changes the skip of a `PageView` hydration. The ADR 0084 phase plan records it as an open finding.
+- Packet 019 Q1: option A, by its recommendation. An event with no usable relay host gives no tag, and the copy action says why. D2 confirmed: the URI drops the path of the endpoint.
 - Packet 007 stop of 2026-10-24: three guards that the packet does not name require the old restore path and the old loading call. The orchestrator accepted the five recommendations of the coding agent. The guards read `restore_content_list_page` and `index_pending_row_count`, with the same meaning. The note of decision D6 is a typed view model value with one test for each reason. The packet records the five items in its Implementation Notes.
 
 ## Steps
@@ -40,6 +41,9 @@ Each entry names the packet, the result and the commit.
 
    The cause of the missing Index rows is not proved. The orchestrator accepted one change outside the packet list: `Display` for `RunGeneration` in `src/view_models/live_run.rs`, for the run number of the note. 2534 lib tests and 393 guards pass.
 4. ADR 0084 packet 036: implemented and Green on 2026-10-24, with no stop. A group row takes the place of its label in both scopes. A group that a later page finds after its label shows at its label at once, the one exception to packet 016 D7. 2540 lib tests and 393 guards pass.
+5. ADR 0084 packet 037: implemented and Green on 2026-10-24, with no stop. The Releases list builds its merge one time for each change of its key, and the Releases and Artists lists are gpui virtual lists. A change splices the list, so the top row stays in view. The Releases rows are now narrower by the scrollbar gutter.
+
+   The coding agent gave each spliced item the minimum row height, so that the scrollbar counts the full list (packet Implementation Notes). 2551 lib tests and 394 guards pass. The release binary is built.
 
 ## Final Walk
 

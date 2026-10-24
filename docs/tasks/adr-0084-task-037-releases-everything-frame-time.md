@@ -1,6 +1,6 @@
 # ADR 0084 Task 037: The Frame Time Of The Releases List In "Everything"
 
-Status: Ready - 2026-10-24. This packet starts after packet 036 is committed. The operator answered Q1 on 2026-10-24 (option B).
+Status: Implemented - 2026-10-24. V1 to V6 are open, in the final walk of the run of 2026-10-24.
 
 ## Goal
 
@@ -291,3 +291,45 @@ Cleanup: make sure that `nmcli networking on` ran in step 8. This check changes 
 ## Operator Answers - 2026-10-24
 
 - Q1: option B. The Releases list and the Artists list use the same virtual list. The Artists list gets no cache of its merge.
+
+## Implementation Notes - 2026-10-24
+
+The implementation started from commit `3400cb2`, the commit of packet 036. The packet names commit `e476192`. Packet 036 deleted `group_at` and `first_title_sort_key`. The line numbers of the Recorded Facts are thus not current. Each call site was found again in the code.
+
+### Differences From The Design
+
+- **Revisions.** `Revision` in `src/view_models/releases_everything.rs` takes each value from one process counter. Each change gives a new, larger value, and a new input never gets the value of an old input. A method that changes nothing gives no new revision, for example `begin_load(true)` while a request is in flight.
+- **The Library revision.** `replace_tree`, each of the five `update_album_*` methods when it changes an album, `set_download_activity` when the activity changes, `begin_feed_removal` and `finish_feed_removal` give a new revision. No other production path changes `snapshot.tree` or `busy`. Some tests write `vm.busy` directly. These tests do not read the cache.
+- **The menu and the row state.** One build makes the `Normal` menu of each release row and the state of each row key. The build reads one map of the tree albums, not one search of the tree for each row. `releases_item_with_selection` removes the menu in selection mode. It is an associated function, because it reads no view model state.
+- **The action bar.** `releases_selection_action_bar` takes the cached rows. A selected key that no row holds reads the tree, as before.
+- **Changed signatures.** `releases_selection_rows` takes a slice of entries. `releases_disclosure_step` takes the items of the list.
+- **Item ids.** A status row uses its own element id. "Load more" uses the id of its button. A change from "Load more" to the error row is thus one run.
+- **The list state.** `MusicColumnList` in `src/ui/composites/music_column_scroll.rs` holds the gpui `ListState` and the item ids. The fields are `releases_list_state: MusicColumnList` and `artists_list_state: MusicColumnList`.
+- **The overdraw.** The new token `Size::ListOverdraw` gives 480 px.
+
+### The Scrollbar Thumb
+
+gpui-pre 0.3.1 gives a spliced item no height (`src/elements/list.rs:536-543`). An item with no height counts 0 px in the scrollbar (`src/elements/list.rs:1647-1657`). A layout at a new width removes the height of each item (`src/elements/list.rs:1545-1558`). With `splice` only, the thumb thus covered most of the track (V5).
+
+`MusicColumnList::sync` splices each run. After a change of the ids or of the width, it gives each item with no height the height `Size::MinHitTarget`. It calls `with_uniform_item_height` on a clone of the shared state. A measured item keeps its size, and the scroll position does not change. After a change of the width, it requests one more frame. The code never calls `ListState::reset`.
+
+R37-07 shows that the scrollbar counts the full list.
+
+### The Scrollbar Gutter
+
+Each item is in its own `page_scroll_content`, so the scrollbar covers no row content (ADR 0063). The old Releases container put `.px(spacing::MD)` after `page_scroll_content`, and that removed the right gutter. The Releases rows are thus narrower by the gutter. The row gap is `spacing::XXS` above each item after the first.
+
+### Proof Of The Criteria
+
+- R37-03: the unit test proves the selection, the mode, the focus and the hover at the view model. An image answer writes only `LibraryApp::thumbnails`. Guard R37-12 shows that `releases_rows` reads no image, hover, selection or focus state. No unit test makes a `LibraryApp`.
+- R37-08: the test syncs one added id above row 500 through `MusicColumnList::sync`, which calls `splice`.
+- R37-12: the guard counts the calls `.releases_list(` and `::releases_list(`, because `render_library_releases_list(` contains the name. It reads the part of each file before its test module. `production_source` stops at the first `#[cfg(test)]`, and `src/view_models/library.rs` has one before its test module.
+
+### Deleted
+
+`releases_list_with_selection`, `destination_release_row_menu`, `releases_entries`, `releases_status`, `releases_visible_rows`, `split_status_row`, `render_destination_list_container`, `render_destination_list_container_tracked` and the field `releases_list_scroll`. `render_singles_group_rows` is now `render_singles_group_row`, which renders the group row only.
+
+### Documents Not Changed In This Change
+
+The orchestrator of the run of 2026-10-24 owns the overhaul plan, the pending human checks and the run record. Required Change 10 for those documents is thus open for the orchestrator. Packet 016 names this packet.
+

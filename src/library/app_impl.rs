@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -48,7 +49,9 @@ use crate::presentation::delayed_presenter::present_after;
 use crate::presentation::{bridge_watch, present_command};
 use crate::runtime::musicbrainz_feed_saga::{MusicBrainzFeedSagaState, StartFeedLookup};
 use crate::subscribe_service::{self, SubscribeFeedRequest, SubscribeTrackRequest};
-use crate::ui::composites::music_column_scroll::{music_column_scrollbar, ScrollReveal};
+use crate::ui::composites::music_column_scroll::{
+    music_column_scrollbar, MusicColumnList, ScrollReveal,
+};
 use crate::ui::composites::page_scroll_content::page_scroll_content;
 use crate::ui::composites::release_row_menu::ReleaseRowMenuContext;
 use crate::ui::composites::{PlaylistOption, PlaylistOptionDisplay, StatusRole, ThumbnailSize};
@@ -58,8 +61,8 @@ use crate::ui::shells::library::content_list::{
     render_discover_new_releases_detail, render_library_content_list, ContentListMenuContext,
 };
 use crate::ui::shells::library::destination_lists::{
-    render_library_destination_rows, render_library_playlists_list, render_library_releases_list,
-    RowArts,
+    render_artists_list_item, render_library_destination_rows, render_library_playlists_list,
+    render_library_releases_list, render_releases_list_item, RowArts,
 };
 use crate::ui::shells::library::detail::render_library_detail;
 use crate::ui::shells::library::index_list_status::IndexListActions;
@@ -88,10 +91,10 @@ use crate::view_models::library::{
     InspectorPanelKind, LibrarySearchLookup, LibraryTrackActionVm, LibraryTrackInspectorState,
     LibraryTrackRowVm, LibraryTree, LibraryViewModel, MbTrackStatus, PlaylistAppendIntent,
     PlaylistAppendOutcome, PlaylistDetailActionsDisplay, ReleasesDisclosureStep,
-    ReleasesListEntryVm, ReleasesRowId, RemovalConfirmation, TrackSubscribeOutcome,
+    ReleasesListItemVm, ReleasesRowId, RemovalConfirmation, TrackSubscribeOutcome,
 };
 use crate::view_models::library::{
-    name_level_art, releases_selection_rows, spring_load_navigation, SpringLoadGeneration,
+    name_level_art, spring_load_navigation, ArtistsListItemVm, SpringLoadGeneration,
 };
 use crate::view_models::library_removal::{
     SelectionRemovalConfirmationState, SelectionRemovalPendingItem, SelectionRemovalReport,
@@ -108,7 +111,7 @@ use crate::view_models::release_page::TrackRowMenuAction;
 use crate::view_models::release_row_actions::{
     ReleaseRowCommand, ReleaseRowMenuVm, ReleaseRowTarget,
 };
-use crate::view_models::releases_everything::ReleasesDownloadPlan;
+use crate::view_models::releases_everything::{ReleasesDownloadPlan, ReleasesListRows};
 use crate::view_models::search_field_values::LibraryFieldValues;
 use crate::view_models::search_results::ArtistSearchFacts;
 use crate::view_models::selection_action_bar::{SelectionActionBarVm, SelectionActionKind};
@@ -1162,7 +1165,9 @@ impl LibraryApp {
             releases_selection_mode: SelectionMode::Normal,
             track_selection: ListSelection::new(),
             track_selection_mode: SelectionMode::Normal,
-            releases_list_scroll: gpui::ScrollHandle::new(),
+            releases_list_state: MusicColumnList::new(cx),
+            releases_list_cache: std::cell::RefCell::default(),
+            artists_list_state: MusicColumnList::new(cx),
             list_column_focus: cx.focus_handle(),
             selection_removal: SelectionRemovalConfirmationState::new(),
             selection_removal_report: None,
@@ -3913,20 +3918,17 @@ fn album_has_feed_identity_actions(facts: &LocalIdentityFacts) -> bool {
 // ---------------------------------------------------------------------------
 
 impl LibraryApp {
-    /// The Releases list's visible rows, in their render sequence
-    /// (Required correction item 1, 2026-10-18): a release row, or a
-    /// singles group row, and, for an open group, one row for each of
-    /// its singles, after the group row.
-    fn releases_visible_rows(&self) -> Vec<SelectionRow<ReleasesRowId, ReleaseKey>> {
-        releases_selection_rows(self.releases_entries())
-    }
-
     /// Every release key the Releases list currently shows, flattened
-    /// from [`Self::releases_visible_rows`], for [`ListSelection::retain_visible`].
+    /// from the selection rows of [`Self::releases_rows`], for
+    /// [`ListSelection::retain_visible`]. The selection rows come in their
+    /// render sequence (Required correction item 1, 2026-10-18): a release
+    /// row, or a singles group row, and, for an open group, one row for
+    /// each of its singles, after the group row.
     fn releases_visible_members(&self) -> Vec<ReleaseKey> {
-        self.releases_visible_rows()
-            .into_iter()
-            .flat_map(|row| row.members)
+        self.releases_rows()
+            .selection_rows()
+            .iter()
+            .flat_map(|row| row.members.iter().cloned())
             .collect()
     }
 
@@ -3978,8 +3980,9 @@ impl LibraryApp {
         }
         if modifiers.shift {
             self.releases_selection_mode = SelectionMode::Selecting;
-            let visible = self.releases_visible_rows();
-            self.releases_selection.extend_to(&row, &visible);
+            let rows = self.releases_rows();
+            self.releases_selection
+                .extend_to(&row, rows.selection_rows());
             cx.notify();
             return;
         }
@@ -4026,8 +4029,9 @@ impl LibraryApp {
         }
         if modifiers.shift {
             self.releases_selection_mode = SelectionMode::Selecting;
-            let visible = self.releases_visible_rows();
-            self.releases_selection.extend_to(&row, &visible);
+            let rows = self.releases_rows();
+            self.releases_selection
+                .extend_to(&row, rows.selection_rows());
             cx.notify();
             return;
         }
@@ -4126,16 +4130,15 @@ impl LibraryApp {
         }
         match self.vm.active_destination() {
             MusicDestination::Releases => {
-                let visible = self.releases_visible_rows();
-                // A status row at the list start is the first child of the
-                // list (ADR 0084 packet 016 decision D8).
-                let leading = usize::from(
-                    self.releases_status()
-                        .is_some_and(|row| row.at_list_start()),
-                );
-                if let Some(focused) = self.releases_selection.move_focus(step, &visible) {
+                let rows = self.releases_rows();
+                let visible = rows.selection_rows();
+                // A status row at the list start is the first item of the
+                // list (ADR 0084 packet 016 decision D8, task 037).
+                let leading = rows.leading();
+                if let Some(focused) = self.releases_selection.move_focus(step, visible) {
                     if let Some(index) = visible.iter().position(|row| row.id == focused) {
-                        self.releases_list_scroll.scroll_to_item(index + leading);
+                        self.releases_list_state
+                            .scroll_to_reveal_item(index + leading);
                     }
                 }
                 cx.notify();
@@ -4169,8 +4172,8 @@ impl LibraryApp {
         {
             return;
         }
-        let entries = self.releases_entries();
-        match releases_disclosure_step(self.releases_selection.focused(), open, &entries) {
+        let rows = self.releases_rows();
+        match releases_disclosure_step(self.releases_selection.focused(), open, rows.items()) {
             ReleasesDisclosureStep::Open(key) => {
                 self.expanded_singles_groups.insert(key);
             }
@@ -4196,8 +4199,9 @@ impl LibraryApp {
         match self.vm.active_destination() {
             MusicDestination::Releases => {
                 self.releases_selection_mode = SelectionMode::Selecting;
-                let visible = self.releases_visible_rows();
-                self.releases_selection.toggle_focused(&visible);
+                let rows = self.releases_rows();
+                self.releases_selection
+                    .toggle_focused(rows.selection_rows());
                 cx.notify();
             }
             MusicDestination::Tracks | MusicDestination::NeedsAttention => {
@@ -4221,8 +4225,8 @@ impl LibraryApp {
         match self.vm.active_destination() {
             MusicDestination::Releases => {
                 self.releases_selection_mode = SelectionMode::Selecting;
-                let visible = self.releases_visible_rows();
-                self.releases_selection.select_all(&visible);
+                let rows = self.releases_rows();
+                self.releases_selection.select_all(rows.selection_rows());
                 cx.notify();
             }
             MusicDestination::Tracks | MusicDestination::NeedsAttention => {
@@ -4321,7 +4325,7 @@ impl LibraryApp {
     pub(crate) fn header_action_for_list_column(&self) -> Option<FrameHeaderActionDisplay> {
         let destination = self.vm.active_destination();
         let list_has_rows = match destination {
-            MusicDestination::Releases => !self.releases_visible_rows().is_empty(),
+            MusicDestination::Releases => !self.releases_rows().selection_rows().is_empty(),
             MusicDestination::Tracks | MusicDestination::NeedsAttention => {
                 !self.content_list_visible_rows().is_empty()
             }
@@ -4372,10 +4376,14 @@ impl LibraryApp {
     }
 
     /// The Releases list's action bar (ADR 0084 Decision 10), or `None`
-    /// outside `Selecting` mode (Amendment, 2026-10-19).
+    /// outside `Selecting` mode (Amendment, 2026-10-19). The bar reads the
+    /// row states from the cached rows (ADR 0084 task 037).
     pub(crate) fn releases_selection_action_bar(&self) -> Option<SelectionActionBarVm> {
-        self.vm
-            .releases_selection_action_bar(&self.releases_selection, self.releases_selection_mode)
+        self.vm.releases_selection_action_bar(
+            &self.releases_selection,
+            self.releases_selection_mode,
+            &self.releases_rows(),
+        )
     }
 
     /// The Tracks or Needs attention list's action bar (ADR 0084
@@ -4873,7 +4881,7 @@ impl LibraryApp {
     /// `render_detail_column`.
     pub(crate) fn render_list_column(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         // ADR 0084 Decision 2: the list column shows the items of the
@@ -4929,67 +4937,25 @@ impl LibraryApp {
                 pane
             }
             MusicDestination::Releases => {
-                // ADR 0084 Decision 10: the entries carry the Releases
-                // selection's checkbox facts.
-                let entries = self.vm.releases_list_with_selection(
-                    self.releases_scope,
-                    &self.release_name_page,
-                    self.vm.index_feed_singles(),
-                    &self.expanded_singles_groups,
-                    &self.releases_selection,
-                    self.releases_selection_mode,
-                );
-                let hovered_url = self.vm.hovered_thumb_url().map(str::to_string);
-                let mut sources: Vec<(String, String)> = Vec::new();
-                let mut arts = RowArts::new();
-                for entry in &entries {
-                    match entry {
-                        ReleasesListEntryVm::Release(row) => {
-                            if let Some(href) = row.thumbnail_href.clone() {
-                                sources.push((row.element_id.clone(), href));
-                            }
-                        }
-                        ReleasesListEntryVm::SinglesGroup(group) => {
-                            // ADR 0084 Decision 12: the group row shows its
-                            // art in the logo frame.
-                            let art = collection_art_image(self, &group.art, ThumbnailSize::Sm, cx);
-                            arts.insert(group.element_id.clone(), art);
-                            sources.extend(group.singles.iter().filter_map(|row| {
-                                row.thumbnail_href
-                                    .clone()
-                                    .map(|href| (row.element_id.clone(), href))
-                            }));
-                        }
-                    }
-                }
-                let mut thumbs: BTreeMap<String, Option<Arc<Image>>> = BTreeMap::new();
-                for (element_id, href) in sources {
-                    let animated = hovered_url.as_deref() == Some(href.as_str());
-                    let img = self.thumbnail_for_url(Some(&href), animated, cx);
-                    thumbs.insert(element_id, img);
-                }
-                // ADR 0084 packet 016 decision D8: the loading row, the
-                // error row or "Load more" of the scope "Everything".
-                let status = self.releases_status().map(|row| {
-                    let actions = IndexListActions {
-                        retry: Self::retry_release_names,
-                        load_more: Some(Self::load_more_release_names),
-                    };
-                    (row, actions)
-                });
+                // ADR 0084 task 037: the rows come from the cache, and the
+                // virtual list renders only the items in view. Each item
+                // gets the Releases selection's checkbox facts, its image
+                // and its menu in `render_releases_item`.
+                let rows = self.releases_rows();
+                self.releases_list_state.sync(rows.item_ids(), window);
                 // ADR 0084 task 031: the release row menu. The right-click
                 // menu gives the focus back to the list column.
-                let menu = self.release_row_menu_context(
+                let menu = Rc::new(self.release_row_menu_context(
                     cx.entity().downgrade(),
                     self.list_column_focus.clone(),
-                );
+                ));
+                let item_count = rows.items().len();
                 let pane = render_library_releases_list(
-                    entries,
-                    status,
-                    &thumbs,
-                    &arts,
-                    &self.releases_list_scroll,
-                    &menu,
+                    &self.releases_list_state,
+                    item_count,
+                    cx.processor(move |this, index: usize, _window, cx| {
+                        this.render_releases_item(&rows, index, &menu, cx)
+                    }),
                     cx,
                 );
                 if let Some(bar) = self.releases_selection_action_bar() {
@@ -5012,22 +4978,25 @@ impl LibraryApp {
                 let status = LibraryViewModel::artists_list_status(
                     self.artists_scope,
                     &self.artist_name_page,
+                );
+                // ADR 0084 task 037, operator answer Q1 option B: the
+                // Artists list is a virtual list with no cache of its
+                // merge. Each item reads its art only when it renders.
+                let items = Rc::new(ArtistsListItemVm::of(rows, status));
+                let ids: Vec<String> = items
+                    .iter()
+                    .map(|item| item.element_id().to_owned())
+                    .collect();
+                self.artists_list_state.sync(&ids, window);
+                let item_count = items.len();
+                render_library_destination_rows(
+                    &self.artists_list_state,
+                    item_count,
+                    cx.processor(move |this, index: usize, _window, cx| {
+                        this.render_artists_item(&items, index, cx)
+                    }),
+                    cx,
                 )
-                .map(|row| {
-                    let actions = IndexListActions {
-                        retry: Self::retry_artist_names,
-                        load_more: Some(Self::load_more_artist_names),
-                    };
-                    (row, actions)
-                });
-                let mut arts = RowArts::new();
-                for row in &rows {
-                    if let Some(art) = &row.art {
-                        let image = collection_art_image(self, art, ThumbnailSize::Sm, cx);
-                        arts.insert(row.element_id.clone(), image);
-                    }
-                }
-                render_library_destination_rows(rows, status, "artists", &arts, cx)
             }
             MusicDestination::Playlists => {
                 let sidebar = self.vm.playlist_sidebar();
@@ -5063,6 +5032,80 @@ impl LibraryApp {
             )
             .children(action_bar)
             .into_any_element()
+    }
+
+    /// Renders the item `index` of the cached Releases `rows` (ADR 0084
+    /// task 037, Design step 9). The virtual list calls this only for an
+    /// item in view or in the overdraw area. The item gets the selection
+    /// facts of the present selection (Design step 10). Its image loads
+    /// only now, so a row out of view starts no image request (decision
+    /// D4).
+    fn render_releases_item(
+        &mut self,
+        rows: &ReleasesListRows,
+        index: usize,
+        menu: &ReleaseRowMenuContext,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(item) = rows.items().get(index) else {
+            return div().into_any_element();
+        };
+        let item = LibraryViewModel::releases_item_with_selection(
+            item,
+            &self.releases_selection,
+            self.releases_selection_mode,
+        );
+        let thumbnail = item.thumbnail_href().and_then(|href| {
+            let animated = self.vm.hovered_thumb_url() == Some(href);
+            self.thumbnail_for_url(Some(href), animated, cx)
+        });
+        // ADR 0084 Decision 12: the group row shows its art in the logo
+        // frame.
+        let art = match &item {
+            ReleasesListItemVm::Group(group) => Some(collection_art_image(
+                self,
+                &group.art,
+                ThumbnailSize::Sm,
+                cx,
+            )),
+            ReleasesListItemVm::LeadingStatus(_)
+            | ReleasesListItemVm::Release(_)
+            | ReleasesListItemVm::Single(_)
+            | ReleasesListItemVm::TrailingStatus(_) => None,
+        };
+        // ADR 0084 packet 016 decision D8: the loading row, the error row
+        // or "Load more" of the scope "Everything".
+        let actions = IndexListActions {
+            retry: Self::retry_release_names,
+            load_more: Some(Self::load_more_release_names),
+        };
+        render_releases_list_item(item, thumbnail, art, actions, menu, cx)
+    }
+
+    /// Renders the item `index` of the Artists `items` (ADR 0084 task 037,
+    /// operator answer Q1 option B). The item reads its art only when it
+    /// renders.
+    fn render_artists_item(
+        &mut self,
+        items: &[ArtistsListItemVm],
+        index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(item) = items.get(index) else {
+            return div().into_any_element();
+        };
+        let art = match item {
+            ArtistsListItemVm::Row(row) => row
+                .art
+                .as_ref()
+                .map(|art| collection_art_image(self, art, ThumbnailSize::Sm, cx)),
+            ArtistsListItemVm::Status(_) => None,
+        };
+        let actions = IndexListActions {
+            retry: Self::retry_artist_names,
+            load_more: Some(Self::load_more_artist_names),
+        };
+        render_artists_list_item(item.clone(), art, actions, cx)
     }
 
     /// Builds the action bar composite of a selection (ADR 0084 Decision

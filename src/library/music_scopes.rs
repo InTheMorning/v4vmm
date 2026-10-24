@@ -1,6 +1,10 @@
 //! The scope "Library" or "Everything" of the Releases list and the
 //! Artists list (ADR 0084 Decision 8, packet 016).
 //!
+//! `releases_rows` gives the rows of the Releases list from the cache of
+//! ADR 0084 task 037. The list builds again only when one of its inputs
+//! changes.
+//!
 //! `LibraryApp` keeps the scope of each list in memory (decision D3). The
 //! scope "Everything" loads the `MusicIndex` release name pages or artist
 //! name pages through `present_command` on the ADR 0040 command runner. A
@@ -17,6 +21,8 @@
 
 #![warn(clippy::pedantic)]
 
+use std::rc::Rc;
+
 use gpui::Context;
 
 use super::app_impl::command_error_detail;
@@ -29,11 +35,11 @@ use crate::application::CommandContext;
 use crate::presentation::present_command;
 use crate::view_models::index_feed_singles::{finish_release_page, FeedSinglesResult};
 use crate::view_models::index_name_list::{
-    IndexListStatusRowVm, IndexNameListBatch, IndexNameListLoadIntent, IndexNameListPage,
-    MusicListScope, MusicScopeControlDisplay,
+    IndexNameListBatch, IndexNameListLoadIntent, IndexNameListPage, MusicListScope,
+    MusicScopeControlDisplay,
 };
-use crate::view_models::library::{AlbumNode, LibraryViewModel, ReleasesListEntryVm};
-use crate::view_models::releases_everything::reset_selection_on_scope_change;
+use crate::view_models::library::AlbumNode;
+use crate::view_models::releases_everything::{reset_selection_on_scope_change, ReleasesListRows};
 use crate::view_models::singles_group::{
     group_page_feed_to_read, index_page_feed_to_read, library_page_feed_to_read, SinglesGroupKey,
 };
@@ -56,19 +62,18 @@ impl LibraryApp {
         MusicScopeControlDisplay::for_destination(destination, selected)
     }
 
-    /// The entries of the Releases list in its present scope.
-    pub(crate) fn releases_entries(&self) -> Vec<ReleasesListEntryVm> {
-        self.vm.releases_list(
+    /// The rows of the Releases list in its present scope (ADR 0084 task
+    /// 037, Design step 5). Each reader of the list calls this. The list
+    /// builds again only when one of its inputs changes, so the header
+    /// action and the rows of one frame give one build. The selection,
+    /// the hover and the images are not inputs (decision D3).
+    pub(crate) fn releases_rows(&self) -> Rc<ReleasesListRows> {
+        self.vm.cached_releases_rows(
+            &mut self.releases_list_cache.borrow_mut(),
             self.releases_scope,
             &self.release_name_page,
-            self.vm.index_feed_singles(),
             &self.expanded_singles_groups,
         )
-    }
-
-    /// The status row of the Releases list in its present scope.
-    pub(crate) fn releases_status(&self) -> Option<IndexListStatusRowVm> {
-        LibraryViewModel::releases_list_status(self.releases_scope, &self.release_name_page)
     }
 
     /// Sets the scope of the active destination. The scope "Everything"

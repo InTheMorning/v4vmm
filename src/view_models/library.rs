@@ -20,6 +20,7 @@
 use std::cell::OnceCell;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -81,6 +82,7 @@ use crate::view_models::release_row_actions::{
 };
 use crate::view_models::releases_everything::{
     self, loaded_index_release_title, LibraryReleaseEntry, ReleaseOrderKey, ReleasesDownloadPlan,
+    ReleasesListCache, ReleasesListKey, ReleasesListRows, Revision,
 };
 use crate::view_models::search_field_values::LibraryFieldValues;
 use crate::view_models::search_results::{
@@ -1919,15 +1921,18 @@ pub(crate) struct DestinationListRowVm {
     pub(crate) open: DestinationListRowTarget,
     /// The checkbox facts of the row (ADR 0084 Decision 10). The
     /// Artists list, which has no selection model, keeps this at
-    /// [`RowSelectionVm::none`]. [`LibraryViewModel::releases_list_with_selection`]
-    /// fills it for the Releases list.
+    /// [`RowSelectionVm::none`].
+    /// [`LibraryViewModel::releases_item_with_selection`] fills it for the
+    /// Releases list.
     pub(crate) selection: RowSelectionVm,
     /// The kind of a release row (ADR 0084 Decision 5). `None` for an
     /// artist row.
     pub(crate) release_kind: Option<ReleaseKind>,
     /// The "⋯" menu and the right-click menu of a release row (ADR 0084
     /// task 031). `None` for an artist row, and in selection mode.
-    /// [`LibraryViewModel::releases_list_with_selection`] fills it.
+    /// [`LibraryViewModel::releases_list_rows`] fills it, and
+    /// [`LibraryViewModel::releases_item_with_selection`] clears it in
+    /// selection mode.
     pub(crate) menu: Option<ReleaseRowMenuVm>,
     /// The download-state icon of a release row (ADR 0083 Decision 6,
     /// amended 2026-10-22; ADR 0084 task 033). `None` for an artist row.
@@ -1956,6 +1961,105 @@ impl ReleasesListEntryVm {
     }
 }
 
+/// One item of the virtual Releases list (ADR 0084 task 037, Design step
+/// 6). The items come in the order of [`releases_selection_rows`], with
+/// each status row at its end of the list. A group row and each single
+/// of an open group are separate items, so the list renders only the
+/// items in view.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ReleasesListItemVm {
+    /// The loading row or the error row of page 1 (packet 016 decision D8).
+    LeadingStatus(IndexListStatusRowVm),
+    /// A release that is not in a singles group.
+    Release(DestinationListRowVm),
+    /// A singles group row. Its `singles` is empty: each single of an open
+    /// group is a [`Self::Single`] item after it.
+    Group(SinglesGroupRowVm),
+    /// A single of an open group.
+    Single(DestinationListRowVm),
+    /// "Load more" or the error row of a later page.
+    TrailingStatus(IndexListStatusRowVm),
+}
+
+impl ReleasesListItemVm {
+    /// The element id of the row. The virtual list keys its measured
+    /// sizes by this id (Design step 8).
+    #[must_use]
+    pub(crate) fn element_id(&self) -> &str {
+        match self {
+            Self::LeadingStatus(row) | Self::TrailingStatus(row) => row.element_id(),
+            Self::Release(row) | Self::Single(row) => &row.element_id,
+            Self::Group(group) => &group.element_id,
+        }
+    }
+
+    /// The cover URL of a release row or of a single row.
+    #[must_use]
+    pub(crate) fn thumbnail_href(&self) -> Option<&str> {
+        match self {
+            Self::Release(row) | Self::Single(row) => row.thumbnail_href.as_deref(),
+            Self::LeadingStatus(_) | Self::Group(_) | Self::TrailingStatus(_) => None,
+        }
+    }
+
+    /// The label of a row: the release name or the display artist. A
+    /// status row has none.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn label(&self) -> Option<&str> {
+        match self {
+            Self::Release(row) | Self::Single(row) => Some(&row.label),
+            Self::Group(group) => Some(&group.label),
+            Self::LeadingStatus(_) | Self::TrailingStatus(_) => None,
+        }
+    }
+}
+
+/// One item of the virtual Artists list (ADR 0084 task 037, operator
+/// answer Q1 option B): an Artists row, or the status row of the scope
+/// "Everything" at its end of the list.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the list holds at most one status item; a box for each row adds one allocation for each row"
+)]
+pub(crate) enum ArtistsListItemVm {
+    /// An Artists row.
+    Row(DestinationListRowVm),
+    /// The loading row, the error row or "Load more".
+    Status(IndexListStatusRowVm),
+}
+
+impl ArtistsListItemVm {
+    /// The items of `rows`, with `status` before or after them (packet 016
+    /// decision D8).
+    #[must_use]
+    pub(crate) fn of(
+        rows: Vec<DestinationListRowVm>,
+        status: Option<IndexListStatusRowVm>,
+    ) -> Vec<Self> {
+        let (leading, trailing) = match status {
+            Some(row) if row.at_list_start() => (Some(row), None),
+            other => (None, other),
+        };
+        leading
+            .map(Self::Status)
+            .into_iter()
+            .chain(rows.into_iter().map(Self::Row))
+            .chain(trailing.map(Self::Status))
+            .collect()
+    }
+
+    /// The element id of the row.
+    #[must_use]
+    pub(crate) fn element_id(&self) -> &str {
+        match self {
+            Self::Row(row) => &row.element_id,
+            Self::Status(row) => row.element_id(),
+        }
+    }
+}
+
 /// The row identity of the Releases list (Required correction item 2,
 /// 2026-10-18): a release row, or a singles group row. Each is its own
 /// keyboard focus row and its own Shift+click range endpoint. The
@@ -1978,15 +2082,15 @@ pub(crate) enum ReleasesRowId {
 /// shown rows only (packet 016 decision D15).
 #[must_use]
 pub(crate) fn releases_selection_rows(
-    entries: Vec<ReleasesListEntryVm>,
+    entries: &[ReleasesListEntryVm],
 ) -> Vec<SelectionRow<ReleasesRowId, ReleaseKey>> {
     entries
-        .into_iter()
+        .iter()
         .flat_map(|entry| match entry {
-            ReleasesListEntryVm::Release(row) => match row.open {
+            ReleasesListEntryVm::Release(row) => match &row.open {
                 DestinationListRowTarget::Release(key) => vec![SelectionRow::new(
                     ReleasesRowId::Release(key.clone()),
-                    vec![key],
+                    vec![key.clone()],
                 )],
                 DestinationListRowTarget::ArtistName(_)
                 | DestinationListRowTarget::Publisher(_)
@@ -2031,16 +2135,19 @@ pub(crate) enum ReleasesDisclosureStep {
 }
 
 /// The disclosure step of Right (`open` true) or Left (`open` false) on
-/// the `focused` row. `entries` is the present Releases list.
+/// the `focused` row. `items` are the items of the present Releases list.
 #[must_use]
 pub(crate) fn releases_disclosure_step(
     focused: Option<&ReleasesRowId>,
     open: bool,
-    entries: &[ReleasesListEntryVm],
+    items: &[ReleasesListItemVm],
 ) -> ReleasesDisclosureStep {
-    let groups = entries.iter().filter_map(|entry| match entry {
-        ReleasesListEntryVm::SinglesGroup(group) => Some(group),
-        ReleasesListEntryVm::Release(_) => None,
+    let groups = items.iter().filter_map(|item| match item {
+        ReleasesListItemVm::Group(group) => Some(group),
+        ReleasesListItemVm::LeadingStatus(_)
+        | ReleasesListItemVm::Release(_)
+        | ReleasesListItemVm::Single(_)
+        | ReleasesListItemVm::TrailingStatus(_) => None,
     });
     match focused {
         Some(ReleasesRowId::Group(key)) => {
@@ -2997,6 +3104,9 @@ pub(crate) struct LibraryViewModel {
     hovered_thumb_url: Option<String>,
     // Operation state.
     busy: BusyItems,
+    /// Each change of the tree or of `busy` gives a new revision, for the
+    /// cache of the Releases list (ADR 0084 task 037).
+    releases_revision: Revision,
     /// The loaded `MusicIndex` singles of each artist feed, and the
     /// request of the group page or of the single page for each feed
     /// (ADR 0084 packet 026). They stay until the app stops.
@@ -3043,6 +3153,7 @@ impl LibraryViewModel {
             selected_playlist_id: None,
             hovered_thumb_url: None,
             busy: BusyItems::default(),
+            releases_revision: Revision::default(),
             index_feed_singles: IndexFeedSingles::default(),
             new_releases_layout: NewReleasesLayout::default(),
             window_length: WindowLength::DEFAULT,
@@ -3075,10 +3186,19 @@ impl LibraryViewModel {
         &mut self.index_feed_singles
     }
 
+    /// The revision of the Library tree and of the busy state (ADR 0084
+    /// task 037, Design step 2). Each change of either one gives a new
+    /// revision.
+    #[must_use]
+    pub(crate) const fn releases_revision(&self) -> Revision {
+        self.releases_revision
+    }
+
     pub(crate) fn replace_tree(&mut self, tree: LibraryTree) {
         self.content_list_page
             .replace_tree_rows(content_list_rows_from_tree(&tree));
         self.snapshot.tree = tree;
+        self.releases_revision.bump();
         self.rebuild_field_values();
         self.mark_recent_library_releases();
         self.refresh_new_releases_layout();
@@ -3329,6 +3449,9 @@ impl LibraryViewModel {
             album.identity_facts = facts.clone();
             updated = true;
         }
+        if updated {
+            self.releases_revision.bump();
+        }
         updated
     }
 
@@ -3348,6 +3471,9 @@ impl LibraryViewModel {
         {
             *album.metadata_facts = facts.clone();
             updated = true;
+        }
+        if updated {
+            self.releases_revision.bump();
         }
         updated
     }
@@ -3370,6 +3496,9 @@ impl LibraryViewModel {
             album.stored_values = Some(Box::new(values.clone()));
             updated = true;
         }
+        if updated {
+            self.releases_revision.bump();
+        }
         updated
     }
 
@@ -3390,6 +3519,9 @@ impl LibraryViewModel {
         {
             album.description.clone_from(&description);
             updated = true;
+        }
+        if updated {
+            self.releases_revision.bump();
         }
         updated
     }
@@ -3414,6 +3546,9 @@ impl LibraryViewModel {
         {
             album.named_feeds = named_feeds.to_vec();
             updated = true;
+        }
+        if updated {
+            self.releases_revision.bump();
         }
         updated
     }
@@ -3697,73 +3832,137 @@ impl LibraryViewModel {
         }
     }
 
-    /// [`Self::releases_list`], with the Decision 10 checkbox facts of
-    /// `selection` applied to each row (Required correction item 1, 2, 4
-    /// and 5, 2026-10-18). A singles group row's own checkbox reads
-    /// checked, mixed, or clear, from each of its singles. An open
-    /// group's own single row gets its own checkbox and its own
-    /// keyboard-focus fact, the same as a release row. `mode` decides
-    /// whether a checkbox shows at all (ADR 0084 Decision 10 Amendment,
-    /// 2026-10-19).
+    /// The cache key of the Releases list in `scope` (ADR 0084 task 037,
+    /// decision D2). `page` is the release name page, and `expanded` is
+    /// the set of open groups.
     #[must_use]
-    pub(crate) fn releases_list_with_selection(
+    pub(crate) fn releases_list_key(
         &self,
         scope: MusicListScope,
         page: &IndexNameListPage<crate::api::Feed>,
-        fills: &IndexFeedSingles,
         expanded: &BTreeSet<SinglesGroupKey>,
+    ) -> ReleasesListKey {
+        ReleasesListKey {
+            scope,
+            page: page.revision(),
+            singles: self.index_feed_singles.revision(),
+            library: self.releases_revision(),
+            expanded: expanded.clone(),
+        }
+    }
+
+    /// One build of the Releases list (ADR 0084 task 037, Design step 3):
+    /// [`Self::releases_list`] and its status row, as flat items. Each
+    /// release row holds its `Normal` menu, and the rows hold the state of
+    /// each row key. Only [`ReleasesListCache::read`] calls this, through
+    /// [`Self::cached_releases_rows`].
+    #[must_use]
+    pub(crate) fn releases_list_rows(
+        &self,
+        scope: MusicListScope,
+        page: &IndexNameListPage<crate::api::Feed>,
+        expanded: &BTreeSet<SinglesGroupKey>,
+    ) -> ReleasesListRows {
+        let entries = self.releases_list(scope, page, &self.index_feed_singles, expanded);
+        // One map of the tree albums for the whole build. A search of the
+        // tree for each row costs the row count multiplied by the album
+        // count (task 037 Recorded Facts).
+        let mut albums: BTreeMap<ReleaseKey, &AlbumNode> = BTreeMap::new();
+        for album in self
+            .snapshot
+            .tree
+            .artists
+            .iter()
+            .flat_map(|artist| artist.albums.iter())
+        {
+            if let Some(key) = album.release_key() {
+                albums.entry(key).or_insert(album);
+            }
+        }
+        ReleasesListRows::new(
+            entries,
+            Self::releases_list_status(scope, page),
+            |key| self.release_row_state_in(key, albums.get(key).copied()),
+            |row| {
+                let DestinationListRowTarget::Release(key) = &row.open else {
+                    return None;
+                };
+                self.release_row_menu_in(
+                    &row.element_id,
+                    key,
+                    &row.label,
+                    row.release_kind?,
+                    false,
+                    albums.get(key).copied(),
+                )
+            },
+        )
+    }
+
+    /// The rows of the Releases list from `cache` (ADR 0084 task 037,
+    /// Design step 5). The list builds again only when its key changes, so
+    /// two reads in one frame give one build.
+    #[must_use]
+    pub(crate) fn cached_releases_rows(
+        &self,
+        cache: &mut ReleasesListCache,
+        scope: MusicListScope,
+        page: &IndexNameListPage<crate::api::Feed>,
+        expanded: &BTreeSet<SinglesGroupKey>,
+    ) -> Rc<ReleasesListRows> {
+        cache.read(self.releases_list_key(scope, page, expanded), || {
+            self.releases_list_rows(scope, page, expanded)
+        })
+    }
+
+    /// `item`, with the Decision 10 checkbox facts of `selection` applied
+    /// (ADR 0084 task 037, Design step 10, Required correction items 1,
+    /// 2, 4 and 5 of 2026-10-18). A singles group row's own checkbox
+    /// reads checked, mixed, or clear, from each of its singles. A single
+    /// of an open group gets its own checkbox and its own keyboard-focus
+    /// fact, the same as a release row. `mode` decides whether a checkbox
+    /// shows at all (ADR 0084 Decision 10 Amendment, 2026-10-19), and
+    /// selection mode gives no row menu (task 031 decision D7).
+    #[must_use]
+    pub(crate) fn releases_item_with_selection(
+        item: &ReleasesListItemVm,
         selection: &ListSelection<ReleaseKey, ReleasesRowId>,
         mode: SelectionMode,
-    ) -> Vec<ReleasesListEntryVm> {
+    ) -> ReleasesListItemVm {
         let selecting = mode.is_selecting();
-        let focused_row = selection.focused().cloned();
-        self.releases_list(scope, page, fills, expanded)
-            .into_iter()
-            .map(|entry| match entry {
-                ReleasesListEntryVm::Release(mut row) => {
-                    if let DestinationListRowTarget::Release(key) = &row.open {
-                        let focused =
-                            focused_row.as_ref() == Some(&ReleasesRowId::Release(key.clone()));
-                        row.selection = RowSelectionVm::for_row(
-                            &row.label,
-                            selection.is_selected(key),
-                            focused,
-                            selecting,
-                        );
-                    }
-                    row.menu = self.destination_release_row_menu(&row, selecting);
-                    ReleasesListEntryVm::Release(row)
-                }
-                ReleasesListEntryVm::SinglesGroup(mut group) => {
-                    let check_state = selection.row_check_state(&group.single_keys);
-                    let group_focused =
-                        focused_row.as_ref() == Some(&ReleasesRowId::Group(group.open.clone()));
-                    group.selection = RowSelectionVm::for_group_row(
-                        &group.label,
-                        check_state,
-                        group_focused,
-                        selecting,
-                    );
-                    // Required correction item 4: each single row of an
-                    // open group shows its own checkbox, under the same
-                    // visibility rule as each other row.
-                    for single_row in &mut group.singles {
-                        if let DestinationListRowTarget::Release(key) = &single_row.open {
-                            let single_focused =
-                                focused_row.as_ref() == Some(&ReleasesRowId::Release(key.clone()));
-                            single_row.selection = RowSelectionVm::for_row(
-                                &single_row.label,
-                                selection.is_selected(key),
-                                single_focused,
-                                selecting,
-                            );
-                        }
-                        single_row.menu = self.destination_release_row_menu(single_row, selecting);
-                    }
-                    ReleasesListEntryVm::SinglesGroup(group)
-                }
-            })
-            .collect()
+        let focused_row = selection.focused();
+        let with_selection = |mut row: DestinationListRowVm| {
+            if let DestinationListRowTarget::Release(key) = &row.open {
+                let focused = focused_row == Some(&ReleasesRowId::Release(key.clone()));
+                row.selection = RowSelectionVm::for_row(
+                    &row.label,
+                    selection.is_selected(key),
+                    focused,
+                    selecting,
+                );
+            }
+            if selecting {
+                row.menu = None;
+            }
+            row
+        };
+        match item.clone() {
+            ReleasesListItemVm::Release(row) => ReleasesListItemVm::Release(with_selection(row)),
+            ReleasesListItemVm::Single(row) => ReleasesListItemVm::Single(with_selection(row)),
+            ReleasesListItemVm::Group(mut group) => {
+                let check_state = selection.row_check_state(&group.single_keys);
+                let group_focused = focused_row == Some(&ReleasesRowId::Group(group.open.clone()));
+                group.selection = RowSelectionVm::for_group_row(
+                    &group.label,
+                    check_state,
+                    group_focused,
+                    selecting,
+                );
+                ReleasesListItemVm::Group(group)
+            }
+            status @ (ReleasesListItemVm::LeadingStatus(_)
+            | ReleasesListItemVm::TrailingStatus(_)) => status,
+        }
     }
 
     /// The release of `key`, when the tree still holds it.
@@ -3781,7 +3980,12 @@ impl LibraryViewModel {
     /// the release, or when the release has no Library feed id.
     #[must_use]
     pub(crate) fn library_release_facts(&self, key: &ReleaseKey) -> Option<LibraryReleaseFacts> {
-        let album = self.album_for_release_key(key)?;
+        self.library_release_facts_of(self.album_for_release_key(key)?)
+    }
+
+    /// The Library facts of the tree release `album`. `None` when it has
+    /// no Library feed id.
+    fn library_release_facts_of(&self, album: &AlbumNode) -> Option<LibraryReleaseFacts> {
         Some(LibraryReleaseFacts {
             feed_id: album.feed_id?,
             downloaded: ReleaseDownloaded::of(album.tracks.iter().map(|track| track.is_in_library)),
@@ -3845,18 +4049,23 @@ impl LibraryViewModel {
     /// - A Library release counts in "Add to playlist". It also counts in
     ///   "Download" when [`LibraryReleaseFacts::downloadable`] is true, and
     ///   in "Remove" when [`LibraryReleaseFacts::removable`] is true.
+    ///
+    /// The bar reads the state of each selected key from `rows`, the
+    /// cached rows of the list (ADR 0084 task 037). Only a key that no row
+    /// of `rows` holds reads the tree.
     #[must_use]
     pub(crate) fn releases_selection_action_bar(
         &self,
         selection: &ListSelection<ReleaseKey, ReleasesRowId>,
         mode: SelectionMode,
+        rows: &ReleasesListRows,
     ) -> Option<SelectionActionBarVm> {
         // ADR 0084 task 031: the release row menu and this bar count
         // through the one availability rule.
         let counts = ReleaseActionCounts::of(
             selection
                 .selected_keys()
-                .filter_map(|key| self.release_row_state(key)),
+                .filter_map(|key| rows.row_state(key).or_else(|| self.release_row_state(key))),
         );
         SelectionActionBarVm::from_counts(
             mode,
@@ -3870,35 +4079,25 @@ impl LibraryViewModel {
         )
     }
 
-    /// The menu of a release row of the Releases list (ADR 0084 task 031,
-    /// decision D1). The group row of a singles group gets no menu
-    /// (decision D2). A row with no release kind is not a release row.
-    fn destination_release_row_menu(
-        &self,
-        row: &DestinationListRowVm,
-        selecting: bool,
-    ) -> Option<ReleaseRowMenuVm> {
-        let DestinationListRowTarget::Release(key) = &row.open else {
-            return None;
-        };
-        self.release_row_menu(
-            &row.element_id,
-            key,
-            &row.label,
-            row.release_kind?,
-            selecting,
-        )
-    }
-
     /// The state of the release `key` for its row actions (ADR 0084 task
     /// 031). A key that the tree does not hold is a `MusicIndex` release,
     /// with the job state of its key. `None` for a Library key that the
     /// tree no longer holds, and for a Library release with no feed id.
     #[must_use]
     pub(crate) fn release_row_state(&self, key: &ReleaseKey) -> Option<ReleaseRowState> {
-        match self.album_for_release_key(key) {
-            Some(_) => self
-                .library_release_facts(key)
+        self.release_row_state_in(key, self.album_for_release_key(key))
+    }
+
+    /// [`Self::release_row_state`], with `album`, the tree release of
+    /// `key` when the tree holds it.
+    fn release_row_state_in(
+        &self,
+        key: &ReleaseKey,
+        album: Option<&AlbumNode>,
+    ) -> Option<ReleaseRowState> {
+        match album {
+            Some(album) => self
+                .library_release_facts_of(album)
                 .map(ReleaseRowState::Library),
             None => matches!(key, ReleaseKey::FeedGuid(_)).then(|| ReleaseRowState::Index {
                 job_active: self.busy.index_release_downloading(key),
@@ -3920,10 +4119,29 @@ impl LibraryViewModel {
         kind: ReleaseKind,
         selecting: bool,
     ) -> Option<ReleaseRowMenuVm> {
-        let state = self.release_row_state(key)?;
-        let kind = self
-            .album_for_release_key(key)
-            .map_or(kind, AlbumNode::release_kind);
+        self.release_row_menu_in(
+            row_id,
+            key,
+            title,
+            kind,
+            selecting,
+            self.album_for_release_key(key),
+        )
+    }
+
+    /// [`Self::release_row_menu`], with `album`, the tree release of `key`
+    /// when the tree holds it.
+    fn release_row_menu_in(
+        &self,
+        row_id: &str,
+        key: &ReleaseKey,
+        title: &str,
+        kind: ReleaseKind,
+        selecting: bool,
+        album: Option<&AlbumNode>,
+    ) -> Option<ReleaseRowMenuVm> {
+        let state = self.release_row_state_in(key, album)?;
+        let kind = album.map_or(kind, AlbumNode::release_kind);
         release_row_menu(&ReleaseRowActionFacts {
             row_id,
             key,
@@ -4798,12 +5016,16 @@ impl LibraryViewModel {
     /// Replaces the download part of the busy state with the queue state
     /// (ADR 0084 Decision 10, packet 022).
     pub(crate) fn set_download_activity(&mut self, activity: DownloadActivity) {
-        self.busy.downloads = activity;
+        if self.busy.downloads != activity {
+            self.busy.downloads = activity;
+            self.releases_revision.bump();
+        }
     }
 
     /// Marks the Library feed `feed_id` as being removed.
     pub(crate) fn begin_feed_removal(&mut self, feed_id: i64) {
         self.busy.removing_feeds.insert(feed_id);
+        self.releases_revision.bump();
         self.library_removal.cancel();
         self.status = "Removing feed...".into();
     }
@@ -4811,6 +5033,7 @@ impl LibraryViewModel {
     /// Clears the removal mark of the Library feed `feed_id`.
     pub(crate) fn finish_feed_removal(&mut self, feed_id: i64) {
         self.busy.removing_feeds.remove(&feed_id);
+        self.releases_revision.bump();
     }
 
     /// Sets a report text in the status line.
@@ -9395,7 +9618,7 @@ mod tests {
     }
 
     /// R9-13, R9-14 (Required correction, 2026-10-18): with the Haleen
-    /// group open, `releases_list_with_selection` gives each single its
+    /// group open, `releases_item_with_selection` gives each single its
     /// own checkbox. Toggling one single checks only that single's row,
     /// and the group's own checkbox reads mixed.
     /// Operator check of 2026-10-19: a singles group opened only with a
@@ -9409,53 +9632,68 @@ mod tests {
         let group_row = ReleasesRowId::Group(group_key.clone());
         let single_row = ReleasesRowId::Release(ReleaseKey::FeedGuid("guid-2".into()));
 
-        let closed = vm.releases_list(
+        let closed = vm.releases_list_rows(
             MusicListScope::Library,
             &IndexNameListPage::default(),
-            &IndexFeedSingles::default(),
             &BTreeSet::new(),
         );
+        let closed = closed.items();
         assert_eq!(
-            releases_disclosure_step(Some(&group_row), true, &closed),
+            releases_disclosure_step(Some(&group_row), true, closed),
             ReleasesDisclosureStep::Open(group_key.clone())
         );
         assert_eq!(
-            releases_disclosure_step(Some(&group_row), false, &closed),
+            releases_disclosure_step(Some(&group_row), false, closed),
             ReleasesDisclosureStep::None
         );
 
-        let open = vm.releases_list(
+        let open = vm.releases_list_rows(
             MusicListScope::Library,
             &IndexNameListPage::default(),
-            &IndexFeedSingles::default(),
             &BTreeSet::from([group_key.clone()]),
         );
+        let open = open.items();
         assert_eq!(
-            releases_disclosure_step(Some(&group_row), false, &open),
+            releases_disclosure_step(Some(&group_row), false, open),
             ReleasesDisclosureStep::Close(group_key.clone())
         );
         assert_eq!(
-            releases_disclosure_step(Some(&single_row), false, &open),
+            releases_disclosure_step(Some(&single_row), false, open),
             ReleasesDisclosureStep::FocusGroup(group_key)
         );
         assert_eq!(
-            releases_disclosure_step(Some(&single_row), true, &open),
+            releases_disclosure_step(Some(&single_row), true, open),
             ReleasesDisclosureStep::None
         );
         assert_eq!(
-            releases_disclosure_step(None, true, &open),
+            releases_disclosure_step(None, true, open),
             ReleasesDisclosureStep::None
         );
     }
 
-    /// Each release row of the Releases list, in a group or not.
-    fn menu_release_rows(entries: &[ReleasesListEntryVm]) -> Vec<&DestinationListRowVm> {
-        entries
+    /// Each release row of the Releases list items, in a group or not.
+    fn menu_release_rows(items: &[ReleasesListItemVm]) -> Vec<&DestinationListRowVm> {
+        items
             .iter()
-            .flat_map(|entry| match entry {
-                ReleasesListEntryVm::Release(row) => vec![row],
-                ReleasesListEntryVm::SinglesGroup(group) => group.singles.iter().collect(),
+            .filter_map(|item| match item {
+                ReleasesListItemVm::Release(row) | ReleasesListItemVm::Single(row) => Some(row),
+                ReleasesListItemVm::LeadingStatus(_)
+                | ReleasesListItemVm::Group(_)
+                | ReleasesListItemVm::TrailingStatus(_) => None,
             })
+            .collect()
+    }
+
+    /// The cached items of `rows` with the facts of `selection` and `mode`
+    /// applied (ADR 0084 task 037, Design step 10).
+    fn items_with_selection(
+        rows: &ReleasesListRows,
+        selection: &ListSelection<ReleaseKey, ReleasesRowId>,
+        mode: SelectionMode,
+    ) -> Vec<ReleasesListItemVm> {
+        rows.items()
+            .iter()
+            .map(|item| LibraryViewModel::releases_item_with_selection(item, selection, mode))
             .collect()
     }
 
@@ -9473,21 +9711,18 @@ mod tests {
     /// R31-05 (ADR 0084 task 031, decision D7) and V2: in `Normal`, each
     /// release row of the Releases list has the one release row menu. A
     /// feed page row or a name page row of the same release gets the same
-    /// items. In `Selecting`, each menu is `None`.
+    /// items. In `Selecting`, each menu is `None`. Task 037: the menu
+    /// comes from the cached rows.
     #[test]
     fn adr_0084_release_row_actions_r31_05_releases_list_menu() {
         let mut vm = LibraryViewModel::new();
         vm.replace_tree(library_tree());
-        let entries = |mode| {
-            vm.releases_list_with_selection(
-                MusicListScope::Library,
-                &IndexNameListPage::default(),
-                &IndexFeedSingles::default(),
-                &BTreeSet::new(),
-                &ListSelection::new(),
-                mode,
-            )
-        };
+        let rows = vm.releases_list_rows(
+            MusicListScope::Library,
+            &IndexNameListPage::default(),
+            &BTreeSet::new(),
+        );
+        let entries = |mode| items_with_selection(&rows, &ListSelection::new(), mode);
         let normal = entries(SelectionMode::Normal);
         let rows = menu_release_rows(&normal);
         assert!(!rows.is_empty());
@@ -9545,14 +9780,12 @@ mod tests {
         use crate::view_models::selection_action_bar::SelectionActionKind;
         let mut vm = LibraryViewModel::new();
         vm.replace_tree(library_tree());
-        let entries = vm.releases_list_with_selection(
+        let rows = vm.releases_list_rows(
             MusicListScope::Library,
             &IndexNameListPage::default(),
-            &IndexFeedSingles::default(),
             &BTreeSet::new(),
-            &ListSelection::new(),
-            SelectionMode::Normal,
         );
+        let entries = items_with_selection(&rows, &ListSelection::new(), SelectionMode::Normal);
         for row in menu_release_rows(&entries) {
             let DestinationListRowTarget::Release(key) = &row.open else {
                 panic!("a Releases row opens a release");
@@ -9563,7 +9796,7 @@ mod tests {
                 vec![key.clone()],
             ));
             let bar: Vec<SelectionActionKind> = vm
-                .releases_selection_action_bar(&selection, SelectionMode::Selecting)
+                .releases_selection_action_bar(&selection, SelectionMode::Selecting, &rows)
                 .expect("the bar shows in Selecting")
                 .actions
                 .iter()
@@ -9617,33 +9850,42 @@ mod tests {
             vec![newest_key.clone()],
         ));
 
-        let entries = vm.releases_list_with_selection(
+        let rows = vm.releases_list_rows(
             MusicListScope::Library,
             &IndexNameListPage::default(),
-            &IndexFeedSingles::default(),
             &expanded,
-            &selection,
-            SelectionMode::Selecting,
         );
-        let ReleasesListEntryVm::SinglesGroup(group) = &entries[0] else {
-            panic!("the first entry must be the Haleen group");
+        let entries = items_with_selection(&rows, &selection, SelectionMode::Selecting);
+        let ReleasesListItemVm::Group(group) = &entries[0] else {
+            panic!("the first item must be the Haleen group");
         };
         assert_eq!(
             group.selection.check_state,
             RowCheckState::Mixed,
             "one selected single out of three gives the group a mixed checkbox"
         );
+        assert!(group.singles.is_empty(), "each single is its own item");
+        let singles: Vec<&DestinationListRowVm> = entries
+            .iter()
+            .filter_map(|item| match item {
+                ReleasesListItemVm::Single(row) => Some(row),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(singles.len(), 3, "the open group gives each single an item");
 
-        let newest_row = group
-            .singles
+        let newest_row = singles
             .iter()
             .find(|row| row.open == DestinationListRowTarget::Release(newest_key.clone()))
             .expect("the Newest single has its own row");
         assert!(newest_row.selection.check_state.is_checked());
         assert!(!newest_row.selection.checkbox_a11y_label.is_empty());
+        assert!(
+            newest_row.menu.is_none(),
+            "selection mode gives no row menu"
+        );
 
-        let other_row = group
-            .singles
+        let other_row = singles
             .iter()
             .find(|row| row.open != DestinationListRowTarget::Release(newest_key.clone()))
             .expect("a second single's row exists");
@@ -11700,10 +11942,14 @@ mod tests {
             scopes_album("Beta", 2, "beta", 1, 2),
         ]);
         let label = |selection: &ListSelection<ReleaseKey, ReleasesRowId>, kind| {
-            vm.releases_selection_action_bar(selection, SelectionMode::Selecting)
-                .expect("a bar")
-                .action(kind)
-                .map(|action| action.label.clone())
+            vm.releases_selection_action_bar(
+                selection,
+                SelectionMode::Selecting,
+                &ReleasesListRows::default(),
+            )
+            .expect("a bar")
+            .action(kind)
+            .map(|action| action.label.clone())
         };
 
         let index_only = select_releases(&[guid_key("motive-album")]);
@@ -11812,7 +12058,11 @@ mod tests {
         assert_eq!(plan.library_feed_ids, [2]);
         assert_eq!(plan.index_releases, [("not-loaded".to_owned(), None)]);
         let bar = vm
-            .releases_selection_action_bar(&selection, SelectionMode::Selecting)
+            .releases_selection_action_bar(
+                &selection,
+                SelectionMode::Selecting,
+                &ReleasesListRows::default(),
+            )
             .expect("a bar");
         assert_eq!(
             bar.action(SelectionActionKind::Download)
@@ -11838,7 +12088,7 @@ mod tests {
             releases_everything::tests::recorded_rows(),
             true,
         );
-        let rows = releases_selection_rows(vm.releases_list(
+        let rows = releases_selection_rows(&vm.releases_list(
             MusicListScope::Everything,
             &page,
             &IndexFeedSingles::default(),
@@ -12389,7 +12639,7 @@ mod tests {
         let fills = haleen_fills();
         // The complete page shows the group row at its label (packet 036).
         let page = fruit_page(false);
-        let rows = releases_selection_rows(vm.releases_list(
+        let rows = releases_selection_rows(&vm.releases_list(
             MusicListScope::Everything,
             &page,
             &fills,
@@ -12418,10 +12668,14 @@ mod tests {
         );
 
         let label = |kind| {
-            vm.releases_selection_action_bar(&selection, SelectionMode::Selecting)
-                .expect("a bar")
-                .action(kind)
-                .map(|action| action.label.clone())
+            vm.releases_selection_action_bar(
+                &selection,
+                SelectionMode::Selecting,
+                &ReleasesListRows::default(),
+            )
+            .expect("a bar")
+            .action(kind)
+            .map(|action| action.label.clone())
         };
         assert_eq!(
             label(SelectionActionKind::Download).as_deref(),
@@ -12471,10 +12725,14 @@ mod tests {
             vec![release_key.clone()],
         ));
         let remove_of = |vm: &LibraryViewModel| {
-            vm.releases_selection_action_bar(&selection, SelectionMode::Selecting)
-                .expect("a bar")
-                .action(crate::view_models::selection_action_bar::SelectionActionKind::Remove)
-                .map(|action| action.label.clone())
+            vm.releases_selection_action_bar(
+                &selection,
+                SelectionMode::Selecting,
+                &ReleasesListRows::default(),
+            )
+            .expect("a bar")
+            .action(crate::view_models::selection_action_bar::SelectionActionKind::Remove)
+            .map(|action| action.label.clone())
         };
         assert_eq!(remove_of(&vm).as_deref(), Some("Remove 1 release\u{2026}"));
         assert_eq!(vm.releases_removable_feed_ids(&selection).len(), 1);
@@ -13089,6 +13347,455 @@ mod tests {
         nav.start_path(entry.clone(), None);
         assert_eq!(nav.path_entries(), vec![entry]);
         assert_eq!(nav.go_back().ok().cloned(), Some(release));
+    }
+
+    // ADR 0084 task 037: the cache of the Releases list and its flat items.
+
+    /// The inputs of one Releases list, as `LibraryApp` holds them.
+    struct ReleasesInputs {
+        vm: LibraryViewModel,
+        cache: ReleasesListCache,
+        scope: MusicListScope,
+        page: IndexNameListPage<crate::api::Feed>,
+        expanded: BTreeSet<SinglesGroupKey>,
+    }
+
+    impl ReleasesInputs {
+        /// The packet 026 Library in "Everything", with the Haleen singles
+        /// and page 1 of the fruit names, "Load more" available.
+        fn everything() -> Self {
+            let mut vm = index_singles_vm();
+            *vm.index_feed_singles_mut() = haleen_fills();
+            Self {
+                vm,
+                cache: ReleasesListCache::default(),
+                scope: MusicListScope::Everything,
+                page: fruit_page(true),
+                expanded: BTreeSet::new(),
+            }
+        }
+
+        /// One read, as `LibraryApp::releases_rows` does it.
+        fn read(&mut self) -> Rc<ReleasesListRows> {
+            self.vm
+                .cached_releases_rows(&mut self.cache, self.scope, &self.page, &self.expanded)
+        }
+    }
+
+    /// The labels of the row items of `rows`, in item order.
+    fn item_labels_of(rows: &ReleasesListRows) -> Vec<&str> {
+        rows.items()
+            .iter()
+            .filter_map(ReleasesListItemVm::label)
+            .collect()
+    }
+
+    /// R37-02 (ADR 0084 task 037, Design step 2): each change of an input
+    /// of the Releases list builds the list one more time at the next
+    /// read, and the new rows show the change.
+    #[test]
+    fn adr_0084_task_037_r37_02_each_input_change_builds_again() {
+        let mut inputs = ReleasesInputs::everything();
+        // The complete page shows the Haleen group (packet 036).
+        inputs.page = fruit_page(false);
+        let first = inputs.read();
+        assert_eq!(inputs.cache.builds(), 1);
+        let mut builds = 1;
+        let mut last = first;
+        let mut check = |inputs: &mut ReleasesInputs, change: &str| {
+            let rows = inputs.read();
+            builds += 1;
+            assert_eq!(inputs.cache.builds(), builds, "{change} builds again");
+            assert_ne!(rows.items(), last.items(), "{change} shows in the rows");
+            last = rows;
+        };
+
+        let mut tree = inputs.vm.tree().clone();
+        tree.artists[0]
+            .albums
+            .push(scopes_album("Apricot", 4, "apricot", 2, 2));
+        inputs.vm.replace_tree(tree);
+        check(&mut inputs, "replace_tree with a new Library release");
+
+        assert!(inputs.vm.update_album_named_feeds(2, &[]));
+        check(&mut inputs, "update_album_named_feeds");
+
+        let zebra = FeedKey::Guid("zebra".to_owned());
+        inputs.vm.set_download_activity(DownloadActivity {
+            keys: BTreeSet::from([zebra.clone()]),
+            in_flight_keys: BTreeSet::from([zebra]),
+            ..DownloadActivity::default()
+        });
+        check(&mut inputs, "set_download_activity with a new phase");
+
+        inputs.vm.begin_feed_removal(4);
+        check(&mut inputs, "begin_feed_removal");
+
+        let generation = inputs
+            .page
+            .begin_load(false)
+            .expect("page 1 starts again")
+            .generation;
+        check(&mut inputs, "begin_load of page 1");
+        let mut rows = fruit_page(false).rows().to_vec();
+        rows.push(plain_index_release("iris", "Iris"));
+        assert!(inputs.page.finish_load(
+            crate::view_models::index_name_list::IndexNameListBatch {
+                rows,
+                cursor: Some("next".to_owned()),
+                has_more: true,
+            },
+            generation,
+        ));
+        check(&mut inputs, "finish_load");
+
+        let generation = inputs
+            .page
+            .begin_load(true)
+            .expect("the next page starts")
+            .generation;
+        check(&mut inputs, "begin_load of the next page");
+        assert!(inputs.page.fail_load("offline", generation));
+        check(&mut inputs, "fail_load");
+
+        let fills = inputs.vm.index_feed_singles_mut();
+        let generation = fills.begin_request();
+        assert!(fills.record(
+            HALEEN_FEED,
+            crate::view_models::index_feed_singles::FeedReleaseList::complete(vec![
+                crate::view_models::index_feed_singles::tests::single_naming(
+                    "fig",
+                    "Fig",
+                    HALEEN_FEED,
+                    950,
+                ),
+                crate::view_models::index_feed_singles::tests::single_naming(
+                    "apple",
+                    "Apple",
+                    HALEEN_FEED,
+                    900,
+                ),
+            ]),
+            generation,
+        ));
+        check(&mut inputs, "IndexFeedSingles::record");
+
+        inputs
+            .expanded
+            .insert(SinglesGroupKey(ArtistIdentity::Publisher(
+                HALEEN_FEED.to_owned(),
+            )));
+        check(&mut inputs, "an open group");
+
+        inputs.scope = MusicListScope::Library;
+        check(&mut inputs, "a scope change");
+    }
+
+    /// R37-03 (ADR 0084 task 037, decision D3): a selection change, a
+    /// selection mode change, a focus move and a hover change give no
+    /// build. An image answer writes only `LibraryApp::thumbnails`, which
+    /// is not an input of the key (guard R37-12 reads `releases_rows`).
+    #[test]
+    fn adr_0084_task_037_r37_03_view_state_gives_no_build() {
+        use crate::view_models::list_selection::FocusStep;
+        let mut inputs = ReleasesInputs::everything();
+        let rows = inputs.read();
+        let mut selection: ListSelection<ReleaseKey, ReleasesRowId> = ListSelection::new();
+        // A selection change.
+        selection.toggle(&rows.selection_rows()[0]);
+        let _ = items_with_selection(&inputs.read(), &selection, SelectionMode::Normal);
+        // A selection mode change.
+        let _ = items_with_selection(&inputs.read(), &selection, SelectionMode::Selecting);
+        // A focus move.
+        assert!(selection
+            .move_focus(FocusStep::Down, rows.selection_rows())
+            .is_some());
+        let _ = items_with_selection(&inputs.read(), &selection, SelectionMode::Selecting);
+        // A hover change.
+        assert!(inputs
+            .vm
+            .set_hovered_thumb_url(Some("https://img.test/banana.jpg".to_owned())));
+        let again = inputs.read();
+        assert_eq!(inputs.cache.builds(), 1, "view state builds no merge");
+        assert!(Rc::ptr_eq(&rows, &again), "each read gives the same rows");
+    }
+
+    /// R37-04 (ADR 0084 task 037, decision D5): for the fixtures of packets
+    /// 016, 026 and 036, the flat items of the cache give the labels of
+    /// `releases_list`, in the same order. An open group gives the label
+    /// of each single after its group row.
+    #[test]
+    fn adr_0084_task_037_r37_04_items_follow_releases_list() {
+        let flat = |entries: &[ReleasesListEntryVm]| -> Vec<String> {
+            entries
+                .iter()
+                .flat_map(|entry| match entry {
+                    ReleasesListEntryVm::Release(row) => vec![row.label.clone()],
+                    ReleasesListEntryVm::SinglesGroup(group) => {
+                        std::iter::once(group.label.clone())
+                            .chain(group.singles.iter().map(|row| row.label.clone()))
+                            .collect()
+                    }
+                })
+                .collect()
+        };
+        let haleen = SinglesGroupKey(ArtistIdentity::Publisher(HALEEN_FEED.to_owned()));
+        let by_name = SinglesGroupKey(ArtistIdentity::Name("haleen".into()));
+        let mut packet_016 = LibraryViewModel::new();
+        packet_016.replace_tree(library_tree());
+        let mut packet_015 = LibraryViewModel::new();
+        packet_015.replace_tree(singles_tree());
+        let mut packet_026 = index_singles_vm();
+        *packet_026.index_feed_singles_mut() = haleen_fills();
+        let mut packet_036 = index_singles_vm();
+        let mut fills = haleen_fills();
+        let mut page_036 = fruit_page(true);
+        load_next_page(
+            &mut page_036,
+            &mut fills,
+            vec![
+                single_of_artist("dill", "Dill", AARON_FEED, "Aaron", 600),
+                plain_index_release("elder", "Elder"),
+            ],
+            vec![(AARON_FEED, aaron_singles())],
+            true,
+        );
+        *packet_036.index_feed_singles_mut() = fills;
+        let cases = [
+            (
+                &packet_016,
+                MusicListScope::Library,
+                IndexNameListPage::default(),
+                BTreeSet::new(),
+            ),
+            (
+                &packet_015,
+                MusicListScope::Library,
+                IndexNameListPage::default(),
+                BTreeSet::from([by_name]),
+            ),
+            (
+                &packet_026,
+                MusicListScope::Everything,
+                fruit_page(false),
+                BTreeSet::from([haleen.clone()]),
+            ),
+            (
+                &packet_026,
+                MusicListScope::Library,
+                fruit_page(false),
+                BTreeSet::new(),
+            ),
+            (
+                &packet_036,
+                MusicListScope::Everything,
+                page_036,
+                BTreeSet::from([haleen]),
+            ),
+        ];
+        for (vm, scope, page, expanded) in cases {
+            let entries = vm.releases_list(scope, &page, vm.index_feed_singles(), &expanded);
+            let rows = vm.releases_list_rows(scope, &page, &expanded);
+            assert!(!entries.is_empty());
+            assert_eq!(item_labels_of(&rows), flat(&entries), "{scope:?}");
+        }
+    }
+
+    /// R37-05 (ADR 0084 task 037, Design step 6): the flat item order is
+    /// the order of `releases_selection_rows`, with the status row at the
+    /// start or at the end. The index of a selection row plus `leading` is
+    /// its item index, so a focus move scrolls to the focused row.
+    #[test]
+    fn adr_0084_task_037_r37_05_item_order_is_the_selection_order() {
+        let haleen = SinglesGroupKey(ArtistIdentity::Publisher(HALEEN_FEED.to_owned()));
+        let mut vm = index_singles_vm();
+        *vm.index_feed_singles_mut() = haleen_fills();
+        let mut first_page = IndexNameListPage::default();
+        let _ = first_page.begin_load(false).expect("page 1 starts");
+        let generation = first_page
+            .begin_load(false)
+            .expect("page 1 starts")
+            .generation;
+        assert!(first_page.fail_load("offline", generation));
+        for (page, leading) in [
+            (fruit_page(false), 0),
+            (fruit_page(true), 0),
+            (first_page, 1),
+        ] {
+            let expanded = BTreeSet::from([haleen.clone()]);
+            let rows = vm.releases_list_rows(MusicListScope::Everything, &page, &expanded);
+            let entries = vm.releases_list(
+                MusicListScope::Everything,
+                &page,
+                vm.index_feed_singles(),
+                &expanded,
+            );
+            assert_eq!(
+                rows.selection_rows(),
+                releases_selection_rows(&entries).as_slice()
+            );
+            assert_eq!(rows.leading(), leading);
+            for (index, row) in rows.selection_rows().iter().enumerate() {
+                let item = &rows.items()[index + leading];
+                let id = match item {
+                    ReleasesListItemVm::Release(row) | ReleasesListItemVm::Single(row) => {
+                        let DestinationListRowTarget::Release(key) = &row.open else {
+                            panic!("a release row opens a release");
+                        };
+                        ReleasesRowId::Release(key.clone())
+                    }
+                    ReleasesListItemVm::Group(group) => ReleasesRowId::Group(group.open.clone()),
+                    other => panic!("a selection row is no status row: {other:?}"),
+                };
+                assert_eq!(id, row.id, "item {}", index + leading);
+            }
+            let status_rows = rows.items().len() - rows.selection_rows().len();
+            assert!(status_rows <= 1, "at most one status row");
+        }
+    }
+
+    /// R37-09 (ADR 0084 task 037, Design step 10, Decision 10):
+    /// `releases_item_with_selection` gives a group row a checked, mixed or
+    /// clear checkbox, gives each single of an open group its own
+    /// checkbox, and gives no row menu in selection mode.
+    #[test]
+    fn adr_0084_task_037_r37_09_item_selection_facts() {
+        let mut vm = LibraryViewModel::new();
+        vm.replace_tree(singles_tree());
+        let group_key = SinglesGroupKey(ArtistIdentity::Name("haleen".into()));
+        let rows = vm.releases_list_rows(
+            MusicListScope::Library,
+            &IndexNameListPage::default(),
+            &BTreeSet::from([group_key]),
+        );
+        let group_row = rows
+            .selection_rows()
+            .iter()
+            .find(|row| matches!(row.id, ReleasesRowId::Group(_)))
+            .expect("a group row")
+            .clone();
+        let group_state = |selection: &ListSelection<ReleaseKey, ReleasesRowId>| {
+            items_with_selection(&rows, selection, SelectionMode::Selecting)
+                .into_iter()
+                .find_map(|item| match item {
+                    ReleasesListItemVm::Group(group) => Some(group.selection.check_state),
+                    _ => None,
+                })
+                .expect("the group item")
+        };
+        let mut selection: ListSelection<ReleaseKey, ReleasesRowId> = ListSelection::new();
+        assert_eq!(group_state(&selection), RowCheckState::Clear);
+        let newest = ReleaseKey::FeedGuid("guid-2".into());
+        selection.toggle(&SelectionRow::new(
+            ReleasesRowId::Release(newest.clone()),
+            vec![newest.clone()],
+        ));
+        assert_eq!(group_state(&selection), RowCheckState::Mixed);
+        selection.select_all(std::slice::from_ref(&group_row));
+        assert_eq!(group_state(&selection), RowCheckState::Checked);
+
+        let selecting = items_with_selection(&rows, &selection, SelectionMode::Selecting);
+        let singles: Vec<&DestinationListRowVm> = selecting
+            .iter()
+            .filter_map(|item| match item {
+                ReleasesListItemVm::Single(row) => Some(row),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(singles.len(), 3);
+        assert!(singles
+            .iter()
+            .all(|row| row.selection.checkbox_visible && row.selection.check_state.is_checked()));
+        assert!(menu_release_rows(&selecting)
+            .iter()
+            .all(|row| row.menu.is_none()));
+        let normal = items_with_selection(&rows, &selection, SelectionMode::Normal);
+        assert!(menu_release_rows(&normal)
+            .iter()
+            .all(|row| row.menu.is_some() && !row.selection.checkbox_visible));
+    }
+
+    /// R37-10 (ADR 0084 task 037, packet 016 R16-16 and packet 018
+    /// R18-06): the action bar counts with the row states of the cached
+    /// rows equal the counts that read the tree.
+    #[test]
+    fn adr_0084_task_037_r37_10_bar_counts_from_the_cache() {
+        use crate::view_models::selection_action_bar::SelectionActionKind;
+        let vm = scopes_vm(vec![
+            scopes_album("Alpha", 1, "alpha", 2, 2),
+            scopes_album("Beta", 2, "beta", 1, 2),
+        ]);
+        let page = releases_everything::tests::loaded_page(
+            releases_everything::tests::recorded_rows(),
+            false,
+        );
+        let rows = vm.releases_list_rows(MusicListScope::Everything, &page, &BTreeSet::new());
+        for key in ["alpha", "beta", "motive-album"] {
+            assert_eq!(
+                rows.row_state(&guid_key(key)),
+                vm.release_row_state(&guid_key(key)),
+                "{key}"
+            );
+        }
+        let mixed = select_releases(&[
+            guid_key("alpha"),
+            guid_key("beta"),
+            guid_key("motive-album"),
+        ]);
+        let labels = |rows: &ReleasesListRows| {
+            let bar = vm
+                .releases_selection_action_bar(&mixed, SelectionMode::Selecting, rows)
+                .expect("a bar");
+            [
+                SelectionActionKind::Download,
+                SelectionActionKind::AddToPlaylist,
+                SelectionActionKind::Remove,
+            ]
+            .map(|kind| bar.action(kind).map(|action| action.label.clone()))
+        };
+        assert_eq!(
+            labels(&rows),
+            [
+                Some("Download 2 releases".to_owned()),
+                Some("Add 2 releases to playlist".to_owned()),
+                Some("Remove 2 releases\u{2026}".to_owned()),
+            ]
+        );
+        assert_eq!(labels(&rows), labels(&ReleasesListRows::default()));
+    }
+
+    /// R37-11 (ADR 0084 task 037, Design step 14, packet 016 decision D8):
+    /// while `has_more` is true, "Load more" is the last item. After a
+    /// failure of a later page, the error row is the last item.
+    #[test]
+    fn adr_0084_task_037_r37_11_load_more_is_the_last_item() {
+        let mut inputs = ReleasesInputs::everything();
+        let rows = inputs.read();
+        let Some(ReleasesListItemVm::TrailingStatus(IndexListStatusRowVm::LoadMore(load_more))) =
+            rows.items().last()
+        else {
+            panic!("the last item is Load more: {:?}", rows.items().last());
+        };
+        assert_eq!(load_more.a11y_label, "Load more MusicIndex releases");
+        assert!(load_more.available);
+
+        let generation = inputs
+            .page
+            .begin_load(true)
+            .expect("the next page starts")
+            .generation;
+        assert!(inputs.page.fail_load("offline", generation));
+        let rows = inputs.read();
+        let Some(ReleasesListItemVm::TrailingStatus(IndexListStatusRowVm::Failed {
+            first_page,
+            retry,
+            ..
+        })) = rows.items().last()
+        else {
+            panic!("the last item is the error row: {:?}", rows.items().last());
+        };
+        assert!(!first_page);
+        assert_eq!(retry.label, "Try again");
     }
 }
 

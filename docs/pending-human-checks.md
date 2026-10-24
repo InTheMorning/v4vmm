@@ -217,3 +217,4 @@ Open - the run adds each packet when its mechanical checks are Green.
   - [ADR 0087 packet 008](tasks/adr-0087-task-008-field-list-stays-open.md) V1 to V5. V1 and V2 walk packet 003 V6 and packet 004 V6 again
   - [ADR 0087 packet 007](tasks/adr-0087-task-007-live-run-index-rows.md) V1 to V4. V1 and V3 walk packet 003 V3 again. The cause is not proved: if V1 fails, write down the text of the note under the rows
   - [ADR 0084 packet 036](tasks/adr-0084-task-036-group-row-at-artist-name.md) V1 to V3. V1 walks packet 026 V1 again
+  - [ADR 0084 packet 037](tasks/adr-0084-task-037-releases-everything-frame-time.md) V1 to V7, with `./target/release/v4vmm`. V7 is the Artists list. A row that does not change after a download or a removal is a defect of the cache

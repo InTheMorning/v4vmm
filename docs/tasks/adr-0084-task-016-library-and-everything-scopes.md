@@ -127,7 +127,7 @@ Stophammer ADR 0070 §4 puts a release on the name level in two conditions. No i
 - Releases order: the sort key, then the feed GUID. A Library feed with no feed GUID comes after equal keys, by its feed id.
 - Artists order: the sort key, then the kind (`name` before `publisher`, as Stophammer orders), then the key.
 - **The watermark.** While `has_more` is true, the merged list shows only the rows whose order position is at or before the last loaded MusicIndex row. The other Library rows show when their page loads. When `has_more` is false, the list shows each row.
-- The merge is a pure function. It runs at each render from the Library tree and the loaded pages. A download that adds a release to the Library thus changes its row in place.
+- The merge is a pure function of the Library tree and the loaded pages. The Releases list runs it again when one of its inputs changes ([packet 037](adr-0084-task-037-releases-everything-frame-time.md)). A download that adds a release to the Library thus changes its row in place.
 
 ### The Artists list in "Everything"
 
