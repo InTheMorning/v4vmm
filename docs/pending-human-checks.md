@@ -203,8 +203,8 @@ Open - the run closed on 2026-10-24 before the end of its walk. Each check below
   - [ADR 0086 packet 004](tasks/adr-0086-task-004-window-group-page.md) V4, V6, V9 and V10
   - [ADR 0086 packet 005](tasks/adr-0086-task-005-saved-search-window-groups.md) V1 to V7
   - [ADR 0087 packet 002](tasks/adr-0087-task-002-library-fields-and-index-words.md) V8 and V9
-  - [ADR 0087 packet 004](tasks/adr-0087-task-004-field-list.md) V1, V6 and V9. V1 and V6 failed
-  - [ADR 0087 packet 003](tasks/adr-0087-task-003-live-results.md) V2, V3, V6, V8 and V9. V3 and V6 failed
+  - [ADR 0087 packet 004](tasks/adr-0087-task-004-field-list.md) V1 and V9. V1 failed, and the visual overhaul takes it. Packet 008 V2 replaces V6 (section 7)
+  - [ADR 0087 packet 003](tasks/adr-0087-task-003-live-results.md) V2, V3, V8 and V9. V3 failed. Packet 008 V1 replaces V6 (section 7)
   - [ADR 0087 packet 005](tasks/adr-0087-task-005-field-list-values.md) V3, V6 and V7. V7 failed
 
 ## 7. Final Walk Of The Run Of 2026-10-24
@@ -214,3 +214,4 @@ Open - the run adds each packet when its mechanical checks are Green.
 - Owner: the [run record](reviews/orchestrated-run-2026-10-24.md#final-walk).
 - The packets of the run. Each item names its packet and its open checks:
   - [ADR 0084 packet 035](tasks/adr-0084-task-035-download-stores-feed-links.md) V1 to V3. V1 walks packet 026 V6 again
+  - [ADR 0087 packet 008](tasks/adr-0087-task-008-field-list-stays-open.md) V1 to V5. V1 and V2 walk packet 003 V6 and packet 004 V6 again

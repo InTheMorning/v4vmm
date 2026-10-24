@@ -1,6 +1,6 @@
 # ADR 0087 Task 008: The Field List Stays Open For The Next Term
 
-Status: Ready - 2026-10-24. The operator answered Q1 on 2026-10-24, and the orchestrator decided Q2 by its recommendation (see "Operator Answers").
+Status: Implemented - 2026-10-24. V1 to V5 are open, in the final walk of the run of 2026-10-24.
 
 ## Goal
 
@@ -373,3 +373,16 @@ The check changes no file and no stored data.
 
 - Q1: A. The full list shows after each term and a space, also after a plain word such as `haleen `.
 - Q2: the orchestrator decided A by its recommendation, inside the answer of Q1. Tab with no selected row puts the first available row into the text (packet 004 D7). If the operator finds this wrong in the walk, a later packet applies B.
+
+## Implementation Notes - 2026-10-24
+
+- `FieldListState::apply` handles `Click` and `Inserted` in one arm, because the two events give
+  the same result: `Open` and no selected row.
+- The test helpers `build_at` and `build_end` keep their `opening` parameter. Each test gives
+  `Open`. Required Changes item 3 asks for this change and no other.
+- R87-8-02 presses Down 22 times from no selection. Each selected row is available.
+- R87-8-05 gives the failure message of this packet for each assertion that the list shows. A
+  test that hides the rows after a space in `FieldListVm::build` made R87-8-05 fail with this
+  message. The test was then removed.
+- `src/app/search_field_list.rs` has no comment that names `Typing` or `Requested`. Thus Required
+  Changes item 6 changed no comment.

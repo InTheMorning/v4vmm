@@ -400,6 +400,7 @@ mod tests {
     use gpui_component::input::Input;
 
     use super::*;
+    use crate::view_models::search_field_list::FieldListRowKind;
 
     struct FieldRoot {
         input: Entity<InputState>,
@@ -572,6 +573,90 @@ mod tests {
         });
         assert_eq!(text_and_cursor(&input, cx).0, "in:index ");
         assert!(input_focused(&input, cx));
+    }
+
+    /// Asserts that the list shows one `Field` row for each query field,
+    /// and gives the view model.
+    fn assert_list_shows_each_field(
+        input: &Entity<InputState>,
+        list: &Entity<SearchFieldListView>,
+        cx: &mut VisualTestContext,
+    ) -> FieldListVm {
+        let text = text_and_cursor(input, cx).0;
+        let vm = cx.update(|_, cx| list.read(cx).view_model(cx));
+        let vm = vm.unwrap_or_else(|| panic!("{}", list_closed_message(&text)));
+        assert_eq!(vm.rows.len(), 11, "{}", list_closed_message(&text));
+        assert!(
+            vm.rows
+                .iter()
+                .all(|row| matches!(row.kind, FieldListRowKind::Field { .. })),
+            "{}",
+            list_closed_message(&text)
+        );
+        vm
+    }
+
+    fn list_closed_message(text: &str) -> String {
+        format!(
+            "ADR 0087 Decision 3 (the field list is the help for the next term): the list closed \
+             after {text:?}.\nAn empty field name after a space shows each field. Do not hide the \
+             rows in FieldListVm::build, and do not close the list on FieldListEvent::Inserted."
+        )
+    }
+
+    /// ADR 0087 Decision 3: the field list is the help for the next term.
+    ///
+    /// R87-8-05 (ADR 0087 packet 008) is the regression test of packet 003
+    /// V6 and packet 004 V6. After a value row goes into the text, and after
+    /// a typed space, the list stays open and shows each field. Escape and
+    /// Enter with no selected row still close the list.
+    #[gpui::test]
+    fn adr_0087_field_list_r87_8_05_list_stays_open_for_the_next_term(cx: &mut TestAppContext) {
+        let (input, list, enters, cx) = setup(cx);
+
+        cx.simulate_keystrokes("k i n d :");
+        cx.simulate_keystrokes("down enter");
+        assert_eq!(
+            text_and_cursor(&input, cx),
+            ("kind:album ".to_owned(), 11..11)
+        );
+        assert_list_shows_each_field(&input, &list, cx);
+        assert!(input_focused(&input, cx));
+        assert_eq!(enters.get(), 0);
+
+        cx.simulate_keystrokes("i n");
+        let vm = cx.update(|_, cx| list.read(cx).view_model(cx));
+        let vm = vm.unwrap_or_else(|| panic!("{}", list_closed_message("kind:album in")));
+        let labels: Vec<&str> = vm.rows.iter().map(|row| row.label.as_str()).collect();
+        assert_eq!(labels, vec!["in:"]);
+        cx.simulate_keystrokes("tab i n d e x space");
+        assert_eq!(text_and_cursor(&input, cx).0, "kind:album in:index ");
+        let vm = assert_list_shows_each_field(&input, &list, cx);
+        assert!(!vm.rows[8].availability.is_available());
+        assert_eq!(vm.rows[8].label, "is:");
+
+        set_text(&input, "kind:", cx);
+        cx.update(|window, cx| {
+            list.update(cx, |view, cx| view.click_row(2, window, cx));
+        });
+        assert_eq!(text_and_cursor(&input, cx).0, "kind:single ");
+        assert_list_shows_each_field(&input, &list, cx);
+
+        cx.simulate_keystrokes("escape");
+        assert!(!list_shows(&list, cx));
+        assert_eq!(text_and_cursor(&input, cx).0, "kind:single ");
+        cx.simulate_keystrokes("a");
+        assert!(
+            list_shows(&list, cx),
+            "{}",
+            list_closed_message("kind:single a")
+        );
+
+        set_text(&input, "", cx);
+        cx.simulate_keystrokes("h a l e e n");
+        cx.simulate_keystrokes("enter");
+        assert_eq!(enters.get(), 1);
+        assert!(!list_shows(&list, cx));
     }
 
     /// R87-5-18 (ADR 0087 packet 005): an answer of an older generation

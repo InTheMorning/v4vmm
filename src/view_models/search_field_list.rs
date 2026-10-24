@@ -61,12 +61,8 @@ pub enum FieldListOpening {
     /// The list does not show.
     #[default]
     Closed,
-    /// A focus or a click opened the list. An empty field name shows each
-    /// field.
-    Requested,
-    /// The curator types. An empty field name after other text shows no
-    /// field.
-    Typing,
+    /// The list shows.
+    Open,
 }
 
 /// One event that changes the open state of the field list.
@@ -107,21 +103,24 @@ impl FieldListState {
         match event {
             FieldListEvent::Focus => {
                 self.focused = true;
-                self.opening = FieldListOpening::Requested;
+                self.opening = FieldListOpening::Open;
                 self.selected = None;
             }
-            FieldListEvent::Click => {
-                self.opening = FieldListOpening::Requested;
+            FieldListEvent::Click | FieldListEvent::Inserted => {
+                // After a row goes into the text, the list stays open for
+                // the next term. Thus the state does not depend on the order
+                // of this event and the `Change` of the edit.
+                self.opening = FieldListOpening::Open;
                 self.selected = None;
             }
             FieldListEvent::Change => {
                 if self.focused {
-                    self.opening = FieldListOpening::Typing;
+                    self.opening = FieldListOpening::Open;
                 }
                 self.selected = None;
             }
             FieldListEvent::CursorMoved => self.selected = None,
-            FieldListEvent::Escape | FieldListEvent::Submit | FieldListEvent::Inserted => {
+            FieldListEvent::Escape | FieldListEvent::Submit => {
                 self.opening = FieldListOpening::Closed;
             }
             FieldListEvent::Blur => {
@@ -348,19 +347,14 @@ impl FieldListVm {
         let term = cursor_term(text, cursor);
         let mut rows = match &term.partial {
             CursorPartial::FieldName { prefix } => {
-                let hide_all = prefix.is_empty()
-                    && state.opening == FieldListOpening::Typing
-                    && text.chars().any(|ch| !ch.is_whitespace());
-                if hide_all {
-                    Vec::new()
-                } else {
-                    let start = term.range.start;
-                    let edit_range = start..cursor.max(start);
-                    fields_with_prefix(prefix)
-                        .into_iter()
-                        .map(|info| field_row(info, edit_range.clone(), scope))
-                        .collect()
-                }
+                // An empty prefix shows each field: the list is the help for
+                // the next term (ADR 0087 Decision 3).
+                let start = term.range.start;
+                let edit_range = start..cursor.max(start);
+                fields_with_prefix(prefix)
+                    .into_iter()
+                    .map(|info| field_row(info, edit_range.clone(), scope))
+                    .collect()
             }
             CursorPartial::FieldValue {
                 field,
@@ -853,7 +847,7 @@ mod tests {
 
     fn tab_text(text: &str, cursor: usize) -> (String, usize) {
         let vm = with_selected(
-            build_at(text, cursor, FieldListOpening::Typing).expect("the list shows"),
+            build_at(text, cursor, FieldListOpening::Open).expect("the list shows"),
             Some(0),
         );
         let FieldListKeyOutcome::Apply(edit) = vm.key(FieldListKey::Tab) else {
@@ -864,7 +858,7 @@ mod tests {
 
     #[test]
     fn adr_0087_field_list_r87_4_01_empty_text_shows_each_field() {
-        let vm = build_end("", FieldListOpening::Requested).expect("the list shows");
+        let vm = build_end("", FieldListOpening::Open).expect("the list shows");
         assert_eq!(vm.rows.len(), 11);
         for (row, info) in vm.rows.iter().zip(QUERY_FIELDS.iter()) {
             assert_eq!(row.kind, FieldListRowKind::Field { field: info.name });
@@ -879,16 +873,16 @@ mod tests {
 
     #[test]
     fn adr_0087_field_list_r87_4_02_field_name_prefix_filters_rows() {
-        let vm = build_at("ar", 2, FieldListOpening::Typing).expect("the list shows");
+        let vm = build_at("ar", 2, FieldListOpening::Open).expect("the list shows");
         assert_eq!(labels(&vm), vec!["artist:"]);
-        let vm = build_at("-ar", 3, FieldListOpening::Typing).expect("the list shows");
+        let vm = build_at("-ar", 3, FieldListOpening::Open).expect("the list shows");
         assert_eq!(labels(&vm), vec!["artist:"]);
-        assert_eq!(build_at("zz", 2, FieldListOpening::Typing), None);
+        assert_eq!(build_at("zz", 2, FieldListOpening::Open), None);
     }
 
     #[test]
     fn adr_0087_field_list_r87_4_03_kind_shows_its_fixed_values() {
-        let vm = build_at("kind:", 5, FieldListOpening::Typing).expect("the list shows");
+        let vm = build_at("kind:", 5, FieldListOpening::Open).expect("the list shows");
         assert_eq!(labels(&vm), vec!["album", "ep", "single"]);
         for (row, value) in vm
             .rows
@@ -904,16 +898,16 @@ mod tests {
                 }
             );
         }
-        let vm = build_end("kind:s", FieldListOpening::Typing).expect("the list shows");
+        let vm = build_end("kind:s", FieldListOpening::Open).expect("the list shows");
         assert_eq!(labels(&vm), vec!["single"]);
-        let vm = build_at("kind:album,", 11, FieldListOpening::Typing).expect("the list shows");
+        let vm = build_at("kind:album,", 11, FieldListOpening::Open).expect("the list shows");
         assert_eq!(vm.rows.len(), 3);
     }
 
     #[test]
     fn adr_0087_field_list_r87_4_04_fixed_values_of_in_is_and_has() {
         let count = |text: &str| {
-            build_end(text, FieldListOpening::Typing)
+            build_end(text, FieldListOpening::Open)
                 .expect("the list shows")
                 .rows
                 .len()
@@ -921,12 +915,12 @@ mod tests {
         assert_eq!(count("in:"), 2);
         assert_eq!(count("is:"), 4);
         assert_eq!(count("has:"), 2);
-        assert_eq!(build_at("artist:", 7, FieldListOpening::Typing), None);
+        assert_eq!(build_at("artist:", 7, FieldListOpening::Open), None);
     }
 
     #[test]
     fn adr_0087_field_list_r87_4_05_library_only_fields_have_a_mark() {
-        let vm = build_end("", FieldListOpening::Requested).expect("the list shows");
+        let vm = build_end("", FieldListOpening::Open).expect("the list shows");
         for row in &vm.rows {
             let library_only = matches!(row.label.as_str(), "is:" | "playlist:" | "has:");
             let expected = library_only.then_some(FieldListMark::LibraryOnly);
@@ -937,7 +931,7 @@ mod tests {
 
     #[test]
     fn adr_0087_field_list_r87_4_06_field_error_under_the_cursor() {
-        let vm = build_at("after:yesterday", 15, FieldListOpening::Typing).expect("a notice");
+        let vm = build_at("after:yesterday", 15, FieldListOpening::Open).expect("a notice");
         assert!(vm.rows.is_empty());
         assert_eq!(vm.notices.len(), 1);
         assert_eq!(vm.notices[0].kind, FieldListNoticeKind::FieldError);
@@ -946,14 +940,14 @@ mod tests {
             "after: needs a date, for example 2026-10-01"
         );
         let vm =
-            build_at("after:yesterday ar", 18, FieldListOpening::Typing).expect("the list shows");
+            build_at("after:yesterday ar", 18, FieldListOpening::Open).expect("the list shows");
         assert_eq!(labels(&vm), vec!["artist:"]);
         assert!(vm.notices.is_empty());
     }
 
     #[test]
     fn adr_0087_field_list_r87_4_07_scope_conflict_makes_rows_unavailable() {
-        let vm = build_at("in:index ", 9, FieldListOpening::Requested).expect("the list shows");
+        let vm = build_at("in:index ", 9, FieldListOpening::Open).expect("the list shows");
         for row in &vm.rows {
             let library_only = matches!(row.label.as_str(), "is:" | "playlist:" | "has:");
             if library_only {
@@ -967,7 +961,7 @@ mod tests {
                 assert_eq!(row.note, None);
             }
         }
-        let vm = build_at("is:ready in:", 12, FieldListOpening::Typing).expect("the list shows");
+        let vm = build_at("is:ready in:", 12, FieldListOpening::Open).expect("the list shows");
         assert_eq!(
             row(&vm, "index").availability,
             FieldListRowAvailability::Unavailable(FieldListRowUnavailable::ScopeConflict)
@@ -980,7 +974,7 @@ mod tests {
             row(&vm, "library").availability,
             FieldListRowAvailability::Available
         );
-        let vm = build_end("in:index is:ready ", FieldListOpening::Typing).expect("a notice");
+        let vm = build_end("in:index is:ready ", FieldListOpening::Open).expect("a notice");
         let kinds: Vec<_> = vm.notices.iter().map(|notice| notice.kind).collect();
         assert_eq!(kinds, vec![FieldListNoticeKind::ScopeConflict]);
         assert_eq!(
@@ -991,7 +985,7 @@ mod tests {
 
     #[test]
     fn adr_0087_field_list_r87_4_08_up_and_down_wrap_and_skip_unavailable_rows() {
-        let vm = build_end("kind:", FieldListOpening::Typing).expect("the list shows");
+        let vm = build_end("kind:", FieldListOpening::Open).expect("the list shows");
         assert_eq!(vm.rows.len(), 3);
         let at = |index| with_selected(vm.clone(), index);
         assert_eq!(
@@ -1013,7 +1007,7 @@ mod tests {
 
         // In `in:index `, the rows 8 to 10 (`is:`, `playlist:`, `has:`)
         // are not available.
-        let vm = build_at("in:index ", 9, FieldListOpening::Requested).expect("the list shows");
+        let vm = build_at("in:index ", 9, FieldListOpening::Open).expect("the list shows");
         let at = |index| with_selected(vm.clone(), index);
         assert_eq!(
             at(Some(7)).key(FieldListKey::Down),
@@ -1028,7 +1022,7 @@ mod tests {
             FieldListKeyOutcome::Select(7)
         );
 
-        let mut vm = build_end("kind:", FieldListOpening::Typing).expect("the list shows");
+        let mut vm = build_end("kind:", FieldListOpening::Open).expect("the list shows");
         for row in &mut vm.rows {
             row.availability =
                 FieldListRowAvailability::Unavailable(FieldListRowUnavailable::ScopeConflict);
@@ -1040,7 +1034,7 @@ mod tests {
     #[test]
     fn adr_0087_field_list_r87_4_09_tab_puts_the_field_token_into_the_text() {
         let vm = with_selected(
-            build_at("ar", 2, FieldListOpening::Typing).expect("the list shows"),
+            build_at("ar", 2, FieldListOpening::Open).expect("the list shows"),
             Some(0),
         );
         assert_eq!(
@@ -1064,7 +1058,7 @@ mod tests {
         assert_eq!(tab_text("kind:s", 6), ("kind:single ".to_owned(), 12));
         assert_eq!(tab_text("kind:s,ep", 6), ("kind:single,ep".to_owned(), 11));
 
-        let vm = build_end("kind:", FieldListOpening::Typing).expect("the list shows");
+        let vm = build_end("kind:", FieldListOpening::Open).expect("the list shows");
         assert_eq!(
             vm.key(FieldListKey::Tab),
             FieldListKeyOutcome::Apply(vm.rows[0].edit.clone())
@@ -1085,7 +1079,7 @@ mod tests {
 
     #[test]
     fn adr_0087_field_list_r87_4_11_enter_applies_only_a_selected_row() {
-        let vm = build_end("kind:", FieldListOpening::Typing).expect("the list shows");
+        let vm = build_end("kind:", FieldListOpening::Open).expect("the list shows");
         let selected = with_selected(vm.clone(), Some(2));
         assert_eq!(
             selected.key(FieldListKey::Enter),
@@ -1100,10 +1094,10 @@ mod tests {
 
     #[test]
     fn adr_0087_field_list_r87_4_12_escape_closes_and_change_or_click_opens() {
-        let vm = build_end("", FieldListOpening::Requested).expect("the list shows");
+        let vm = build_end("", FieldListOpening::Open).expect("the list shows");
         assert_eq!(vm.key(FieldListKey::Escape), FieldListKeyOutcome::Close);
 
-        let mut state = state(FieldListOpening::Typing);
+        let mut state = state(FieldListOpening::Open);
         state.apply(FieldListEvent::Escape);
         assert_eq!(
             FieldListVm::build("ar", 2..2, &state, &FieldValueRows::EMPTY),
@@ -1113,31 +1107,29 @@ mod tests {
         assert!(FieldListVm::build("ar", 2..2, &state, &FieldValueRows::EMPTY).is_some());
         state.apply(FieldListEvent::Escape);
         state.apply(FieldListEvent::Click);
-        assert_eq!(state.opening, FieldListOpening::Requested);
+        assert_eq!(state.opening, FieldListOpening::Open);
         assert!(FieldListVm::build("ar", 2..2, &state, &FieldValueRows::EMPTY).is_some());
     }
 
     #[test]
     fn adr_0087_field_list_r87_4_13_events_change_the_state() {
-        let mut state = state(FieldListOpening::Requested);
+        let mut state = state(FieldListOpening::Open);
         state.apply(FieldListEvent::Blur);
         assert_eq!(state.opening, FieldListOpening::Closed);
         assert!(!state.focused);
         state.apply(FieldListEvent::Change);
         assert_eq!(state.opening, FieldListOpening::Closed);
 
-        for event in [FieldListEvent::Submit, FieldListEvent::Inserted] {
-            let mut open = FieldListState {
-                opening: FieldListOpening::Typing,
-                focused: true,
-                selected: None,
-            };
-            open.apply(event);
-            assert_eq!(open.opening, FieldListOpening::Closed, "{event:?}");
-        }
+        let mut open = FieldListState {
+            opening: FieldListOpening::Open,
+            focused: true,
+            selected: None,
+        };
+        open.apply(FieldListEvent::Submit);
+        assert_eq!(open.opening, FieldListOpening::Closed);
 
         state.apply(FieldListEvent::Focus);
-        assert_eq!(state.opening, FieldListOpening::Requested);
+        assert_eq!(state.opening, FieldListOpening::Open);
         assert!(state.focused);
 
         for event in [FieldListEvent::Change, FieldListEvent::CursorMoved] {
@@ -1152,26 +1144,8 @@ mod tests {
     }
 
     #[test]
-    fn adr_0087_field_list_r87_4_14_typing_after_a_space_shows_no_full_list() {
-        assert_eq!(build_at("haleen ", 7, FieldListOpening::Typing), None);
-        let vm = build_at("haleen ", 7, FieldListOpening::Requested).expect("the list shows");
-        assert_eq!(vm.rows.len(), 11);
-        let vm = build_end("", FieldListOpening::Typing).expect("the list shows");
-        assert_eq!(vm.rows.len(), 11);
-        for text in ["", "ar", "kind:", "haleen "] {
-            for opening in [FieldListOpening::Requested, FieldListOpening::Typing] {
-                assert_eq!(
-                    FieldListVm::build(text, 0..2, &state(opening), &FieldValueRows::EMPTY),
-                    None,
-                    "{text:?}"
-                );
-            }
-        }
-    }
-
-    #[test]
     fn adr_0087_field_list_r87_4_15_labels_and_actions() {
-        let vm = build_end("", FieldListOpening::Requested).expect("the list shows");
+        let vm = build_end("", FieldListOpening::Open).expect("the list shows");
         assert_eq!(
             row(&vm, "artist:").a11y_label,
             "Field artist:, an artist name, for example artist:jsmovie"
@@ -1185,7 +1159,7 @@ mod tests {
             assert_eq!(row.availability, FieldListRowAvailability::Available);
         }
 
-        let vm = build_end("kind:", FieldListOpening::Typing).expect("the list shows");
+        let vm = build_end("kind:", FieldListOpening::Open).expect("the list shows");
         assert_eq!(
             row(&vm, "single").a11y_label,
             "Value single for kind:, A release with one track"
@@ -1203,7 +1177,7 @@ mod tests {
             );
         }
 
-        let vm = build_at("in:index ", 9, FieldListOpening::Requested).expect("the list shows");
+        let vm = build_at("in:index ", 9, FieldListOpening::Open).expect("the list shows");
         assert_eq!(
             row(&vm, "is:").a11y_label,
             "Field is:, downloaded, partial, ready, removed, for example is:downloaded, Library only, \
@@ -1215,7 +1189,7 @@ mod tests {
     fn adr_0087_field_list_r87_4_16_edits_keep_character_boundaries() {
         let text = "café ar";
         let vm = with_selected(
-            build_at(text, 8, FieldListOpening::Typing).expect("the list shows"),
+            build_at(text, 8, FieldListOpening::Open).expect("the list shows"),
             Some(0),
         );
         let FieldListKeyOutcome::Apply(edit) = vm.key(FieldListKey::Tab) else {
@@ -1227,10 +1201,10 @@ mod tests {
         assert_eq!(edit.cursor, 13);
 
         for (text, opening) in [
-            ("café ar", FieldListOpening::Typing),
-            ("é kind:s", FieldListOpening::Typing),
-            ("naïve ", FieldListOpening::Requested),
-            ("ü in:", FieldListOpening::Typing),
+            ("café ar", FieldListOpening::Open),
+            ("é kind:s", FieldListOpening::Open),
+            ("naïve ", FieldListOpening::Open),
+            ("ü in:", FieldListOpening::Open),
         ] {
             let vm = build_end(text, opening).expect("the list shows");
             for row in &vm.rows {
@@ -1239,6 +1213,130 @@ mod tests {
                 let changed = row.edit.apply(text);
                 assert!(changed.is_char_boundary(row.edit.cursor), "{text:?}");
             }
+        }
+    }
+
+    /// Asserts that the list for `text` at its end shows one `Field` row
+    /// for each row of `QUERY_FIELDS`, in that order.
+    fn assert_each_field(text: &str) -> FieldListVm {
+        let vm = build_end(text, FieldListOpening::Open).expect("the list shows");
+        assert_eq!(vm.rows.len(), QUERY_FIELDS.len(), "{text:?}");
+        for (row, info) in vm.rows.iter().zip(QUERY_FIELDS.iter()) {
+            assert_eq!(
+                row.kind,
+                FieldListRowKind::Field { field: info.name },
+                "{text:?}"
+            );
+        }
+        vm
+    }
+
+    /// R87-8-01 (ADR 0087 packet 008): after a plain word and a space, the
+    /// list shows each field. A selection still gives no list.
+    #[test]
+    fn adr_0087_field_list_r87_8_01_each_field_after_a_word_and_a_space() {
+        let vm = assert_each_field("haleen ");
+        for row in &vm.rows {
+            assert_eq!(row.edit.range, 7..7, "row {}", row.label);
+        }
+        for text in ["", "ar", "kind:", "haleen "] {
+            assert_eq!(
+                FieldListVm::build(
+                    text,
+                    0..2,
+                    &state(FieldListOpening::Open),
+                    &FieldValueRows::EMPTY
+                ),
+                None,
+                "{text:?}"
+            );
+        }
+    }
+
+    /// R87-8-02 (ADR 0087 packet 008): after `in:index ` typed by hand, the
+    /// list shows each field, and Down skips the three Library-only rows.
+    #[test]
+    fn adr_0087_field_list_r87_8_02_each_field_after_in_index_and_a_space() {
+        let vm = build_at("in:index ", 9, FieldListOpening::Open).expect("the list shows");
+        assert_eq!(vm.rows.len(), 11);
+        for label in ["is:", "playlist:", "has:"] {
+            assert_eq!(
+                row(&vm, label).availability,
+                FieldListRowAvailability::Unavailable(FieldListRowUnavailable::ScopeConflict)
+            );
+            assert_eq!(
+                row(&vm, label).note.as_deref(),
+                Some("Not available with in:index")
+            );
+        }
+        assert_eq!(vm.key(FieldListKey::Down), FieldListKeyOutcome::Select(0));
+        let mut selected = None;
+        for _ in 0..vm.rows.len() * 2 {
+            let FieldListKeyOutcome::Select(next) =
+                with_selected(vm.clone(), selected).key(FieldListKey::Down)
+            else {
+                panic!("Down selects a row");
+            };
+            assert!(vm.rows[next].availability.is_available(), "row {next}");
+            selected = Some(next);
+        }
+    }
+
+    /// R87-8-03 (ADR 0087 packet 008): after a field term and a space, and
+    /// after a value row put a value and a space into the text, the list
+    /// shows each field.
+    #[test]
+    fn adr_0087_field_list_r87_8_03_each_field_after_a_field_term() {
+        let vm = assert_each_field("kind:single ");
+        assert_each_field("artist:\"Haleen Moss\" ");
+
+        let release = vm
+            .rows
+            .iter()
+            .position(|row| row.label == "release:")
+            .expect("the release: row");
+        let FieldListKeyOutcome::Apply(edit) =
+            with_selected(vm, Some(release)).key(FieldListKey::Tab)
+        else {
+            panic!("Tab applies the selected row");
+        };
+        assert_eq!(edit.apply("kind:single "), "kind:single release:");
+        assert_eq!(edit.cursor, 20);
+    }
+
+    /// R87-8-04 (ADR 0087 packet 008): `Inserted` keeps the list open in
+    /// each order with `Change`. Escape, the search and a blur close it.
+    #[test]
+    fn adr_0087_field_list_r87_8_04_inserted_keeps_the_list_open() {
+        let open = FieldListState {
+            selected: Some(1),
+            ..state(FieldListOpening::Open)
+        };
+
+        let mut inserted = open;
+        inserted.apply(FieldListEvent::Inserted);
+        assert_eq!(inserted.opening, FieldListOpening::Open);
+        assert_eq!(inserted.selected, None);
+
+        for events in [
+            [FieldListEvent::Inserted, FieldListEvent::Change],
+            [FieldListEvent::Change, FieldListEvent::Inserted],
+        ] {
+            let mut state = open;
+            for event in events {
+                state.apply(event);
+            }
+            assert_eq!(state.opening, FieldListOpening::Open, "{events:?}");
+        }
+
+        for event in [
+            FieldListEvent::Escape,
+            FieldListEvent::Submit,
+            FieldListEvent::Blur,
+        ] {
+            let mut state = open;
+            state.apply(event);
+            assert_eq!(state.opening, FieldListOpening::Closed, "{event:?}");
         }
     }
 
@@ -1259,7 +1357,7 @@ mod tests {
         FieldListVm::build(
             text,
             cursor..cursor,
-            &state(FieldListOpening::Typing),
+            &state(FieldListOpening::Open),
             &FieldValueRows { library, index },
         )
     }
@@ -1495,7 +1593,7 @@ mod tests {
     /// prefix, and a quoted `kind:` value is one item.
     #[test]
     fn adr_0087_field_values_quoted_prefix_matches_a_fixed_value() {
-        let vm = build_end("kind:\"si", FieldListOpening::Typing).expect("the list shows");
+        let vm = build_end("kind:\"si", FieldListOpening::Open).expect("the list shows");
         assert_eq!(labels(&vm), vec!["single"]);
         assert_eq!(vm.rows[0].edit.range, 5..8);
         assert_eq!(tab_text("kind:\"si", 8), ("kind:single ".to_owned(), 12));

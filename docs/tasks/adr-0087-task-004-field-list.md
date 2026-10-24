@@ -252,7 +252,8 @@ old text, the new text for that range, and the cursor offset in the changed text
 5. `state.apply(FieldListEvent::Inserted)`.
 
 The `Change` event of step 2 then sets `Typing`. After `kind:`, the list thus shows the values of
-`kind:`. After `single `, it shows no row and closes.
+`kind:`. After `single `, it shows no row and closes. Replaced on 2026-10-24 by
+[packet 008](adr-0087-task-008-field-list-stays-open.md): after `single `, the list shows each field.
 
 ### The keys
 
@@ -427,9 +428,14 @@ Packet 005 extends the row model. It does not add a second row model:
   (`keyboard.rs:358`). The keyboard curator then gets the same list as the pointer curator. In
   `Typing`, an empty name prefix in a text that is not empty gives no row. Otherwise each space
   between words shows the full list.
+
+  Replaced on 2026-10-24 by [packet 008](adr-0087-task-008-field-list-stays-open.md) D1 and D3.
+  An empty name prefix shows each field in each open state. The one open state is `Open`.
 - **D9. The list closes on Escape, on blur, on submit and after a row goes into the text.** It
   opens again on the next change of the text, on a click in the field, or on focus. The list has
-  no `on_mouse_down_out`.
+  no `on_mouse_down_out`. The words "after a row goes into the text" are replaced on 2026-10-24 by
+  [packet 008](adr-0087-task-008-field-list-stays-open.md) D2: the list stays open after a row
+  goes into the text.
 
   A click in the field occurs inside and outside the list at the same time. That handler then
   closes the list after the click opened it. A click on a focusable item moves the focus, and the
@@ -523,7 +529,7 @@ Use the prefix `adr_0087_field_list_` for each unit test. Cases R87-4-01 to R87-
 | R87-4-11 | `Enter` with a selected available row gives the same `Apply` edit as `Tab`. `Enter` with no selected row gives `Pass` |
 | R87-4-12 | `Escape` gives `Close`. After `apply(Escape)`, `build` gives `None`. After `Change`, the list shows again. After `Click`, it shows again in `Requested` |
 | R87-4-13 | `Blur` gives `Closed` and `focused` `false`. `Change` with `focused` `false` keeps `Closed`. `Submit` and `Inserted` give `Closed`. `Focus` gives `Requested`. `Change` and `CursorMoved` set `selected` to `None` |
-| R87-4-14 | `haleen ` at cursor 7 gives `None` in `Typing` and 11 rows in `Requested`. An empty text in `Typing` gives 11 rows. Each text with a selection `0..2` gives `None` |
+| R87-4-14 | Replaced on 2026-10-24 by [packet 008](adr-0087-task-008-field-list-stays-open.md) R87-8-01. The test is deleted. Its text was: `haleen ` at cursor 7 gives `None` in `Typing` and 11 rows in `Requested`. An empty text in `Typing` gives 11 rows. Each text with a selection `0..2` gives `None` |
 | R87-4-15 | The row `artist:` has the label "Field artist:, an artist name, for example artist:jsmovie". The row `is:` ends with ", Library only". The row `single` has the label "Value single for kind:, A release with one track". Each `Field` row has `InsertField(name)` and each `FixedValue` row has `InsertValue { field, word }`. Each row of R87-4-01 is `Available` |
 | R87-4-16 | `café ar` at cursor 8 gives the edit `6..8` and the text `café artist:` with cursor 13. Each `edit.range` and each `edit.cursor` is on a character boundary |
 | R87-4-17 | A `gpui::TestAppContext` test makes an `InputState`, a `SearchFieldListView` and a wrapper with `install_field_list_keys`. It focuses the input and types `ar`. `down` then `tab` give the text `artist:` and the cursor 7, and the input keeps the focus. `escape` then closes the list and keeps the text. `enter` with no selected row emits one `InputEvent::PressEnter` |
@@ -543,6 +549,9 @@ These are for the operator. No test proves them.
   fill and a border. Press Tab. The text changes to `artist:`, and the caret is after the colon.
 - V4: type `kind:`. The list shows `album`, `ep` and `single`. Click `single`. The text changes to
   `kind:single `, the list closes, and the caret blinks in the field.
+
+  The words "the list closes" are replaced on 2026-10-24 by
+  [packet 008](adr-0087-task-008-field-list-stays-open.md) V3: the list shows the 11 fields.
 - V5: type `after:yesterday`. The list shows the error text "after: needs a date, for example
   2026-10-01".
 - V6: the rows `is:`, `playlist:` and `has:` show the mark "Library only". Type `in:index `. These
