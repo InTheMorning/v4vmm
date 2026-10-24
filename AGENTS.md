@@ -32,7 +32,7 @@ and so are ADR 0083 tasks 006 to 008. The run of 2026-10-20 closed on 2026-10-23
 [ADR 0086](docs/adr/0086-new-releases-singles-window.md), Accepted on 2026-10-23, groups the singles of one artist in New releases by a window.
 [ADR 0087](docs/adr/0087-search-fields-and-live-results.md), Accepted on 2026-10-23, gives search its fields, a field list and live results.
 The [remaining order](docs/plans/design-and-cleanup-overhaul-plan.md#remaining-order---2026-10-23)
-of the overhaul plan is the order of the next work. Its next step is the close of the run of 2026-10-23, then the fix packets of its behavior defects. The visual overhaul comes before each new screen.
+of the overhaul plan is the order of the next work. Its next step is the run of 2026-10-24: the fix packets of the behavior defects of the run of 2026-10-23. The visual overhaul comes before each new screen.
 
 Phase 4 and 5 packets carry the
 [visual requirements moved from pending checks](docs/plans/design-and-cleanup-overhaul-plan.md#visual-requirements-moved-from-pending-checks---2026-10-07).
@@ -46,6 +46,11 @@ regression checks.
 
 The run of 2026-10-23 implemented ADR 0086 packets 001 to 005 and ADR 0087 packets 001 to 005. It closed on 2026-10-24. Its unwalked checks stay open in
 [pending human checks](docs/pending-human-checks.md), and the [run record](docs/reviews/orchestrated-run-2026-10-23.md) lists them.
+
+Exception for the orchestrated run of 2026-10-24: one orchestrator session runs ADR 0084 packets 035 to 037 and ADR 0087 packets 007 and 008.
+It also runs the live value URI packet. The operator decided this on 2026-10-24. The orchestrator commits each reviewed packet, and the operator walks the visual checks
+at the end. The [run record](docs/reviews/orchestrated-run-2026-10-24.md) holds the order, the decisions and the final walk.
+Delete this paragraph when the operator closes the run.
 
 Ready packets include
 [ADR 0069 task 002](docs/tasks/adr-0069-task-002-shared-guarded-editor.md).

@@ -59,6 +59,9 @@ Music becomes the column browser of ADR 0084. It gets one navigation stack, one 
 | [032](../tasks/adr-0084-task-032-singles-group-rows.md) | 6 | One track row style on the singles group page, and the singles of a name that matches one artist feed join the group of that feed (Decision 6, amended on 2026-10-22) | 026, 031 | Implemented 2026-10-22. V1 to V7 are open, in the final walk of the run |
 | [033](../tasks/adr-0084-task-033-download-state-icons.md) | 6 | The download state of each track row and release row as one icon: CloudDownload, Clock, LoaderCircle or CloudCheck, with a count for a partly downloaded release (ADR 0083 Decision 6, amended on 2026-10-22) | 032 | Implemented 2026-10-22. V1 to V8 are open, in the final walk of the run |
 | [034](../tasks/adr-0084-task-034-store-feed-links-on-download.md) | 6 | A download stores the feed links of its release, and one pass at start stores them for each Library release that has none | 024, 032 | Implemented 2026-10-22. V1 to V4 are open, in the final walk of the run |
+| [035](../tasks/adr-0084-task-035-download-stores-feed-links.md) | 6 | A download and the pass at start send a new feed request, so the hydration stores the feed links. A reused response skipped the write (walk of packet 026 V6, 2026-10-23) | 034 | Ready 2026-10-24 |
+| [036](../tasks/adr-0084-task-036-group-row-at-artist-name.md) | 6 | A singles group row in "Everything" takes the place of its artist name (packet 026 D5 option B, operator answer of 2026-10-24) | 026 | Ready 2026-10-24 |
+| [037](../tasks/adr-0084-task-037-releases-everything-frame-time.md) | 6 | One cached merge and one virtual list for the Releases list and the Artists list (responsiveness items 16 and 31) | 036 | Ready 2026-10-24 |
 | [019](../tasks/archive/adr-0084-task-019-selection-mode.md) | 6 | Selection mode with a "Select" button in the list column (Decision 10, amended 2026-10-19). Rows show no checkbox in normal mode. The operator decided the design on 2026-10-19 | 009 | Complete 2026-10-20. The operator passed V1 to V7 |
 
 The overhaul plan names eight steps. Step 2 has two packets, 002 and 003, because the release route and the track route each change many files. Step 3 has three packets, 004 to 006, decided on 2026-10-12: the icon-only sidebar needs the destinations, and Discover needs the destination model.
@@ -75,6 +78,7 @@ The overhaul plan names eight steps. Step 2 has two packets, 002 and 003, becaus
 
 ## Open Findings
 
+- 2026-10-24: a `PageView` hydration writes nothing when the request owner gives a reused response of the same key (`src/application/queries/library.rs:650`). Packet 035 corrects the download and the pass at start only. No packet owns the page view case. The next app start repairs a link that a page view did not store.
 - 2026-10-22: the feed page and the name page know only if a release is in the Library. Their release rows thus show only "Downloaded" or "Not downloaded", with no count of a partial release and no "Queued" or "Downloading" (packet 033 D1). No packet owns this yet (`src/view_models/publisher_page.rs`, `src/view_models/name_level_page.rs`).
 - 2026-10-18: the Library stores one `publisher_feed_title` for each album response, the title of the primary party. ADR 0085 permits no other storage change, so a second named feed has no stored title.
   [ADR 0082 packet 003](../tasks/archive/adr-0082-task-003-release-page-named-feeds.md) records the effect. Albums with two named feeds are rare until podcast-namespace PR #793 is merged.

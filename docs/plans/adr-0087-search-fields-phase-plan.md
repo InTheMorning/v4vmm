@@ -30,6 +30,8 @@ Each packet is one session. The operator walks the visual check of each packet b
 | [004](../tasks/adr-0087-task-004-field-list.md) | The field list composite with the fields, the matching fields and the errors (Decision 3). It adds the keys, and the focus stays in the search field | 001 | Implemented 2026-10-23. Passed: V2, V3 and V5 on 2026-10-23 and V4, V7 and V8 on 2026-10-24. Failed: V1 and V6. V1, V6 and V9 are open, in the final walk of the run |
 | [005](../tasks/adr-0087-task-005-field-list-values.md) | The values in the field list (Decision 3). They are the artist names of the Library and of `GET /v1/artist-names`, the release titles, the playlist names and the fixed values | 003, 004 | Implemented 2026-10-23. Passed: V1, V2 and V4 on 2026-10-23 and V5 on 2026-10-24. Failed: V7. V3, V6 and V7 are open, in the final walk of the run |
 | 006 | The Index filters of open request 10. It replaces the stored contract in the same change as the decode change (ADR 0075 section 6) | 002, a Stophammer release of request 10 | Waits for Stophammer |
+| [007](../tasks/adr-0087-task-007-live-run-index-rows.md) | A live run shows the Index rows (walk of packet 003 V3, 2026-10-24). The loading rows follow the Library rows. Each run keeps one generation. A note tells why no Index rows show | 003 | Ready 2026-10-24 |
+| [008](../tasks/adr-0087-task-008-field-list-stays-open.md) | The field list stays open for the next term, after a value goes into the text and after a space (walk of packet 003 V6 and packet 004 V6, 2026-10-24) | 004, 005 | Ready 2026-10-24 |
 
 ## Open Findings
 
