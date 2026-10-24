@@ -1,6 +1,6 @@
 # ADR 0087 Task 002: The Library Search Applies The Fields, And The Index Gets The Words Only
 
-Status: Implemented - 2026-10-23. Cases R87-2-01 to R87-2-30 pass. Mechanical checks are Green. V1 to V9 are open, in the final walk of the run of 2026-10-23.
+Status: Implemented - 2026-10-23. Cases R87-2-01 to R87-2-30 pass. Mechanical checks are Green. The operator passed V2, V3 and V5 to V7 on 2026-10-23. V1, V4, V8 and V9 are open, in the final walk of the run of 2026-10-23.
 
 Orchestrator note - 2026-10-23: ADR 0086 packet 005 is implemented. It changed the saved search rows before this packet. Keep these names and their callers:
 

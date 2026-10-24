@@ -1,6 +1,6 @@
 # ADR 0084 Task 020: Selection On Discover
 
-Status: Implemented - 2026-10-20. Cases R20-01 to R20-08 pass. Mechanical checks are Green. V1 to V6 are open, in the final walk of the run.
+Status: Complete - 2026-10-23. Cases R20-01 to R20-08 pass. Mechanical checks are Green. The operator passed V1 to V6 on 2026-10-23, in the final walk of the run of 2026-10-23.
 
 ## Goal
 

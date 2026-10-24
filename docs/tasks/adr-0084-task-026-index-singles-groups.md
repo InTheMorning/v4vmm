@@ -1,6 +1,6 @@
 # ADR 0084 Task 026: The Singles Groups Of Index Releases In "Everything"
 
-Status: Implemented - 2026-10-21, Parts A and B. The mechanical cases R26-01 to R26-26 pass. The visual checks V1 to V10 are open.
+Status: Implemented - 2026-10-21, Parts A and B. The mechanical cases R26-01 to R26-26 pass. The operator passed V1 to V5 and V8 on 2026-10-23, apart from the "You Are Enough" row of V2. V2 (the "You Are Enough" row only), V6, V7, V9 and V10. V6 and V10 failed on 2026-10-23 (run record, question 2 and walk log) are open, in the final walk of the run of 2026-10-23. Packet 033 replaced the text "3 in Library" of V1 with the download state icon and its count on 2026-10-22.
 
 ## Goal
 
@@ -308,7 +308,7 @@ Use the prefix `adr_0084_index_singles_` for unit tests beside the owning code. 
 
 These are for the operator, in a walk after each part. No test proves them.
 
-- V1 (Part A): Releases, "Everything". A group row "Haleen" shows "n singles · 3 in Library · Artist feed", with n about 55. No Haleen single of that feed shows as its own row.
+- V1 (Part A): Releases, "Everything". A group row "Haleen" shows "n singles · 3 in Library · Artist feed", with n about 55. Packet 033 replaced "3 in Library" with the download state icon and its count, for example "19 of 56", on 2026-10-22. No Haleen single of that feed shows as its own row.
 - V2 (Part A): a second group row "Haleen" shows "38 singles · Artist feed". "You Are Enough" of that feed shows as its own row.
 - V3 (Part A): a group row "Paul Birken" shows its singles. Sir Libre Records has no group row.
 - V4 (Part A): "Load more" adds rows at the end. No row that showed before moves, and no row changes into a group member.

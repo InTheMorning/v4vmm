@@ -60,7 +60,6 @@ Open - the run closed on 2026-10-23. The Walk Log of the run record shows the ch
 - The packets of the run. Each item names its packet and its open checks:
   - [ADR 0084 packet 021](tasks/adr-0084-task-021-one-release-page-assembly.md) V1 to V3
   - [ADR 0084 packet 022](tasks/adr-0084-task-022-download-queue.md) V1 to V6
-  - [ADR 0084 packet 020](tasks/adr-0084-task-020-discover-selection.md) V1 to V6
   - [ADR 0084 packet 025](tasks/adr-0084-task-025-playlist-selection.md) V1 to V7
   - [ADR 0084 packet 011](tasks/adr-0084-task-011-logo-frame.md) V1 to V7
   - [ADR 0084 packet 024](tasks/adr-0084-task-024-artist-feed-image.md) V1 to V3
@@ -75,7 +74,7 @@ Open - the run closed on 2026-10-23. The Walk Log of the run record shows the ch
   - [ADR 0084 packet 012](tasks/adr-0084-task-012-saved-searches.md) V1 to V7
   - [ADR 0084 packet 028](tasks/adr-0084-task-028-search-open-defects.md) V1 to V4
   - [ADR 0084 packet 029](tasks/adr-0084-task-029-search-link-facts.md) V1 to V6
-  - [ADR 0084 packet 026](tasks/adr-0084-task-026-index-singles-groups.md) V1 to V10
+  - [ADR 0084 packet 026](tasks/adr-0084-task-026-index-singles-groups.md) V2 (the "You Are Enough" row only), V6, V7, V9 and V10. V6 and V10 failed on 2026-10-23 (run record, question 2 and walk log)
   - [ADR 0084 packet 030](tasks/adr-0084-task-030-music-open-defects.md) V1 to V6
   - [ADR 0084 packet 031](tasks/adr-0084-task-031-release-row-actions-and-selection-drag.md) V1 to V9
   - [ADR 0084 packet 032](tasks/adr-0084-task-032-singles-group-rows.md) V1 to V7
@@ -196,14 +195,14 @@ Open for macOS only - the operator passed V1, V3 and the Linux part of V2 on 202
 Open - the run adds each packet when its mechanical checks are Green.
 
 - Owner: the [run record](reviews/orchestrated-run-2026-10-23.md#final-walk).
-- The walk starts with ADR 0084 packet 020 V1 to V6 and packet 026 V1 to V10 (section 2).
+- The walk starts with ADR 0084 packet 026 (section 2). The operator passed its V1 to V5 and V8 on 2026-10-23, apart from the "You Are Enough" row of V2. The operator passed packet 020 V1 to V6 on 2026-10-23.
 - The packets of the run. Each item names its packet and its open checks:
-  - [ADR 0086 packet 001](tasks/adr-0086-task-001-parallel-new-releases-detail-reads.md) V1 to V4
-  - [ADR 0086 packet 002](tasks/adr-0086-task-002-new-releases-window-groups.md) V1 to V4, V6 and V8. Packet 004 replaced V5 and V7
-  - [ADR 0086 packet 003](tasks/adr-0086-task-003-pager-closes-windows.md) V1 to V10
+  - [ADR 0086 packet 001](tasks/adr-0086-task-001-parallel-new-releases-detail-reads.md) V1, V2 and V4
+  - [ADR 0086 packet 002](tasks/adr-0086-task-002-new-releases-window-groups.md) V3, V4, V6 and V8. Packet 004 replaced V5 and V7
+  - [ADR 0086 packet 003](tasks/adr-0086-task-003-pager-closes-windows.md) V1 and V4 to V10
   - [ADR 0086 packet 004](tasks/adr-0086-task-004-window-group-page.md) V1 to V10
   - [ADR 0086 packet 005](tasks/adr-0086-task-005-saved-search-window-groups.md) V1 to V7
-  - [ADR 0087 packet 002](tasks/adr-0087-task-002-library-fields-and-index-words.md) V1 to V9
-  - [ADR 0087 packet 004](tasks/adr-0087-task-004-field-list.md) V1 to V9
-  - [ADR 0087 packet 003](tasks/adr-0087-task-003-live-results.md) V1 to V9
-  - [ADR 0087 packet 005](tasks/adr-0087-task-005-field-list-values.md) V1 to V7
+  - [ADR 0087 packet 002](tasks/adr-0087-task-002-library-fields-and-index-words.md) V1, V4, V8 and V9
+  - [ADR 0087 packet 004](tasks/adr-0087-task-004-field-list.md) V1, V4 and V6 to V9. V1 and V6 failed
+  - [ADR 0087 packet 003](tasks/adr-0087-task-003-live-results.md) V2 to V4 and V6 to V9
+  - [ADR 0087 packet 005](tasks/adr-0087-task-005-field-list-values.md) V3 and V5 to V7. V7 failed

@@ -102,7 +102,19 @@ Each entry names the step, the decision and the reason.
 
 ## Questions For The Operator
 
-None at the start of the run.
+1. 2026-10-23, found in the walk of ADR 0084 packet 026 V1: in the Releases list with the scope "Everything", a singles group row has the place of its first single in title order (packet 026 decision D5, `ReleaseOrderKey::group_at` in `src/view_models/releases_everything.rs`). The row shows the artist name, so the order looks wrong. Groups with a first title that starts with a symbol collect at the top. Both Haleen rows are at "A Greater Call".
+
+   In the scope "Library", a group row has the place of the artist name. The operator found this order hard to use. A change amends ADR 0084 Decision 6 or packet 026 D5. The orchestrator asks the operator after the walk.
+
+2. 2026-10-23, found in the walk of ADR 0084 packet 026 V6: after the download of each MusicIndex single of a group, the group row moved in the scope "Everything". The place of the row is `SinglesGroup::first_title_sort_key` (`src/view_models/singles_group.rs`). MusicIndex gives these singles no `sort_name`, so a title change of the key does not explain the move.
+
+   The operator read the database on 2026-10-23. Only 18 Library releases have a stored link to the feed `64569161` in `feed_publisher_relationships`. "A Greater Call", "Build on Stone" and "A Phoenix Rising" were in the download, and they have no stored link. "Whispers" was in the Library before, and it has a link.
+
+   Thus the 37 downloads stored no feed links, and each new single left the feed group. ADR 0084 packet 034 says that a download stores the feed links of its release. Thus this is also a defect of packet 034, for a download from a singles group.
+
+   On the same day, `GET /v1/feeds/{guid}?include=publisher` gave a `music_to_publisher` entry to `64569161` for "A Greater Call" (`67ae17fe`), the same as for "Whispers" (`09b1bf8b`). The MusicIndex answer is correct, so the defect is in the app: each download calls `hydrate_album_identity_by_feed_guid` (`src/library/downloads.rs`), but no link was stored. Its checks V1 to V4 stay open. A fix needs a packet, and V6 stays open until a person walks it again.
+
+3. 2026-10-23, from the operator during the walk: the operator plans a new overhaul of the visual design, because of the use of screen space and the size and color of the interface. That work needs its own decision record. It can retire the visual criteria of size and color in the open packets. The behavior criteria stay.
 
 ## Final Walk
 
@@ -145,6 +157,31 @@ ADR 0087 packet 001 has no visual check.
 ### Record
 
 Tell the orchestrator each result with its check name, for example "0086 003 V4 pass" or "0087 004 V2 fail: the list takes the focus". The orchestrator records each result in a walk log in this record, in the packet `Status:` line, in the delivery order and in `docs/pending-human-checks.md`.
+
+### Walk Log
+
+| Date | Check | Result | Note |
+|---|---|---|---|
+| 2026-10-23 | ADR 0084 packet 020 V1 to V6 | Pass | Discover selection |
+| 2026-10-23 | ADR 0084 packet 026 V1 | Pass | "Haleen · 56 singles · Artist feed", icon "19 of 56". MusicIndex added a confirmed "You Are Enough" (`97745d4b`, Oct 11, 2026) to the feed `64569161` |
+| 2026-10-23 | ADR 0084 packet 026 V2 | Pass, one part open | "Haleen · 38 singles · Artist feed". The row of the unconfirmed "You Are Enough" (`ba11c670`) sorts under "Y" and stays open |
+| 2026-10-23 | ADR 0084 packet 026 V3 | Pass | Paul Birken group row. No Sir Libre Records group row |
+| 2026-10-23 | ADR 0084 packet 026 V4 | Pass | "Load more" adds rows at the end, and no row moves |
+| 2026-10-23 | ADR 0084 packet 026 V5 | Pass | The chevron opens the Haleen group in place, newest first, with the state icons |
+| 2026-10-23 | ADR 0084 packet 026 V6 | Fail | The download of the 37 MusicIndex singles of Haleen `64569161` finished at 20:44 with "Downloaded 37 of 37". The icons and the group page changed in place. Then the group row of 56 singles left its place in "Everything" |
+| 2026-10-23 | ADR 0084 packet 026 V7 | Skipped, open | The Library list needs a scroll to "H". The operator skipped the check |
+| 2026-10-23 | ADR 0084 packet 026 V8 | Pass | Walked with Rap Central in place of Paul Birken: an Index single page shows "All 15 singles", and the link opens the group page |
+| 2026-10-23 | ADR 0084 packet 026 V9 | Skipped, open | The check needs the network off. The operator skipped it |
+| 2026-10-23 | ADR 0084 packet 026 V10 | Fail | At narrow width and in selection mode, the titles of group members keep 3 to 5 letters, for example "You A…" and "Halee…". The checkboxes, the chevrons and the icons are not clipped |
+| 2026-10-23 | ADR 0086 packets 001 to 003 and ADR 0087 packets 002 to 005 | Readings from the screenshots of `~/.claude/v4vmm-shots/20261023-210405/`, Dark theme, accepted by the operator | An agent read 57 screenshots. The orchestrator examined files 02, 12 and 19 |
+| 2026-10-23 | ADR 0086 001 V3, 002 V1 and V2, 003 V2 and V3 | Pass | jSmovie is one tile, "16+ Singles New". "Knuckle Knock · Oct 6 to Oct 14 · 2+ Singles". At narrow width no tile clips |
+| 2026-10-23 | ADR 0087 002 V2, V3 and V5 to V7 | Pass | "MusicIndex cannot filter by after: yet" with "The Library rows show.". `No releases matched "zzzz kind:ep".`. "No results" for `in:index is:ready` |
+| 2026-10-23 | ADR 0087 003 V1 and V5 | Pass | The page opens after the pause, and the caret stays. Back shows Discover. Forward shows "haleen dri" |
+| 2026-10-23 | ADR 0087 004 V2, V3 and V5 | Pass | "ar" gives `artist:`. Down and Up wrap. Tab gives `artist:`. "after: needs a date, for example 2026-10-01" |
+| 2026-10-23 | ADR 0087 004 V1 | Fail | The list shows 9 of 11 rows and stops in the `is:` row. `playlist:` and `has:` cannot be reached, and the list has no scroll bar. Each description is nearer to the next field name than to its own |
+| 2026-10-23 | ADR 0087 004 V6 | Fail | The operator typed `in:index ` by hand: the trailing space closes the field list, so the note "Not available with in:index" cannot show |
+| 2026-10-23 | ADR 0087 005 V1, V2 and V4 | Pass | Library names with "Library". "Loading names from MusicIndex", then "hacker hereje · MusicIndex". `playlist:` and `release:a` give their values |
+| 2026-10-23 | ADR 0087 005 V7 | Fail | A long artist name wraps to three lines, but its row keeps one line of height. Its "Library" mark is drawn into the next row "The Doerfels" |
 
 ### Cleanup
 

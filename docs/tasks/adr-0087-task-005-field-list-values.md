@@ -1,6 +1,6 @@
 # ADR 0087 Task 005: The Values Of A Field In The Field List
 
-Status: Implemented - 2026-10-23. Cases R87-5-01 to R87-5-20 pass. Mechanical checks are Green. V1 to V7 are open, in the final walk of the run of 2026-10-23.
+Status: Implemented - 2026-10-23. Cases R87-5-01 to R87-5-20 pass. Mechanical checks are Green. The operator passed V1, V2 and V4 on 2026-10-23, and V7 failed. V3 and V5 to V7 are open, in the final walk of the run of 2026-10-23.
 
 Orchestrator note - 2026-10-23: packets 001 to 004 are implemented. The run record lists their deviations. Packet 003 gives `Motion::SearchPause`, `present_after` and `crate::view_models::live_run::{LiveRunGate, PauseTicket, RunGeneration}`. `LiveRunGate::current_run` and `run_generation()` are `#[cfg(test)]`. Remove the attribute of each name that this packet calls.
 

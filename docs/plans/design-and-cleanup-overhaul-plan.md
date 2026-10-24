@@ -243,6 +243,7 @@ The operator asked on 2026-10-08 for a later phase that tunes how fast the app r
 28. 2026-10-23: `replace_tree` and `replace_playlists` build the values of the field list on the main thread (`LibraryFieldValues` in `src/view_models/search_field_values.rs`, ADR 0087 packet 005). No measurement confirms a delay.
 29. 2026-10-23: `FieldListVm::build` matches the field values at each draw of the field list (`src/view_models/search_field_list.rs`, ADR 0087 packet 005). No measurement confirms a delay.
 30. 2026-10-23: the loading row of the MusicIndex artist names shows no progress on a slow MusicIndex node (`src/app/search_field_list.rs`, ADR 0087 packet 005).
+31. 2026-10-23: the operator measured about 500 ms for each frame in the Releases list with the scope "Everything", after several "Load more" clicks. The list is not a virtual list. It draws one element for each loaded row in each frame, also for each row that is not visible (`render_destination_list` in `src/ui/shells/library/destination_lists.rs`). Each frame also builds the merged list two times, for the header action and for the rows (`header_action_for_list_column` and the Releases list in `src/library/app_impl.rs`). Item 16 records the second cause.
 
 ## Visual Requirements Moved From Pending Checks - 2026-10-07
 
