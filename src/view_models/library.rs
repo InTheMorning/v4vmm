@@ -3604,9 +3604,9 @@ impl LibraryViewModel {
     /// that the Library holds, also as a grouped single, gives no second
     /// row (decision D4). The groups of "Everything" also hold the loaded
     /// `MusicIndex` singles of each artist feed in `fills`, and a
-    /// `MusicIndex` single in a group gives no row of its own. A group row
-    /// of "Everything" takes the order position of its first single in
-    /// title order (packet 026 decision D5).
+    /// `MusicIndex` single in a group gives no row of its own. In both
+    /// scopes, a group row takes the order position of its label (packet
+    /// 026 decision D5, operator answer of 2026-10-24, and packet 036).
     #[must_use]
     pub(crate) fn releases_list(
         &self,
@@ -3661,14 +3661,8 @@ impl LibraryViewModel {
                 release_row,
                 |key| self.busy.index_release_download_phase(key),
             );
-            let order = match scope {
-                MusicListScope::Library => ReleaseOrderKey::group(&row.label, group.key()),
-                MusicListScope::Everything => {
-                    ReleaseOrderKey::group_at(group.first_title_sort_key(), group.key())
-                }
-            };
             LibraryReleaseEntry {
-                order,
+                order: ReleaseOrderKey::group(&row.label, group.key()),
                 entry: ReleasesListEntryVm::SinglesGroup(row),
             }
         }));
@@ -11996,10 +11990,10 @@ mod tests {
     }
 
     /// R26-11 and R26-15: the group counts a member whose page did not
-    /// load, and a `MusicIndex` member gives no release row. In
-    /// "Everything", the group row takes the place of its first single in
-    /// title order, and the watermark applies. In "Library", the group row
-    /// keeps the order of its label.
+    /// load, and a `MusicIndex` member gives no release row. In both
+    /// scopes, the group row takes the place of its label, and in
+    /// "Everything" the watermark applies (packet 026 decision D5, changed
+    /// on 2026-10-24 by packet 036).
     #[test]
     fn adr_0084_index_singles_r26_15_group_order_and_members() {
         let vm = index_singles_vm();
@@ -12011,21 +12005,9 @@ mod tests {
                 .iter()
                 .map(ReleasesListEntryVm::label)
                 .collect::<Vec<_>>(),
-            ["Haleen", "Banana", "Cherry"],
-            "the group at Apple, and Zebra waits for its page"
+            ["Banana", "Cherry"],
+            "the group waits for the pages to reach Haleen, and Zebra waits for its page"
         );
-        let ReleasesListEntryVm::SinglesGroup(group) = &entries[0] else {
-            panic!("a group row");
-        };
-        assert_eq!(group.secondary_text, "4 singles \u{b7} Artist feed");
-        assert_eq!(
-            group.download_state.state,
-            ReleaseDownloadState::Partial {
-                downloaded: 1,
-                total: 4
-            }
-        );
-        assert!(group.single_keys.contains(&guid_key("durian")));
 
         let complete = vm.releases_list(
             MusicListScope::Everything,
@@ -12038,8 +12020,20 @@ mod tests {
                 .iter()
                 .map(ReleasesListEntryVm::label)
                 .collect::<Vec<_>>(),
-            ["Haleen", "Banana", "Cherry", "Zebra"]
+            ["Banana", "Cherry", "Haleen", "Zebra"]
         );
+        let ReleasesListEntryVm::SinglesGroup(group) = &complete[2] else {
+            panic!("a group row");
+        };
+        assert_eq!(group.secondary_text, "4 singles \u{b7} Artist feed");
+        assert_eq!(
+            group.download_state.state,
+            ReleaseDownloadState::Partial {
+                downloaded: 1,
+                total: 4
+            }
+        );
+        assert!(group.single_keys.contains(&guid_key("durian")));
 
         let library = vm.releases_list(MusicListScope::Library, &page, &fills, &BTreeSet::new());
         assert_eq!(
@@ -12065,6 +12059,326 @@ mod tests {
         );
     }
 
+    // ADR 0084 packet 036: a singles group row at its artist name in
+    // "Everything".
+
+    /// The labels of `entries`.
+    fn entry_labels(entries: &[ReleasesListEntryVm]) -> Vec<&str> {
+        entries.iter().map(ReleasesListEntryVm::label).collect()
+    }
+
+    /// A `MusicIndex` single of the artist feed `feed_guid`, whose entry
+    /// of that feed has the title `artist`.
+    fn single_of_artist(
+        release_guid: &str,
+        title: &str,
+        feed_guid: &str,
+        artist: &str,
+        newest_item_at: i64,
+    ) -> crate::api::Feed {
+        let mut single = crate::view_models::index_feed_singles::tests::single_naming(
+            release_guid,
+            title,
+            feed_guid,
+            newest_item_at,
+        );
+        single.release_artist = Some(artist.to_owned());
+        single.named_feeds.as_mut().expect("the row names its feed")[0].remote_feed_title =
+            Some(artist.to_owned());
+        single
+    }
+
+    /// A `MusicIndex` album that names no feed.
+    fn plain_index_release(guid: &str, title: &str) -> crate::api::Feed {
+        let mut release =
+            crate::view_models::index_feed_singles::tests::single_naming(guid, title, "none", 100);
+        release.named_feeds = Some(Vec::new());
+        release
+    }
+
+    /// Loads the next page of "Everything" as the app does (packet 026
+    /// decision D10): the rows of `rows` and the result of each feed
+    /// request in `feeds`.
+    fn load_next_page(
+        page: &mut IndexNameListPage<crate::api::Feed>,
+        fills: &mut IndexFeedSingles,
+        rows: Vec<crate::api::Feed>,
+        feeds: Vec<(&str, Vec<crate::api::Feed>)>,
+        has_more: bool,
+    ) {
+        use crate::view_models::index_feed_singles::{
+            finish_release_page, FeedReleaseList, FeedSinglesResult, ReleaseNamePageLoad,
+        };
+        let page_generation = page
+            .begin_load(true)
+            .expect("the next page starts")
+            .generation;
+        let singles_generation = fills.begin_request();
+        let load = ReleaseNamePageLoad {
+            batch: crate::view_models::index_name_list::IndexNameListBatch {
+                rows,
+                cursor: has_more.then(|| "next".to_owned()),
+                has_more,
+            },
+            feeds: feeds
+                .into_iter()
+                .map(|(feed_guid, rows)| FeedSinglesResult {
+                    feed_guid: feed_guid.to_owned(),
+                    rows: Ok(FeedReleaseList::complete(rows)),
+                })
+                .collect(),
+        };
+        assert!(finish_release_page(
+            page,
+            fills,
+            load,
+            page_generation,
+            singles_generation
+        ));
+    }
+
+    /// The artist feed "Aaron" of the packet 036 tests.
+    const AARON_FEED: &str = "aaron-feed";
+
+    /// The two singles of "Aaron": "Avocado", whose page does not load,
+    /// and "Dill".
+    fn aaron_singles() -> Vec<crate::api::Feed> {
+        vec![
+            single_of_artist("avocado", "Avocado", AARON_FEED, "Aaron", 700),
+            single_of_artist("dill", "Dill", AARON_FEED, "Aaron", 600),
+        ]
+    }
+
+    /// R36-01, regression test of ADR 0084 Decision 6, packet 026 decision
+    /// D5 (operator answer of 2026-10-24) and packet 016 decision D7: in
+    /// "Everything", a singles group row takes the place of its label, the
+    /// artist name, and the watermark holds it until the pages reach that
+    /// label. Before packet 036, the row took the place of its first single
+    /// in title order. Situational: delete this test when ADR 0084
+    /// Decision 6 is superseded.
+    #[test]
+    fn adr_0084_task_036_group_row_takes_its_label_place() {
+        const FIX: &str = "ADR 0084 Decision 6, packet 026 decision D5 and packet 016 decision \
+            D7: a singles group row in \"Everything\" takes the place of its label. Give it \
+            ReleaseOrderKey::group(&row.label, group.key()) in LibraryViewModel::releases_list, \
+            not the sort key of a member";
+        let vm = index_singles_vm();
+        let fills = haleen_fills();
+        let held = vm.releases_list(
+            MusicListScope::Everything,
+            &fruit_page(true),
+            &fills,
+            &BTreeSet::new(),
+        );
+        assert_eq!(entry_labels(&held), ["Banana", "Cherry"], "{FIX}");
+        let complete = vm.releases_list(
+            MusicListScope::Everything,
+            &fruit_page(false),
+            &fills,
+            &BTreeSet::new(),
+        );
+        assert_eq!(
+            entry_labels(&complete),
+            ["Banana", "Cherry", "Haleen", "Zebra"],
+            "{FIX}"
+        );
+    }
+
+    /// R36-02: the order of a group row in "Everything" is
+    /// `ReleaseOrderKey::group(label, key)`, the key of the same group in
+    /// "Library". Each list comes in the order of the key of each of its
+    /// entries, with that key for each group row.
+    #[test]
+    fn adr_0084_task_036_group_key_is_the_label_key_in_both_scopes() {
+        let vm = index_singles_vm();
+        let fills = haleen_fills();
+        let order_keys = |entries: &[ReleasesListEntryVm]| -> Vec<ReleaseOrderKey> {
+            entries
+                .iter()
+                .map(|entry| match entry {
+                    ReleasesListEntryVm::Release(row) => {
+                        let DestinationListRowTarget::Release(key) = &row.open else {
+                            panic!("a release row opens a release");
+                        };
+                        ReleaseOrderKey::release(&row.label, key.clone())
+                    }
+                    ReleasesListEntryVm::SinglesGroup(row) => {
+                        ReleaseOrderKey::group(&row.label, row.open.clone())
+                    }
+                })
+                .collect()
+        };
+        for scope in [MusicListScope::Library, MusicListScope::Everything] {
+            let entries = vm.releases_list(scope, &fruit_page(false), &fills, &BTreeSet::new());
+            assert!(
+                entries
+                    .iter()
+                    .any(|entry| matches!(entry, ReleasesListEntryVm::SinglesGroup(_))),
+                "{scope:?} shows the Haleen group"
+            );
+            let keys = order_keys(&entries);
+            let mut sorted = keys.clone();
+            sorted.sort();
+            assert_eq!(
+                keys, sorted,
+                "{scope:?} sorts the group row by its label key"
+            );
+        }
+    }
+
+    /// R36-03: while `has_more` is true, a known group row whose label sorts
+    /// after the last loaded `MusicIndex` row gives no entry. A later page
+    /// that reaches its label gives the entry.
+    #[test]
+    fn adr_0084_task_036_watermark_holds_a_known_group_row() {
+        let vm = index_singles_vm();
+        let mut fills = haleen_fills();
+        let mut page = fruit_page(true);
+        let held = vm.releases_list(MusicListScope::Everything, &page, &fills, &BTreeSet::new());
+        assert!(!entry_labels(&held).contains(&"Haleen"));
+
+        load_next_page(
+            &mut page,
+            &mut fills,
+            vec![plain_index_release("iris", "Iris")],
+            Vec::new(),
+            true,
+        );
+        let reached = vm.releases_list(MusicListScope::Everything, &page, &fills, &BTreeSet::new());
+        assert_eq!(
+            entry_labels(&reached),
+            ["Banana", "Cherry", "Haleen", "Iris"]
+        );
+    }
+
+    /// R36-04, for option A of Q1: page 2 records the feed "Aaron", whose
+    /// label sorts before the last row of page 1. The entries after page 2
+    /// hold the group row at its label, and each entry of page 1 stays, in
+    /// the same order (the one exception to packet 016 decision D7).
+    #[test]
+    fn adr_0084_task_036_late_group_shows_at_its_label() {
+        let vm = index_singles_vm();
+        let mut fills = haleen_fills();
+        let mut page = fruit_page(true);
+        let first = vm.releases_list(MusicListScope::Everything, &page, &fills, &BTreeSet::new());
+        assert_eq!(entry_labels(&first), ["Banana", "Cherry"]);
+
+        load_next_page(
+            &mut page,
+            &mut fills,
+            vec![
+                single_of_artist("dill", "Dill", AARON_FEED, "Aaron", 600),
+                plain_index_release("elder", "Elder"),
+            ],
+            vec![(AARON_FEED, aaron_singles())],
+            true,
+        );
+        let second = vm.releases_list(MusicListScope::Everything, &page, &fills, &BTreeSet::new());
+        assert_eq!(
+            entry_labels(&second),
+            ["Aaron", "Banana", "Cherry", "Elder"]
+        );
+        let kept: Vec<&str> = entry_labels(&second)
+            .into_iter()
+            .filter(|label| entry_labels(&first).contains(label))
+            .collect();
+        assert_eq!(kept, entry_labels(&first));
+    }
+
+    /// R36-05: after the same two pages, no release entry of page 1 is a
+    /// member of a group (packet 026 decision D10).
+    #[test]
+    fn adr_0084_task_036_late_group_takes_no_shown_release() {
+        let vm = index_singles_vm();
+        let mut fills = haleen_fills();
+        let mut page = fruit_page(true);
+        let first = vm.releases_list(MusicListScope::Everything, &page, &fills, &BTreeSet::new());
+        load_next_page(
+            &mut page,
+            &mut fills,
+            vec![
+                single_of_artist("dill", "Dill", AARON_FEED, "Aaron", 600),
+                plain_index_release("elder", "Elder"),
+            ],
+            vec![(AARON_FEED, aaron_singles())],
+            true,
+        );
+        let second = vm.releases_list(MusicListScope::Everything, &page, &fills, &BTreeSet::new());
+        let grouped: Vec<&ReleaseKey> = second
+            .iter()
+            .filter_map(|entry| match entry {
+                ReleasesListEntryVm::SinglesGroup(row) => Some(row.single_keys.iter()),
+                ReleasesListEntryVm::Release(_) => None,
+            })
+            .flatten()
+            .collect();
+        for entry in &first {
+            let ReleasesListEntryVm::Release(row) = entry else {
+                continue;
+            };
+            let DestinationListRowTarget::Release(key) = &row.open else {
+                panic!("a release row opens a release");
+            };
+            assert!(
+                !grouped.contains(&key),
+                "{} of page 1 stays a release row",
+                row.label
+            );
+        }
+    }
+
+    /// R36-06: a result of a group page or a single page
+    /// (`finish_feed_request`) can name a feed whose pages did not load. Its
+    /// group row shows at its label, with the watermark of R36-03.
+    #[test]
+    fn adr_0084_task_036_feed_request_group_shows_at_its_label() {
+        use crate::view_models::index_feed_singles::{FeedReleaseList, FeedSinglesResult};
+        let vm = index_singles_vm();
+        let mut fills = IndexFeedSingles::default();
+        for (feed_guid, rows) in [
+            (AARON_FEED, aaron_singles()),
+            (
+                "yarrow-feed",
+                vec![
+                    single_of_artist("yew", "Yew", "yarrow-feed", "Yarrow", 500),
+                    single_of_artist("yucca", "Yucca", "yarrow-feed", "Yarrow", 400),
+                ],
+            ),
+        ] {
+            let generation = fills
+                .begin_feed_request(feed_guid)
+                .expect("the feed request starts");
+            assert!(fills.finish_feed_request(
+                FeedSinglesResult {
+                    feed_guid: feed_guid.to_owned(),
+                    rows: Ok(FeedReleaseList::complete(rows)),
+                },
+                generation,
+            ));
+        }
+        let held = vm.releases_list(
+            MusicListScope::Everything,
+            &fruit_page(true),
+            &fills,
+            &BTreeSet::new(),
+        );
+        assert_eq!(
+            entry_labels(&held),
+            ["Aaron", "Apple", "Banana", "Cherry"],
+            "Aaron shows at its label, and the watermark holds Haleen and Yarrow"
+        );
+        let complete = vm.releases_list(
+            MusicListScope::Everything,
+            &fruit_page(false),
+            &fills,
+            &BTreeSet::new(),
+        );
+        assert_eq!(
+            entry_labels(&complete),
+            ["Aaron", "Apple", "Banana", "Cherry", "Haleen", "Yarrow", "Zebra"]
+        );
+    }
+
     /// R26-18: the group checkbox selects each member. The bar counts
     /// follow R18-06. The download plan holds each selected `MusicIndex`
     /// member with its title, with no duplicate.
@@ -12073,7 +12387,8 @@ mod tests {
         use crate::view_models::selection_action_bar::SelectionActionKind;
         let vm = index_singles_vm();
         let fills = haleen_fills();
-        let page = fruit_page(true);
+        // The complete page shows the group row at its label (packet 036).
+        let page = fruit_page(false);
         let rows = releases_selection_rows(vm.releases_list(
             MusicListScope::Everything,
             &page,

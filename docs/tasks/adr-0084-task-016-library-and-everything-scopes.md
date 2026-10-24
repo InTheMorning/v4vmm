@@ -195,6 +195,7 @@ FLAG marks a point that changes what the operator sees in a way that no ADR deci
 - **D6. The order.** Name order by the Stophammer sort key, in both scopes. The operator chose name order on 2026-10-17 (request 6). No recency order applies to these two lists. In the "Library" scope, the order changes only for names with extra white space.
 - **D7. Paging and the watermark.** 100 rows for each page, and a "Load more" row, as on Discover. A Library row after the last loaded MusicIndex row waits for its page. The rows thus never move after they show.
   - FLAG: in "Everything", a Library row near the end of the alphabet shows only after more pages load.
+  - Exception, added on 2026-10-24 by [packet 036](adr-0084-task-036-group-row-at-artist-name.md) (Q1, option A): a singles group row in "Everything" takes the place of its label. A later page can find a group whose label sorts before the last loaded row. That group row shows at its label at once, and each row below it moves down by one row. No release row goes, and no release row changes into a group member.
 - **D8. The load states.** Page 1 shows a loading row and no item row. An error shows the Library rows, the report and "Try again" (AGENTS.md "Write reports for the operator").
 - **D9. Freshness.** The loaded pages stay until the app stops, with no expiry. "Try again" is the only reload. This is the refresh rule that ADR 0075 section 6 asks for.
   - A later packet can add a reload. FLAG, minor.

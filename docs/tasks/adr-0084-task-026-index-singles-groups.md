@@ -144,7 +144,7 @@ The app reads the singles of a feed G before the rows of the page that needs G s
 
 ### The group row in "Everything"
 
-- The order position of a group row is the sort key of its first single in title order (decision D5). The watermark of packet 016 decision D7 applies to that position. In "Library", the group row keeps the order of its label.
+- Replaced on 2026-10-24 by [packet 036](adr-0084-task-036-group-row-at-artist-name.md) D1: the order position of a group row is the sort key of its label, in both scopes. The watermark of packet 016 decision D7 applies to that position, with the exception of packet 036. The replaced text was: "The order position of a group row is the sort key of its first single in title order (decision D5)".
 - The label is the Library label of packet 015 when the Library holds a member. Else it is the `remote_feed_title` of the G entry of the newest MusicIndex single. Else it is the `release_artist` of that single (decision D9).
 - The second text:
   - with Library members: "55 singles · 3 in Library · Artist feed", or "55 singles · In Library · Artist feed" when each single is in the Library
@@ -291,7 +291,7 @@ Use the prefix `adr_0084_index_singles_` for unit tests beside the owning code. 
 | R26-12 | A | One MusicIndex single of a feed with no other single gives a release row and no group |
 | R26-13 | A | A name level MusicIndex single gives a release row, also when a Library name group has the same key (D6) |
 | R26-14 | A | A Library release keeps its Library identity, and its MusicIndex row is not a member of another group (D8) |
-| R26-15 | A | The order position of a group row in "Everything" is the sort key of its first single. In "Library", it is the sort key of its label. The watermark applies |
+| R26-15 | A | Replaced on 2026-10-24 by [packet 036](adr-0084-task-036-group-row-at-artist-name.md) R36-01. The order position of a group row is the sort key of its label in both scopes. The watermark applies. The replaced text gave a group row in "Everything" the sort key of its first single |
 | R26-16 | A | The group row text follows D9: "55 singles · 3 in Library · Artist feed" and "38 singles · Artist feed" |
 | R26-17 | A | The open group gives its members newest first by the date rule. A MusicIndex member uses the MusicIndex release row |
 | R26-18 | A | The group checkbox selects each member. The bar counts follow R18-06. The download plan holds each selected MusicIndex member with its title, with no duplicate |

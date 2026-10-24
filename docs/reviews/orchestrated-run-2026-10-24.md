@@ -36,7 +36,10 @@ Each entry names the packet, the result and the commit.
 
 1. ADR 0084 packet 035: implemented and Green on 2026-10-24, with no stop. A hydration after a download and the pass at start send a new feed request (`AlbumHydrationTrigger`). 2519 lib tests and 392 guards pass.
 2. ADR 0087 packet 008: implemented and Green on 2026-10-24, with no stop. An empty field name prefix shows the 11 fields in each open state, and a row that goes into the text keeps the list open. One state `Open` replaces `Requested` and `Typing`. 2523 lib tests and 392 guards pass.
-3. ADR 0087 packet 007: implemented and Green on 2026-10-24, after one stop (see Orchestrator Decisions). The loading rows follow the Library rows, each toolbar run keeps one generation, and `index_result_step` decides each Index result. A page note names the reason of a stopped result. The cause of the missing Index rows is not proved. The orchestrator accepted one change outside the packet list: `Display` for `RunGeneration` in `src/view_models/live_run.rs`, for the run number of the note. 2534 lib tests and 393 guards pass.
+3. ADR 0087 packet 007: implemented and Green on 2026-10-24, after one stop (see Orchestrator Decisions). The loading rows follow the Library rows, each toolbar run keeps one generation, and `index_result_step` decides each Index result. A page note names the reason of a stopped result.
+
+   The cause of the missing Index rows is not proved. The orchestrator accepted one change outside the packet list: `Display` for `RunGeneration` in `src/view_models/live_run.rs`, for the run number of the note. 2534 lib tests and 393 guards pass.
+4. ADR 0084 packet 036: implemented and Green on 2026-10-24, with no stop. A group row takes the place of its label in both scopes. A group that a later page finds after its label shows at its label at once, the one exception to packet 016 D7. 2540 lib tests and 393 guards pass.
 
 ## Final Walk
 

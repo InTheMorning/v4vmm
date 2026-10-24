@@ -221,22 +221,10 @@ impl<'a> SinglesGroup<'a> {
         members
     }
 
-    /// The order position of the group row in the scope "Everything": the
-    /// sort key of its first single in title order (packet 026 decision
-    /// D5).
-    #[must_use]
-    pub(crate) fn first_title_sort_key(&self) -> String {
-        self.position_members()
-            .iter()
-            .map(GroupMember::sort_key)
-            .min()
-            .unwrap_or_default()
-    }
-
-    /// The members that give the place and the art of the group row. The
-    /// matched singles count only when the group has no other member, so
-    /// a group of matched singles alone keeps a title and its images
-    /// (packet 032 review). Else they do not move the row (decision D3).
+    /// The members that give the art of the group row. The matched singles
+    /// count only when the group has no other member, so a group of
+    /// matched singles alone keeps its images (packet 032 review). Else
+    /// they give no art (decision D3, packet 036 decision D5).
     fn position_members(&self) -> Vec<GroupMember<'_, 'a>> {
         let members = self.members();
         if !members.is_empty() {
@@ -2601,7 +2589,6 @@ mod tests {
                 .map(str::to_owned)
             )
         );
-        assert_eq!(groups[0].first_title_sort_key(), "b tie");
     }
 
     /// Review correction of 2026-10-22 (ADR 0084 task 033): the
@@ -2747,11 +2734,13 @@ mod tests {
         );
     }
 
-    /// Packet 032 review: a group of matched singles alone takes its place
-    /// and its art from those singles. A group with other members keeps
-    /// its place from them (decision D3).
+    /// Packet 032 review: a group of matched singles alone takes its art
+    /// from those singles. A group with other members takes its art from
+    /// them, and the matched singles give no art (decision D3). Since
+    /// packet 036, the label gives the place of the row in both scopes, so
+    /// no member gives it.
     #[test]
-    fn adr_0084_singles_group_rows_matched_only_group_keeps_its_place() {
+    fn adr_0084_singles_group_rows_matched_only_group_keeps_its_art() {
         let tree = LibraryTree {
             artists: vec![artist(
                 "Haleen",
@@ -2766,16 +2755,16 @@ mod tests {
         let group = &groups[0];
         assert_eq!(group.matched_by_name.len(), 2);
         assert_eq!(
-            group.first_title_sort_key(),
-            name_sort_key("Zed"),
-            "the own single gives the place; a matched single does not move the row"
+            group.collection_art(),
+            CollectionArtVm::SingleCover("1.jpg".to_owned()),
+            "the own single gives the art; a matched single gives none"
         );
         let mut matched_only = group.clone();
         matched_only.singles.clear();
         assert_eq!(
-            matched_only.first_title_sort_key(),
-            name_sort_key("Alpha"),
-            "with no other member, the matched singles give the place"
+            matched_only.collection_art(),
+            CollectionArtVm::Mosaic(["3.jpg", "2.jpg", "2.jpg", "3.jpg"].map(str::to_owned)),
+            "with no other member, the matched singles give the art"
         );
     }
 

@@ -60,20 +60,13 @@ impl ReleaseOrderKey {
         }
     }
 
-    /// The position of a singles group row with the label `label`, in the
-    /// scope "Library".
+    /// The position of a singles group row with the label `label`, in both
+    /// scopes (packet 026 decision D5, operator answer of 2026-10-24, and
+    /// packet 036 decision D1).
     #[must_use]
     pub(crate) fn group(label: &str, key: SinglesGroupKey) -> Self {
-        Self::group_at(name_sort_key(label), key)
-    }
-
-    /// The position of a singles group row at the sort key `sort_key`. In
-    /// the scope "Everything", this is the sort key of the first single of
-    /// the group in title order (packet 026 decision D5).
-    #[must_use]
-    pub(crate) fn group_at(sort_key: String, key: SinglesGroupKey) -> Self {
         Self {
-            sort_key,
+            sort_key: name_sort_key(label),
             tie: ReleaseOrderTie::Group(key),
         }
     }

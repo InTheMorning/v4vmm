@@ -1,6 +1,6 @@
 # ADR 0084 Task 036: A Singles Group Row At Its Artist Name In "Everything"
 
-Status: Ready - 2026-10-24. The operator answered Q1 on 2026-10-24 (option A). Packet 037 starts after this packet.
+Status: Implemented - 2026-10-24. V1 to V3 are open, in the final walk of the run of 2026-10-24.
 
 ## Goal
 
@@ -188,4 +188,25 @@ Cleanup: this check changes no stored data. The app starts with the scope "Libra
 
 ## Operator Answers - 2026-10-24
 
-- Q1: option A. A group row that a later page finds after the pages passed its label shows at its label at once. This is the one exception to packet 016 decision D7. The operator chose it from this example: the loaded pages reach "M", and page 8 finds the group of "Aaron". The "Aaron" row shows under "A" at once.
+- Q1: option A. A group row that a later page finds after the pages passed its label shows at its label at once. This is the one exception to packet 016 decision D7.
+  The operator chose it from this example: the loaded pages reach "M", and page 8 finds the group of "Aaron". The "Aaron" row shows under "A" at once.
+
+## Implementation Notes - 2026-10-24
+
+- `LibraryViewModel::releases_list` gives each group row `ReleaseOrderKey::group(&row.label, group.key())` in both scopes. `ReleaseOrderKey::group` holds the body of `group_at`, and `group_at` is deleted. `SinglesGroup::first_title_sort_key` is deleted. The doc comment of `position_members` names the art only.
+- `everything_entries` did not change. The watermark of packet 016 decision D7 applies to the label key of each group row (option A of Q1).
+- New tests in `src/view_models/library.rs`:
+  - R36-01: `adr_0084_task_036_group_row_takes_its_label_place`. This is the regression test. Its failure message names ADR 0084 Decision 6, packet 026 decision D5, packet 016 decision D7 and the fix.
+  - R36-02: `adr_0084_task_036_group_key_is_the_label_key_in_both_scopes`.
+  - R36-03: `adr_0084_task_036_watermark_holds_a_known_group_row`.
+  - R36-04: `adr_0084_task_036_late_group_shows_at_its_label`.
+  - R36-05: `adr_0084_task_036_late_group_takes_no_shown_release`.
+  - R36-06: `adr_0084_task_036_feed_request_group_shows_at_its_label`.
+- R36-07: `rg "group_at\(|first_title_sort_key" src` gives no result.
+- Changed tests:
+  - `adr_0084_index_singles_r26_15_group_order_and_members` expects the label order. The group checks use the complete page.
+  - `adr_0084_index_singles_r26_17_open_group_gives_members_newest_first` has no `first_title_sort_key()` assertion.
+  - `adr_0084_singles_group_rows_matched_only_group_keeps_its_place` is now `adr_0084_singles_group_rows_matched_only_group_keeps_its_art`. It asserts the art of the group.
+  - `adr_0084_index_singles_r26_18_group_selection_and_download_plan` uses `fruit_page(false)`. With the label order, the group row "Haleen" shows only on the complete page. The packet did not name this test.
+- Packet 016 decision D7 has the exception of option A. Packet 026 marks its Design line and case R26-15 as replaced by this packet.
+- The orchestrator adds V1 to V3 to [pending human checks](../pending-human-checks.md). This packet did not change that file.
