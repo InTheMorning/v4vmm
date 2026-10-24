@@ -182,6 +182,10 @@ Tell the orchestrator each result with its check name, for example "0086 003 V4 
 | 2026-10-23 | ADR 0087 004 V6 | Fail | The operator typed `in:index ` by hand: the trailing space closes the field list, so the note "Not available with in:index" cannot show |
 | 2026-10-23 | ADR 0087 005 V1, V2 and V4 | Pass | Library names with "Library". "Loading names from MusicIndex", then "hacker hereje · MusicIndex". `playlist:` and `release:a` give their values |
 | 2026-10-23 | ADR 0087 005 V7 | Fail | A long artist name wraps to three lines, but its row keeps one line of height. Its "Library" mark is drawn into the next row "The Doerfels" |
+| 2026-10-24 | ADR 0086 004 V1 to V3, V5 and V7, 002 V3, ADR 0087 002 V1 and V4, 003 V4 and V7, 004 V7 and V8, 005 V5 | Pass | Readings of `~/.claude/v4vmm-shots/20261024-120204/`, release binary, Dark, accepted by the operator. "Discover › New releases › jSmovie · 16 singles", "Download 16 singles", "16 releases selected", `artist:"Able and The Wolf" x`, "MusicIndex cannot exclude words yet" |
+| 2026-10-24 | ADR 0087 003 V3 | Fail | A live run of `survival` showed only the 2 Library rows, with no loading row, no Index row and no error, also 5 s later. MusicIndex 0.14.0 gave 17 feeds and 20 tracks for the same word. A search with Enter shows Index rows |
+| 2026-10-24 | ADR 0086 004 V8, ADR 0087 004 V4 | Pass | The operator walked them. The jSmovie row in List mode opens its group page and selects 16 singles. A click on `single` gives `kind:single`, and the field keeps the focus |
+| 2026-10-24 | ADR 0087 003 V6 | Fail | The operator walked it. After Down and Enter on a value, the text is `artist:"Able and The Wolf"`, the search runs, and the field list closes. The criterion requires that the list stays open |
 
 ### Cleanup
 

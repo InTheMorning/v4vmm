@@ -1,6 +1,6 @@
 # ADR 0086 Task 004: The Window Group Page
 
-Status: Implemented - 2026-10-23. Cases R86-4-01 to R86-4-27 pass. Mechanical checks are Green. V1 to V10 are open, in the final walk of the run of 2026-10-23.
+Status: Implemented - 2026-10-23. Cases R86-4-01 to R86-4-27 pass. Mechanical checks are Green. The operator passed V1 to V3, V5, V7 and V8 on 2026-10-24. V4, V6, V9 and V10 are open, in the final walk of the run of 2026-10-23.
 
 Orchestrator note - 2026-10-23: packet 002 is implemented. These names are `#[cfg(test)]` until a packet calls them: `WindowLength::{MIN_DAYS, MAX_DAYS, from_days, days}`, `LibraryViewModel::{window_length, set_window_length}` and `NewReleasesLayout::any_window_open`. Remove the `#[cfg(test)]` of each name that this packet calls. The group renderers are in `src/ui/shells/library/window_groups.rs`. The tile has no `anchor_date` and no `window_start`. Add them to `WindowGroupTileVm` from the `WindowGroup` of `NewReleasesLayout::build`.
 

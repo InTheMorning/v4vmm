@@ -1,6 +1,6 @@
 # ADR 0086 Task 002: New Releases Window Groups
 
-Status: Implemented - 2026-10-23. Cases R86-2-01 to R86-2-33 pass. Mechanical checks are Green. The operator passed V1 and V2 on 2026-10-23. V3, V4, V6 and V8 are open, in the final walk of the run of 2026-10-23. Packet 004 replaced D8, D9, V5 and V7 on 2026-10-23.
+Status: Implemented - 2026-10-23. Cases R86-2-01 to R86-2-33 pass. Mechanical checks are Green. The operator passed V1 and V2 on 2026-10-23 and V3 on 2026-10-24. V4, V6 and V8 are open, in the final walk of the run of 2026-10-23. Packet 004 replaced D8, D9, V5 and V7 on 2026-10-23.
 
 ## Goal
 

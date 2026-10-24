@@ -1,6 +1,6 @@
 # ADR 0087 Task 004: The Field List Under The Toolbar Search Field
 
-Status: Implemented - 2026-10-23. Cases R87-4-01 to R87-4-20 pass. Mechanical checks are Green. The operator passed V2, V3 and V5 on 2026-10-23, and V1 and V6 failed. V1, V4 and V6 to V9 are open, in the final walk of the run of 2026-10-23.
+Status: Implemented - 2026-10-23. Cases R87-4-01 to R87-4-20 pass. Mechanical checks are Green. The operator passed V2, V3 and V5 on 2026-10-23 and V4, V7 and V8 on 2026-10-24. V1 and V6 failed. V1, V6 and V9 are open, in the final walk of the run of 2026-10-23.
 
 ## Goal
 
