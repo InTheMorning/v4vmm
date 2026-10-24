@@ -18,6 +18,7 @@ use crate::application::queries::broadcast::BroadcastReadinessSummary;
 use crate::broadcast::{
     control::ServiceState,
     encoder::{AudioSignalState, EncoderState, ListenerCount, RecordingState},
+    live_value::live_value_uri,
 };
 use crate::runtime::{broadcast_service_watch, BroadcastReadinessSnapshot};
 use crate::view_models::queue_now_playing::{
@@ -2307,10 +2308,7 @@ impl EventSectionDisplay {
     fn from_input(input: &EventSectionInput, publisher_reachable: bool) -> Self {
         let event = EventSelectionDisplay::from_input(input.selected_event.as_ref());
         let target = EventTargetAttachmentDisplay::from_input(input);
-        let feed_tag = input
-            .selected_event
-            .as_ref()
-            .map(|event| feed_tag_for_event(&event.event_id));
+        let feed_tag = input.selected_event.as_ref().and_then(feed_tag_for_event);
         let hint = event_hint(input).or_else(|| event_result_hint(input));
         let mut actions = EventActionsDisplay::from_state(
             &event,
@@ -2318,6 +2316,7 @@ impl EventSectionDisplay {
             input.attach_target_name.trim(),
             publisher_reachable,
             &input.feedback,
+            feed_tag.is_some(),
         );
         if input.registry.status != EventRegistryStatus::Loaded
             || input.registry.selected_id.is_some()
@@ -2477,6 +2476,7 @@ impl EventActionsDisplay {
         attach_target_name: &str,
         publisher_reachable: bool,
         feedback: &EventCommandFeedback,
+        feed_tag_ready: bool,
     ) -> Self {
         let has_event = event.event_id.is_some();
         let event_live_enough = matches!(event.state.state, EventState::Live);
@@ -2523,8 +2523,12 @@ impl EventActionsDisplay {
             copy_feed_tag: registry_action_display(
                 "event-copy-feed-tag",
                 "Copy feed tag",
-                "Copy listener feed tag",
-                has_event,
+                if has_event && !feed_tag_ready {
+                    COPY_FEED_TAG_NO_HOST_A11Y_LABEL
+                } else {
+                    "Copy listener feed tag"
+                },
+                feed_tag_ready,
             ),
             attach: EventActionDisplay {
                 id: "event-target-attach",
@@ -2571,11 +2575,19 @@ fn event_hint(input: &EventSectionInput) -> Option<String> {
         .then(|| "Token file is missing locally; copy it to the publisher host.".to_owned())
 }
 
-fn feed_tag_for_event(event_id: &str) -> String {
-    format!(
+/// The accessibility label of "Copy feed tag" when the stored endpoint gives no URI (task 019).
+const COPY_FEED_TAG_NO_HOST_A11Y_LABEL: &str =
+    "Copy listener feed tag. The stored relay endpoint of this event has no host.";
+
+/// The `podcast:liveValue` tag names the relay of the event (ADR 0059 amendment of 2026-10-24).
+///
+/// The tag is absent when the stored endpoint of the event gives no URI.
+fn feed_tag_for_event(event: &EventSelectionInput) -> Option<String> {
+    let uri = live_value_uri(&event.endpoint, &event.event_id).ok()?;
+    Some(format!(
         "<podcast:liveValue uri=\"{}\" protocol=\"socket.io\"/>",
-        escape_xml_attribute(event_id)
-    )
+        escape_xml_attribute(&uri)
+    ))
 }
 
 fn escape_xml_attribute(value: &str) -> String {
@@ -4243,7 +4255,9 @@ mod tests {
         assert_eq!(event.target.target_name.as_deref(), Some("late-night"));
         assert_eq!(
             event.feed_tag.as_deref(),
-            Some("<podcast:liveValue uri=\"event&amp;one\" protocol=\"socket.io\"/>")
+            Some(
+                "<podcast:liveValue uri=\"https://relay.example/event?event_id=event%26one\" protocol=\"socket.io\"/>"
+            )
         );
         assert!(event.actions.attach.disabled());
         assert!(!event.actions.detach.disabled());
@@ -5608,6 +5622,50 @@ mod tests {
         assert!(pane.apply_result(current, Ok("line one\nline two\n".to_owned())));
         assert_eq!(pane.text, "line one\nline two\n");
     }
+
+    /// R19-06: the Event section, Event Logs and the diagnostics give one URL tag.
+    #[test]
+    fn adr_0059_task_019_event_section_logs_and_diagnostics_give_one_url_tag() {
+        let expected = "<podcast:liveValue uri=\"https://relay.example/event?event_id=event%26one\" protocol=\"socket.io\"/>";
+        let mut input = ready_event_input();
+        let event = input.selected_event.as_mut().unwrap();
+        event.event_id = "event&one".to_owned();
+        let event = EventSectionDisplay::from_input(&input, true);
+        assert_eq!(event.feed_tag.as_deref(), Some(expected));
+        assert!(!event.actions.copy_feed_tag.disabled());
+        assert_eq!(
+            event.actions.copy_feed_tag.a11y_label,
+            "Copy listener feed tag"
+        );
+        assert!(event.diagnostics.lines().any(|line| line == expected));
+        let mut pane = ShowLogPaneDisplay::closed();
+        pane.show_event(&input);
+        assert_eq!(pane.feed_tag.as_deref(), Some(expected));
+        assert!(pane.copy_feed_tag.is_some_and(|action| !action.disabled()));
+    }
+
+    /// R19-08: an endpoint with no usable host gives no tag and an unavailable copy action.
+    #[test]
+    fn adr_0059_task_019_endpoint_without_usable_host_gives_no_tag() {
+        let mut input = ready_event_input();
+        input.selected_event.as_mut().unwrap().endpoint = "ftp://relay.example".to_owned();
+        let event = EventSectionDisplay::from_input(&input, true);
+        assert_eq!(event.feed_tag, None);
+        assert!(event.actions.copy_feed_tag.disabled());
+        assert_eq!(
+            event.actions.copy_feed_tag.a11y_label,
+            "Copy listener feed tag. The stored relay endpoint of this event has no host."
+        );
+        assert!(event.diagnostics.contains(
+            "App cannot make the feed tag for event event-one, because its relay endpoint \
+             ftp://relay.example has no usable host."
+        ));
+        assert!(!event.diagnostics.contains("podcast:liveValue"));
+        let mut pane = ShowLogPaneDisplay::closed();
+        pane.show_event(&input);
+        assert_eq!(pane.feed_tag, None);
+        assert!(pane.copy_feed_tag.is_none());
+    }
 }
 
 /// Renderer-free badge shared by card and item projections (ADR 0059/0063).
@@ -5982,10 +6040,7 @@ impl ShowLogPaneDisplay {
                 .map_or("No event", |event| event.event_id.as_str())
         );
         self.text = event_diagnostics(input);
-        self.feed_tag = input
-            .selected_event
-            .as_ref()
-            .map(|event| feed_tag_for_event(&event.event_id));
+        self.feed_tag = input.selected_event.as_ref().and_then(feed_tag_for_event);
         self.copy_feed_tag = self
             .feed_tag
             .as_ref()

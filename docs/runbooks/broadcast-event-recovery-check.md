@@ -153,7 +153,7 @@ python3 docs/runbooks/test_broadcast_event_recovery_fixture.py
    card still says not ready. Press **Attach** explicitly. After target refresh,
    expect the event attached to `default`, then the card ready with both services
    Active. Choose More → Copy feed tag and paste into a text editor: expect exactly
-   `<podcast:liveValue uri="fixture-event-2" protocol="socket.io"/>`.
+   `<podcast:liveValue uri="http://127.0.0.1:17863/event?event_id=fixture-event-2" protocol="socket.io"/>`.
 
 7. Exercise service readiness with the live, attached event:
 

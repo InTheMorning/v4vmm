@@ -41,12 +41,18 @@ v4vmm broadcast events check EVENT_ID --json
 ## Publish The RSS Live Tag
 
 Listener apps find a live event only through the `podcast:liveValue` tag in the
-RSS feed of the show. Use Copy feed tag in the Event row of Live Metadata, or build it from the
-event identifier:
+RSS feed of the show. The `uri` of the tag names the relay that holds the event. Use Copy feed tag
+in the Event row of Live Metadata. For an event that you reserved from a terminal, the app shows
+no tag. Build the tag by hand in this form:
 
 ```xml
-<podcast:liveValue uri="EVENT_ID" protocol="socket.io"/>
+<podcast:liveValue uri="https://api.musicindex.org/event?event_id=EVENT_ID" protocol="socket.io"/>
 ```
+
+The host is the relay endpoint of the event, without its path. For an event in the app registry,
+find the endpoint in the `endpoint` field of `v4vmm broadcast events list --json`. For an event
+that you reserved from a terminal, use the relay address of that reservation. Keep the scheme and
+the port of the endpoint. Replace `EVENT_ID` with the event identifier.
 
 The local chain can report success without this tag. In that case the publisher
 sends payloads to the relay, but listener apps do not discover the event and no
@@ -150,7 +156,7 @@ Recovery steps:
 
 1. Create a new event.
 2. Back up the new token file.
-3. Update the RSS `podcast:liveValue` tag with the new `EVENT_ID`.
+3. Update the `uri` of the RSS `podcast:liveValue` tag with the new `EVENT_ID`.
 4. Attach the publisher target to the new event.
 5. Restart the producer and publisher if they do not pick up the new target.
 6. Publish the updated feed, then send the normal feed announcement.

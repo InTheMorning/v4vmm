@@ -11,6 +11,12 @@ A track with the "removed from feed" mark is not ready until the operator confir
 Amended 2026-10-18: the operator heard the processor fan run faster while the app was open in Music. The service watch read the services each second, also when no screen showed the result.
 The new decision "The Service Watch Reads At The Pace Of Its Viewer" gives the pace. [Task 018](../tasks/archive/adr-0059-task-018-service-watch-pace.md) builds it.
 
+Amended 2026-10-24: the `podcast:liveValue` tag names the relay of the event. Its `uri` is
+`https://<relay host>/event?event_id=<EVENT_ID>`, made from the stored endpoint of the event.
+A tag with the identifier only names no relay, so no listener app can connect. Stophammer
+found the defect in the work on its ADR 0064. [Task 019](../tasks/adr-0059-task-019-livevalue-uri-is-a-url.md)
+builds it.
+
 Tasks 001-017 are complete, including compact event controls, badges,
 diagnostics, operator acceptance, and fixture cleanup.
 Show action feedback task 001 is complete, including operator visual acceptance.
@@ -368,8 +374,11 @@ unavailable.
 its diagnostics and Copy feed tag action, as arranged by ADR 0063:
 
 ```xml
-<podcast:liveValue uri="EVENT_ID" protocol="socket.io"/>
+<podcast:liveValue uri="https://RELAY_HOST/event?event_id=EVENT_ID" protocol="socket.io"/>
 ```
+
+The relay host comes from the stored endpoint of the event, without its user information and
+its path. The guard R19-07 in `tests/architecture_tests.rs` enforces the tag form.
 
 The operator copies that tag into the feed of the show. This app does not write
 the feed. Feed publication is future work, recorded in

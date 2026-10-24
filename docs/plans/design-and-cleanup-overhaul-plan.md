@@ -176,7 +176,7 @@ The [run of 2026-10-23](../reviews/orchestrated-run-2026-10-23.md) implemented [
 
 ### Ready Defects
 
-3. [The live value URI plan](livevalue-uri-is-a-url.md). It is Ready and small. It must be complete before the relay adoption of row 3 of the delivery order.
+3. [The live value URI plan](archive/livevalue-uri-is-a-url.md). [ADR 0059 packet 019](../tasks/adr-0059-task-019-livevalue-uri-is-a-url.md) implemented it on 2026-10-24. Its visual check is open. It must pass before the relay adoption of row 3 of the delivery order.
 
 ### Phase 7: Visual Overhaul
 

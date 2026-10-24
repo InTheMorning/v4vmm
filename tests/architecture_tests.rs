@@ -12664,6 +12664,51 @@ fn adr_0059_v4vmm_does_not_publish_live_metadata() {
     );
 }
 
+/// R19-07, situational: ADR 0059 amendment of 2026-10-24 and ADR 0059 task 019.
+/// The `podcast:liveValue` tag names the relay of the event. Only
+/// `feed_tag_for_event` in `src/view_models/show.rs` writes the tag, and it
+/// builds the `uri` with `live_value_uri`. Delete this guard when that
+/// amendment is superseded.
+#[test]
+fn adr_0059_task_019_r19_07_live_value_tag_names_the_relay() {
+    const FIX: &str = "ADR 0059 amendment of 2026-10-24, task 019: the podcast:liveValue tag must name the relay\n\
+         of the event. Build its uri with broadcast::live_value::live_value_uri in\n\
+         feed_tag_for_event. Do not write the tag in another file.";
+    const OWNER: &str = "src/view_models/show.rs";
+    let mut violations = Vec::new();
+    for path in rust_files_under("src") {
+        let relative = rel_path(&path);
+        if relative == OWNER {
+            continue;
+        }
+        let source = read_source(&path);
+        for (line_number, line) in code_lines(production_source(&source)) {
+            if line.contains("podcast:liveValue") {
+                violations.push(format!("{relative}:{line_number}: `{line}`"));
+            }
+        }
+    }
+
+    let show = read_source(&manifest_path(OWNER));
+    match music_open_defects_fn_body(&show, "feed_tag_for_event") {
+        Some(body) => {
+            if !body.contains("live_value_uri(") {
+                violations.push(format!(
+                    "{OWNER}: `feed_tag_for_event` does not call `live_value_uri`"
+                ));
+            }
+            if !body.contains("podcast:liveValue") {
+                violations.push(format!(
+                    "{OWNER}: `feed_tag_for_event` does not write the tag"
+                ));
+            }
+        }
+        None => violations.push(format!("{OWNER}: `feed_tag_for_event` is missing")),
+    }
+
+    assert!(violations.is_empty(), "{FIX}\n{}", violations.join("\n"));
+}
+
 /// ADR 0059: broadcast tokens stay in files, not UI or database text columns.
 #[test]
 fn adr_0059_broadcast_event_schema_keeps_tokens_out_of_storage_and_ui() {
@@ -12710,28 +12755,20 @@ fn adr_0059_broadcast_event_schema_keeps_tokens_out_of_storage_and_ui() {
     );
 }
 
-/// ADR 0059: broadcast services are GPUI-free and use the shared API client.
+/// ADR 0059: broadcast services stay GPUI-free and build relay clients through
+/// `api::Client`. Only `reqwest::Url`, a parser that builds no client, is
+/// allowed (task 019).
 #[test]
 fn adr_0059_broadcast_services_stay_gpui_free_and_use_api_client() {
     let mut violations = Vec::new();
     for path in rust_files_under("src/broadcast") {
         let source = read_source(&path);
         for (line_number, line) in code_lines(&source) {
-            for forbidden in [
-                "use gpui",
-                "gpui::",
-                "use gpui_component",
-                "gpui_component::",
-                "reqwest::",
-                "crate::http_client",
-                "http_client::",
-            ] {
-                if line.contains(forbidden) {
-                    violations.push(format!(
-                        "{}:{line_number}: ADR 0059 broadcast services must stay GPUI-free and build relay clients through api::Client; found `{forbidden}` in `{line}`",
-                        rel_path(&path)
-                    ));
-                }
+            for forbidden in broadcast_service_line_violations(&line) {
+                violations.push(format!(
+                    "{}:{line_number}: ADR 0059: broadcast services stay GPUI-free and build relay clients through api::Client. Only reqwest::Url, a parser that builds no client, is allowed (task 019). Found `{forbidden}` in `{line}`",
+                    rel_path(&path)
+                ));
             }
         }
     }
@@ -12741,6 +12778,48 @@ fn adr_0059_broadcast_services_stay_gpui_free_and_use_api_client() {
         "ADR 0059 broadcast service boundary violations:\n{}",
         violations.join("\n")
     );
+}
+
+/// The forbidden items in one code line of `src/broadcast/`. The function
+/// removes each exact `reqwest::Url` before it looks for `reqwest::`, so any
+/// other item of `reqwest` stays a violation (ADR 0059 task 019).
+fn broadcast_service_line_violations(line: &str) -> Vec<&'static str> {
+    let without_url = line.replace("reqwest::Url", "");
+    let mut found = Vec::new();
+    for forbidden in [
+        "use gpui",
+        "gpui::",
+        "use gpui_component",
+        "gpui_component::",
+        "crate::http_client",
+        "http_client::",
+    ] {
+        if line.contains(forbidden) {
+            found.push(forbidden);
+        }
+    }
+    if without_url.contains("reqwest::") {
+        found.push("reqwest::");
+    }
+    found
+}
+
+/// ADR 0059 task 019: the broadcast boundary allows only `reqwest::Url`.
+#[test]
+fn adr_0059_task_019_broadcast_boundary_allows_only_reqwest_url() {
+    assert!(broadcast_service_line_violations("use reqwest::Url;").is_empty());
+    for line in [
+        "use reqwest::blocking::Client;",
+        "use reqwest::{Url, header};",
+        "let client = reqwest::Client::new();",
+        "let url: reqwest::Url = reqwest::blocking::get(x)?;",
+    ] {
+        assert_eq!(
+            broadcast_service_line_violations(line),
+            vec!["reqwest::"],
+            "{line}"
+        );
+    }
 }
 
 /// Situational ADR 0059: systemd service commands stay in broadcast control.

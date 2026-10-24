@@ -125,8 +125,16 @@ pub(super) fn render(input: &EventSectionInput) -> String {
                 event.endpoint, event.event_id
             ));
         }
-        lines.push(format!("Feed tag for event {}:", event.event_id));
-        lines.push(feed_tag_for_event(&event.event_id));
+        if let Some(feed_tag) = feed_tag_for_event(event) {
+            lines.push(format!("Feed tag for event {}:", event.event_id));
+            lines.push(feed_tag);
+        } else {
+            lines.push(format!(
+                "App cannot make the feed tag for event {}, because its relay endpoint {} has \
+                 no usable host.",
+                event.event_id, event.endpoint
+            ));
+        }
     } else {
         lines.push("App has no available event selected.".to_owned());
     }
@@ -336,6 +344,24 @@ mod tests {
             .with_timezone(&Utc)
     }
 
+    /// R19-06: the diagnostics show the URL tag on the line after its heading.
+    #[test]
+    fn adr_0059_task_019_diagnostics_show_url_tag_after_heading() {
+        let mut input = example();
+        input.selected_event.as_mut().unwrap().event_id = "event&one".to_owned();
+        let report = render(&input);
+        let lines: Vec<&str> = report.lines().collect();
+        let heading = lines
+            .iter()
+            .position(|line| *line == "Feed tag for event event&one:")
+            .expect("feed tag heading");
+        assert_eq!(
+            lines[heading + 1],
+            "<podcast:liveValue uri=\"https://relay.example/event?event_id=event%26one\" \
+             protocol=\"socket.io\"/>"
+        );
+    }
+
     /// Situational ADR 0063: recorded times and subjects survive later projection and copying.
     #[test]
     fn event_report_times_subjects_and_idle_rows_are_honest() {
@@ -362,7 +388,10 @@ mod tests {
         assert!(!report.contains("14:23:03"));
         assert_eq!(input.feedback.report.entries.len(), 3);
         assert_eq!(render(&input), report);
-        assert!(report.contains("<podcast:liveValue uri=\"event-one\" protocol=\"socket.io\"/>"));
+        assert!(report.contains(
+            "<podcast:liveValue uri=\"https://relay.example/event?event_id=event-one\" \
+             protocol=\"socket.io\"/>"
+        ));
         input.selected_event.as_mut().unwrap().event_id = "event-two".to_owned();
         let later = render(&input);
         assert!(later.contains("App selected event event-two."));
